@@ -225,7 +225,12 @@ table.tk-stack td:empty { display: none; }
 .tk-pay { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--s3) var(--s4); }
 .tk-pay p { margin: 0 0 var(--s2); }
 .tk-pay p:last-child { margin-bottom: 0; }
-.tk-paynote { white-space: pre-line; overflow-wrap: anywhere; }
+.tk-paynote { white-space: pre-line; overflow-wrap: anywhere; margin-top: var(--s4); }
+/* payment instructions (president 2026-10-11): clear space after the Amount due line; the renderer draws the first line as a
+   bold sub-heading; the pay-later note keeps a little space above it */
+.tk-pay p.tk-paynote, .tk-paysec p.tk-paynote, .tk-paycard p.tk-paynote { margin-top: var(--s4); }
+.tk-paynote-h { display: block; font-weight: 700; color: var(--navy-800); margin-bottom: var(--s2); }
+.tk-paysec .tk-mini, .tk-pay .tk-mini { margin-top: var(--s3); }
 .tk-done { display: grid; gap: var(--s2); }
 .tk-done h3 { font-size: var(--fs-lg); margin: 0; }
 .tk-done p { margin: 0; }
@@ -395,8 +400,12 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 /* group registration (08-groups.sql): type choice per person, people rows, total, group cards */
 .tk-typepick { border: 0; padding: 0; margin: 0; min-width: 0; }
 .tk-typepick legend { font-weight: 600; font-size: var(--fs-sm); padding: 0; margin-bottom: var(--s1); }
-.tk-typeopts { display: flex; flex-wrap: wrap; gap: 0 var(--s4); }
-.tk-typeopt { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; font-size: var(--fs-sm); }
+.tk-typeopts { display: flex; flex-wrap: wrap; gap: 0 var(--s5, 24px); }
+/* a radio option: the 44px tap target comes from the label; the circle keeps its normal size (the full-width text-field
+   style of .tk-field input must not reach it); the text stays on one line next to it, options wrap as whole units */
+.tk-typeopt { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; padding: 0 var(--s1); font-size: var(--fs-md, 1rem); font-weight: 400; color: var(--text, inherit); white-space: nowrap; cursor: pointer; }
+.tk-field .tk-typeopt { font-weight: 400; }
+.tk-typeopt input[type="radio"], .tk-field .tk-typeopt input[type="radio"] { width: 20px; height: 20px; min-height: 0; flex: none; margin: 0; padding: 0; border: 0; accent-color: var(--navy-800); }
 .tk-comps { border-top: 1px solid var(--line); padding-top: var(--s3); }
 .tk-comphead { margin: 0 0 var(--s1); font-size: var(--fs-md, 1rem); }
 .tk-comprow { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--s3); margin: var(--s3) 0; }
@@ -455,6 +464,36 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 .tk-ct-paste { min-height: 10rem; font-family: inherit; }
 .tk-ct-table .tk-btn { white-space: nowrap; }
 @media (min-width: 640px) { .tk-ct-reg .tk-actions { flex-wrap: wrap; } table.tk-stack.tk-ct-reg td { overflow-wrap: normal; } }
+/* phase 3: "Signed by" chooser and the electronic signatures in Settings */
+.tk-ct-signers { border: 0; margin: 0; padding: 0; min-width: 0; }
+.tk-ct-signers legend { font-size: var(--fs-sm); font-weight: 600; color: var(--navy-800); padding: 0; margin-bottom: var(--s1); }
+.tk-ct-signers .tk-field { flex: 1 1 16rem; max-width: 26rem; }
+.tk-ct-signers .tk-err { display: block; margin: var(--s1) 0 0; font-size: var(--fs-xs); color: var(--crit-ink); }
+.tk-ct-signers .tk-err:empty { display: none; }
+.tk-ct-esiglist { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--s2); }
+.tk-ct-esigrow { display: grid; gap: var(--s2); align-items: center; padding: var(--s2) 0; border-top: 1px solid var(--line); }
+@media (min-width: 640px) { .tk-ct-esigrow { grid-template-columns: minmax(12rem, 1fr) 13rem minmax(12rem, 1fr); } }
+.tk-ct-esigpic { min-height: 48px; display: flex; align-items: center; }
+.tk-ct-esig { display: block; max-width: 12rem; max-height: 60px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 2px; }
+.tk-ct-file { position: relative; overflow: hidden; cursor: pointer; }
+.tk-ct-file input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.tk-ct-file:focus-within { outline: 2px solid var(--navy-500); outline-offset: 2px; }
+/* ---- proof of payment (11-payment-proof.sql): register Payment section, ticket Payment card, console Payments to review */
+.tk-paysec { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); padding: var(--s3) var(--s4); margin: 0; min-width: 0; display: grid; gap: var(--s3); }
+.tk-paysec > legend { font-weight: 700; padding: 0 var(--s1); }
+.tk-paysec p { margin: 0; }
+.tk-methodpick .tk-typeopts { flex-direction: column; align-items: flex-start; }
+.tk-filename { font-weight: 600; overflow-wrap: anywhere; }
+.tk-paycard h2 { margin-top: 0; }
+.tk-proofform { border-top: 1px solid var(--line); padding-top: var(--s3); margin-top: var(--s3); }
+.tk-proofform h3 { margin: 0 0 var(--s2); font-size: var(--fs-md, 1rem); }
+.tk-mg-paybar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s2) var(--s3); margin-bottom: var(--s3); }
+.tk-mg-pf { margin: 0; min-width: 0; max-width: 100%; }
+.tk-mg-pf select { max-width: 100%; }
+.tk-mg-pay td[data-label="Reference"] { overflow-wrap: anywhere; }
+.tk-mg-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s2); }
+.tk-mg-acts .tk-btn { white-space: nowrap; }
+.tk-mg-acts .tk-mg-confirm { flex-basis: 100%; }
 </style>
 </head>
 <body data-page="register">
@@ -464,7 +503,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 // ---- tk-core.js
 /**
  * tk-core.js — the shared core of the three ticketing pages (register, ticket, checkin).
- * window.TK in the browser, module.exports in Node. No DOM access here (see tk-shell.js for that).
+ * window.TK in the browser, module.exports in Node. No DOM access here (see tk-shell.js for that), except the one guarded
+ * off-screen canvas that shrinks a proof-of-payment photo before upload (shrinkProof).
  *
  *   TK.esc(s)                 HTML-escape; the ONLY way user text reaches innerHTML
  *   TK.safeText(s)            CSV/Excel cell guard: a leading = + - @ TAB CR (after trim) gets a ' prefix
@@ -574,6 +614,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     TKT_NO_LEDGER_EVENT: function (c) {
       return d(c, 'This event has no matching event in the ledger. Ask the treasurer to add it, then try again.');
     },
+    // ---- proof of payment (storage; 11-payment-proof.sql)
+    UPLOAD_FAILED: function (c) { return d(c, 'The file could not be uploaded. Check the file and the connection, then try again.'); },
+    PROOF_MISSING: function () { return 'The proof of payment file could not be found.'; },
     // ---- client-side causes
     NETWORK: function () { return "Couldn't reach the server. Check your connection and try again."; },
     // no answer within TK.limits.rpcMs; for a call that SAVES something, pages show TK.MAYBE_SAVED instead (it may have been saved)
@@ -826,6 +869,181 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function payPill(status) { return labelPill(PAY_LABEL, status); }
   function resultPill(result) { return labelPill(RESULT_LABEL, result); }
 
+  // ===================================================================== proof of payment (11-payment-proof.sql)
+  /* event_tickets.proof_status: one status per registration (a group shares it) */
+  var PROOF_LABEL = { none: ['neutral', 'No payment due'], awaiting: ['warn', 'Awaiting payment'],
+    pending_review: ['info', 'Pending review'], approved: ['good', 'Approved'], rejected: ['crit', 'Rejected'] };
+  /** The proof status pill; detail (a receipt number, a rejection reason) follows after ' · '. */
+  function proofPill(status, detail) {
+    var m = own(PROOF_LABEL, status) ? PROOF_LABEL[status] : ['neutral', String(status || 'Unknown').replace(/_/g, ' ')];
+    return pill(m[0], m[1] + (detail ? ' · ' + detail : ''));
+  }
+  var METHOD_LABEL = { stcpay: 'STC Pay', bank: 'Bank transfer', cash: 'Cash at the venue' };
+  /* the private bucket, its limits (the bucket enforces them too) and the extension of each accepted type */
+  var PROOF = { bucket: 'payment-proofs', maxBytes: 5 * 1024 * 1024, signedSeconds: 120,
+    types: { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' },
+    accept: 'image/jpeg,image/png,image/webp,application/pdf' };
+  /** 2621440 -> '2.5 MB', 358400 -> '350 KB'. */
+  function fileSize(n) {
+    n = Number(n) || 0;
+    if (n >= 1024 * 1024) return (Math.round(n / 1024 / 1024 * 10) / 10) + ' MB';
+    return Math.max(1, Math.round(n / 1024)) + ' KB';
+  }
+  /** The type of a chosen file: its MIME type, or (when the browser gives none) its extension. */
+  function proofType(file) {
+    var t = String((file && file.type) || '').toLowerCase();
+    if (t === 'image/jpg') t = 'image/jpeg';
+    if (own(PROOF.types, t)) return t;
+    var ext = (/\.([A-Za-z0-9]+)$/.exec(String((file && file.name) || '')) || [])[1];
+    ext = ext ? ext.toLowerCase() : '';
+    if (!t) return { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf' }[ext] || '';
+    return '';
+  }
+  /** '' when the file can be sent, else one formal sentence. When the file was already prepared for upload (prepareProof:
+   *  a photo shrunk in the browser), the prepared file is what is checked. */
+  function proofFileError(file) {
+    if (!file || typeof file !== 'object') return 'Select the proof of payment file.';
+    if (file._tkReady && typeof file._tkReady === 'object' && file._tkReady !== file) file = file._tkReady;
+    var name = String(file.name || ''), t = String(file.type || '').toLowerCase();
+    if (/^image\/hei[cf]/.test(t) || /\.hei[cf]$/i.test(name)) {
+      return 'HEIC images are not accepted. Save the image as JPG or PNG (or take a screenshot), then select it again.';
+    }
+    if (!proofType(file)) return 'The file must be an image (JPG, PNG or WebP) or a PDF.';
+    if (!(Number(file.size) > 0)) return 'The selected file is empty.';
+    if (Number(file.size) > PROOF.maxBytes) return 'The file is larger than 5 MB. Select a smaller file.';
+    return '';
+  }
+  // ---------------------------------------------------------------- shrinking a photo before upload (president 2026-10-11)
+  /* A JPEG / PNG / WebP photo larger than 400 KB or longer than 1600 px on its longer side is redrawn on a canvas at most 1600 px
+   * long and encoded as JPEG quality 0.8 (receipt text stays readable). The smaller of the original and the result is kept, so
+   * a PNG stays a PNG when JPEG would not be smaller. PDFs are never changed. Any problem (no canvas, decoding fails, the
+   * browser takes too long) keeps the original: shrinking never blocks an upload (the 5 MB limit still applies).
+   * The only DOM use in this file: a canvas from root.document (guarded). */
+  var SHRINK = { maxSide: 1600, minBytes: 400 * 1024, quality: 0.8, ms: 15000 };
+  function decodeImage(file) {
+    if (typeof root.createImageBitmap === 'function') {
+      return Promise.resolve(root.createImageBitmap(file)).then(function (b) {
+        return { src: b, w: b.width, h: b.height, close: function () { if (b && typeof b.close === 'function') b.close(); } };
+      });
+    }
+    return new Promise(function (resolve, reject) {
+      var U = root.URL;
+      if (!U || typeof U.createObjectURL !== 'function' || typeof root.Image !== 'function') { reject(new Error('no image decoder')); return; }
+      var url = U.createObjectURL(file), img = new root.Image();
+      img.onload = function () {
+        resolve({ src: img, w: img.naturalWidth || img.width, h: img.naturalHeight || img.height, close: function () { U.revokeObjectURL(url); } });
+      };
+      img.onerror = function () { U.revokeObjectURL(url); reject(new Error('the image could not be read')); };
+      img.src = url;
+    });
+  }
+  function shrinkNow(file) {
+    if (!/^image\//.test(proofType(file))) return Promise.resolve(file);              // PDFs (and unknown types): unchanged
+    return decodeImage(file).then(function (d) {
+      var big = Math.max(Number(d.w) || 0, Number(d.h) || 0), cv, ctx, w, h, k;
+      try {
+        if (!(big > 0) || (Number(file.size) <= SHRINK.minBytes && big <= SHRINK.maxSide)) return file;
+        k = Math.min(1, SHRINK.maxSide / big);
+        w = Math.max(1, Math.round(d.w * k)); h = Math.max(1, Math.round(d.h * k));
+        cv = root.document && typeof root.document.createElement === 'function' ? root.document.createElement('canvas') : null;
+        if (!cv || typeof cv.getContext !== 'function' || typeof cv.toBlob !== 'function') return file;
+        cv.width = w; cv.height = h;
+        ctx = cv.getContext('2d');
+        if (!ctx) return file;
+        ctx.fillStyle = 'white';                                     // a transparent PNG becomes white, not black, in JPEG
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(d.src, 0, 0, w, h);
+      } finally { d.close(); }
+      return new Promise(function (resolve) { cv.toBlob(resolve, 'image/jpeg', SHRINK.quality); }).then(function (b) {
+        if (!b || !(Number(b.size) > 0) || Number(b.size) >= Number(file.size)) return file;   // keep the smaller one
+        var name = String(file.name || 'proof').replace(/\.[A-Za-z0-9]+$/, '') + '.jpg', out = b;
+        try { out = new root.File([b], name, { type: 'image/jpeg' }); } catch (e) { try { out.name = name; } catch (e2) { /* read-only */ } }
+        return out;
+      });
+    });
+  }
+  /** The file to upload: the photo shrunk (or the original when nothing is gained or anything fails). Never rejects. */
+  function shrinkProof(file) {
+    if (!file || typeof file !== 'object') return Promise.resolve(file);
+    var timer = null;
+    var late = new Promise(function (resolve) {
+      if (typeof root.setTimeout === 'function') timer = root.setTimeout(function () { resolve(file); }, SHRINK.ms);
+    });
+    var work = Promise.resolve().then(function () { return shrinkNow(file); }).then(null, function () { return file; });
+    return Promise.race([work, late]).then(function (f) {
+      if (timer !== null && typeof root.clearTimeout === 'function') root.clearTimeout(timer);
+      return f || file;
+    });
+  }
+  /** shrinkProof once per chosen file (cached on the file object; the result is also kept as file._tkReady). */
+  function prepareProof(file) {
+    if (!file || typeof file !== 'object') return Promise.resolve(file);
+    if (file._tkPrep) return file._tkPrep;
+    var p = shrinkProof(file).then(function (f) { try { file._tkReady = f; } catch (e) { /* frozen */ } return f; });
+    try { file._tkPrep = p; } catch (e) { /* frozen */ }
+    return p;
+  }
+
+  var FOLDER_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  /** 24 random URL-safe characters for the object name (never derived from the token). */
+  function randomName() {
+    var abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_', out = '', bytes = null;
+    try {
+      var c = root.crypto;
+      if (c && typeof c.getRandomValues === 'function') { bytes = new Uint8Array(24); c.getRandomValues(bytes); }
+    } catch (e) { bytes = null; }
+    for (var i = 0; i < 24; i++) out += abc.charAt((bytes ? bytes[i] : Math.floor(Math.random() * 256)) & 63);
+    return out;
+  }
+  /** Race a promise against TK.limits.rpcMs (code TIMEOUT). */
+  function limited(p) {
+    var timer = null;
+    var limit = new Promise(function (resolve, reject) {
+      if (typeof root.setTimeout !== 'function') return;
+      timer = root.setTimeout(function () { reject(makeError('TIMEOUT', 'no answer after ' + LIMITS.rpcMs + ' ms')); }, LIMITS.rpcMs);
+    });
+    function stop() { if (timer !== null && typeof root.clearTimeout === 'function') root.clearTimeout(timer); timer = null; }
+    return Promise.race([p, limit]).then(function (r) { stop(); return r; }, function (e) { stop(); throw e; });
+  }
+  /** Upload one proof file into '<folder>/<random>.<ext>' (folder = the server's proof_folder / upload_folder). Resolves to
+   *  the object path; rejects with code UPLOAD_FAILED (refused or not stored), TIMEOUT or NETWORK. Never replaces a file. */
+  function uploadProof(folder, file) {
+    return Promise.resolve().then(function () { return prepareProof(file); }).then(function (f) {
+      file = f;                                                       // the shrunk photo, or the original
+      var bad = proofFileError(file);
+      if (bad) throw makeError('UPLOAD_FAILED', bad, bad);
+      if (!FOLDER_RE.test(String(folder || ''))) throw makeError('UPLOAD_FAILED', 'bad folder');
+      var t = proofType(file), path = folder + '/' + randomName() + '.' + PROOF.types[t];
+      return limited(Promise.resolve(client().storage.from(PROOF.bucket).upload(path, file, { contentType: t, upsert: false, cacheControl: '0' })))
+        .then(function (res) {
+          if (!res || res.error) {
+            var raw = (res && res.error) || {};
+            if (isNetworkError(raw)) throw makeError('NETWORK', String(raw.message || 'network'));
+            throw makeError('UPLOAD_FAILED', String(raw.message || 'upload refused'));
+          }
+          return path;
+        });
+    }).then(null, function (e) { throw toError(e); });
+  }
+  /** Upload, then attach with the ticket token: {token, folder, method, reference, file} -> the attach result. A failure of
+   *  the upload has code UPLOAD_FAILED / NETWORK / TIMEOUT; a failure of the attach the server's TKT_* code (err.stage tells which). */
+  function submitProof(o) {
+    return uploadProof(o.folder, o.file).then(function (path) {
+      return rpc('ticketing_attach_proof', { p_token: o.token, p_path: path, p_method: o.method, p_reference: o.reference })
+        .then(null, function (e) { e.stage = 'attach'; throw e; });
+    }, function (e) { e.stage = 'upload'; throw e; });
+  }
+  /** A short-lived link to one proof (officers only: the bucket's SELECT policy). Resolves to the https URL. */
+  function proofUrl(path) {
+    return Promise.resolve().then(function () {
+      return limited(Promise.resolve(client().storage.from(PROOF.bucket).createSignedUrl(String(path || ''), PROOF.signedSeconds)));
+    }).then(function (res) {
+      var url = res && !res.error && res.data && res.data.signedUrl;
+      if (typeof url !== 'string' || !/^https:\/\//i.test(url)) throw makeError(res && res.error && /not found/i.test(String(res.error.message || '')) ? 'PROOF_MISSING' : 'NO_PERMISSION', 'no signed url');
+      return url;
+    }).then(null, function (e) { throw toError(e); });
+  }
+
   return {
     esc: esc, safeText: safeText, localISO: localISO, fmt: fmt, when: when,
     ERRORS: ERRORS, friendlyError: friendlyError, makeError: makeError,
@@ -835,6 +1053,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     tokenFromHash: tokenFromHash, eventIdFromHash: eventIdFromHash, hashParams: hashParams,
     qrSvg: qrSvg, guard: guard,
     pill: pill, PAY_LABEL: PAY_LABEL, RESULT_LABEL: RESULT_LABEL, payPill: payPill, resultPill: resultPill,
+    PROOF_LABEL: PROOF_LABEL, proofPill: proofPill, METHOD_LABEL: METHOD_LABEL, PROOF: PROOF, fileSize: fileSize,
+    proofFileError: proofFileError, uploadProof: uploadProof, submitProof: submitProof, proofUrl: proofUrl,
+    SHRINK: SHRINK, shrinkProof: shrinkProof, prepareProof: prepareProof,
     ORG: 'Philippine Institute of Certified Public Accountants',
     CHAPTER: 'Western Region · Jeddah Chapter'
   };
@@ -1154,7 +1375,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   var DIGIT_RE = /[0-9٠-٩۰-۹]/g;                    // a real number has at least 6 digits ('+', '---' alone are not numbers)
   var GONE = { TKT_FULL: 1, TKT_CLOSED: 1, TKT_NOT_OPEN: 1 };   // the event can no longer be registered for
   var EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-  var FIELDS = ['name', 'letters', 'type', 'email', 'phone', 'bank'];
+  var FIELDS = ['name', 'letters', 'type', 'email', 'phone', 'method', 'bank', 'proof'];
+  // proof of payment (11-payment-proof.sql; president 2026-10-11): method, reference and proof are OPTIONAL at registration
+  // the public payment methods (president 2026-10-11): STC Pay and Cash at the venue only (bank is for officers' records)
+  var METHODS = [['stcpay', 'STC Pay'], ['cash', 'Cash at the venue']];
+  var PAY_LATER = 'Payment can be made later. Upload the proof of payment from your ticket page.';
   // group registration (president 2026-10-11): every person chooses a type; each person pays the price of that type
   var TYPES = [['member', 'Member'], ['officer', 'Officer'], ['guest', 'Guest']];
   var TYPE_LABEL = { member: 'Member', officer: 'Officer', guest: 'Guest' };
@@ -1163,11 +1388,19 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   // in-memory only: the open events, which forms are open, finished registrations (html incl. token), the session;
   // comp[id] = the people being brought ([{name, type}]), type[id] = the registrant's type, nameOk[id] = the names the
   // registrant already confirmed for the certificate
-  var S = { events: [], open: {}, results: {}, mine: [], session: null, highlight: null, comp: {}, type: {}, nameOk: {} };
+  var S = { events: [], open: {}, results: {}, mine: [], session: null, highlight: null, comp: {}, type: {}, nameOk: {},
+    done: {}, proof: {}, find: '' };   // done[id] = the finished registration (for redraws); proof[id] = the proof being submitted after it; find = Find my ticket ('', 'open', 'sent')
 
   function byId(id) { return doc && doc.getElementById ? doc.getElementById(id) : null; }
   function num(n) { return Number(n) || 0; }
   function money(n) { return num(n) > 0 ? 'SAR ' + TK.fmt(n) : 'Free'; }
+  /** Payment instructions as written: the first line is drawn as a bold sub-heading, the rest escaped with its line breaks kept
+   *  (a blank line = paragraph spacing). The stored text has no markup. */
+  function noteHtml(s) {
+    var t = String(s == null ? '' : s).replace(/\r\n?/g, '\n').trim(), i = t.indexOf('\n');
+    var head = i < 0 ? t : t.slice(0, i), rest = i < 0 ? '' : t.slice(i + 1).replace(/^\n+/, '');
+    return '<span class="tk-paynote-h">' + esc(head) + '</span>' + esc(rest).replace(/\n/g, '<br>');
+  }
   function evById(id) { for (var i = 0; i < S.events.length; i++) if (S.events[i].announcement_id === id) return S.events[i]; return null; }
   /** The price of each type (the Officer price falls back to the Member price on an older server). */
   function fees(ev) {
@@ -1177,12 +1410,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function oneFee(ev) { var f = fees(ev); return f.member === f.officer && f.member === f.guest ? f.member : null; }
   function hasFee(ev) { var f = fees(ev); return f.member > 0 || f.officer > 0 || f.guest > 0; }
 
-  /** One amount when every type pays the same ("Free" when 0), else the price of each type. */
+  /** One amount per person when every type pays the same ("Free" when 0). When the prices differ: "Varies by designation"
+   *  (president 2026-10-11: public pages never list a price per type; the amount due follows the designations chosen). */
   function feeHtml(ev) {
-    var one = oneFee(ev), f = fees(ev);
+    var one = oneFee(ev);
     if (one === 0) return '<span class="tk-fee">Free</span>';
-    if (one !== null) return '<span class="tk-fee">' + esc(money(one)) + '</span> per person';   // equal prices: never itemised
-    return TYPES.map(function (t) { return '<span class="tk-fee">' + t[1] + ': ' + esc(money(f[t[0]])) + '</span>'; }).join(' ');
+    if (one !== null) return '<span class="tk-fee">' + esc(money(one)) + '</span> per person';
+    return 'Varies by designation';
   }
   function attendees(n) { return n + (n === 1 ? ' attendee' : ' attendees'); }
   /** How many people one registrant may bring: the max_companions setting and the places left. */
@@ -1220,14 +1454,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<span class="tk-err" id="' + eid + '" role="alert"></span></div>';
   }
 
-  /** The Member / Officer / Guest choice (no default). name = 'type' (the registrant) or 't<i>' (person i). */
+  /** The Member / Officer / Guest choice (no default). name = 'type' (the registrant) or 't<i>' (person i).
+   *  Labels only (president 2026-10-11): prices appear in the event card's Fee line and in the Payment section / total. */
   function typePickHtml(ev, id, name, idBase, chosen, legend) {
-    var f = fees(ev), free = !hasFee(ev) || oneFee(ev) !== null;   // a price per option only when the prices differ
     return '<fieldset class="tk-typepick"><legend>' + legend + '</legend><div class="tk-typeopts">' + TYPES.map(function (t) {
       var rid = idBase + '-' + t[0];
       return '<label class="tk-typeopt" for="' + rid + '"><input type="radio" id="' + rid + '" name="' + name + '" value="' + t[0] + '"' +
-        (chosen === t[0] ? ' checked' : '') + ' data-change="reg.recalc" data-id="' + esc(id) + '"> ' +
-        t[1] + (free ? '' : ' · ' + esc(money(f[t[0]]))) + '</label>';
+        (chosen === t[0] ? ' checked' : '') + ' data-change="reg.recalc" data-id="' + esc(id) + '"> ' + t[1] + '</label>';
     }).join('') + '</div></fieldset>';
   }
   /** Additional attendees: one row each (full name, email, designation, Remove), then "+ Add attendee". */
@@ -1260,20 +1493,37 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (!hasFee(ev)) return '<p>Total: Free (' + attendees(n) + ')</p>';
     if (one !== null) sum = one * n;
     else {
-      if (types.some(function (t) { return !t; })) return '<p>Total: select the designation of each attendee to show the total.</p>';
+      if (types.some(function (t) { return !t; })) return '<p>Amount due: select the designation of each attendee to show the amount.</p>';
       sum = types.reduce(function (a, t) { return a + f[t]; }, 0);
     }
-    return '<p>Total: ' + esc(money(sum)) + ' (' + attendees(n) + ')</p>';
+    return '<p><b>Amount due: ' + esc(money(sum)) + ' (' + attendees(n) + ')</b></p>';
+  }
+
+  /** The Payment section of a paid event: amount due, payment instructions, method (no default), reference, proof file. */
+  function paymentHtml(ev) {
+    var id = ev.announcement_id, fid = 'reg-' + id + '-proof';
+    return '<fieldset class="tk-paysec" id="reg-pay-' + id + '"><legend>Payment</legend>' +
+      '<div class="tk-total" id="reg-total-' + id + '" aria-live="polite">' + totalHtml(ev) + '</div>' +
+      (ev.payment_note ? '<p class="tk-paynote">' + noteHtml(ev.payment_note) + '</p>' : '') +
+      '<div class="tk-field"><fieldset class="tk-typepick tk-methodpick"><legend>Payment method (optional)</legend><div class="tk-typeopts">' +
+      METHODS.map(function (m) {
+        var rid = 'reg-' + id + '-m-' + m[0];
+        return '<label class="tk-typeopt" for="' + rid + '"><input type="radio" id="' + rid + '" name="method" value="' + m[0] + '"> ' + m[1] + '</label>';
+      }).join('') + '</div></fieldset><span class="tk-err" id="reg-ferr-' + id + '-method" role="alert"></span></div>' +
+      fieldHtml(id, 'bank', 'Reference number (optional)', 'type="text" autocomplete="off" maxlength="' + MAX.bank + '"', '',
+        'Required when a proof of payment is attached (STC Pay).') +
+      '<div class="tk-field"><label for="' + fid + '">Proof of payment (optional)</label>' +
+      '<input type="file" id="' + fid + '" name="proof" accept="' + TK.PROOF.accept + '" data-change="reg.file" data-id="' + esc(id) + '"' +
+      ' aria-describedby="reg-hint-' + id + '-proof reg-file-' + id + ' reg-ferr-' + id + '-proof">' +
+      '<span class="tk-hint" id="reg-hint-' + id + '-proof">Image or PDF, up to 5 MB.</span>' +
+      '<span class="tk-hint tk-filename" id="reg-file-' + id + '" aria-live="polite"></span>' +
+      '<span class="tk-err" id="reg-ferr-' + id + '-proof" role="alert"></span></div>' +
+      '<p class="tk-mini">' + PAY_LATER + '</p></fieldset>';
   }
 
   function formHtml(ev) {
-    var id = ev.announcement_id, s = S.session, one = oneFee(ev);
+    var id = ev.announcement_id, s = S.session;
     var who = s ? '<p class="tk-note tk-note-info">Signed in as <b>' + esc(s.name || s.email) + '</b>. The email address is that of the Hub account.</p>' : '';
-    var pay = '';
-    if (hasFee(ev)) {
-      pay = '<div class="tk-pay"><p><b>Price:</b> ' + (one !== null ? esc(money(one)) + ' per person' : feeHtml(ev) + ' (per person, by type)') + '</p>' +
-        (ev.payment_note ? '<p class="tk-paynote">' + esc(ev.payment_note) + '</p>' : '') + '</div>';
-    }
     return '<form class="tk-form tk-regform" id="reg-form-' + id + '" data-action="reg.submit" data-id="' + esc(id) + '" novalidate>' +
       who +
       fieldHtml(id, 'name', 'Full name (as it should appear on the certificate)', 'type="text" autocomplete="name" maxlength="' + MAX.name + '" required',
@@ -1284,11 +1534,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       fieldHtml(id, 'email', 'Email', 'type="email" inputmode="email" autocomplete="email" maxlength="' + MAX.email + '" required' + (s ? ' readonly' : ''),
         s ? s.email : '', 'The ticket link appears after registration. Keep it private.') +
       fieldHtml(id, 'phone', 'Mobile number', 'type="tel" inputmode="tel" autocomplete="tel" maxlength="' + MAX.phone + '" required', '', 'Include the country code, for example +966.') +
-      (limit(ev) > 0 ? '<div class="tk-comps" id="reg-comps-' + id + '">' + compsInner(ev) + '</div>' : '') +
-      pay +
-      '<div class="tk-total" id="reg-total-' + id + '" aria-live="polite">' + totalHtml(ev) + '</div>' +
-      (hasFee(ev) ? fieldHtml(id, 'bank', 'Bank transfer reference (optional)', 'type="text" autocomplete="off" maxlength="' + MAX.bank + '"', '',
-        'If payment was made by bank transfer, enter the transfer reference.') : '') +
+      (limit(ev) > 0 ? '<div class="tk-comps" id="reg-comps-' + id + '">' + compsInner(ev) + '</div>'
+        : ev.places_left != null && num(ev.places_left) <= 1
+          ? '<p class="tk-note tk-note-info">Only one place is left, so additional attendees cannot be added.</p>' : '') +
+      (hasFee(ev) ? paymentHtml(ev) : '<div class="tk-total" id="reg-total-' + id + '" aria-live="polite">' + totalHtml(ev) + '</div>') +
       '<div class="tk-hp" aria-hidden="true" inert><label for="reg-' + id + '-website">Leave this field empty</label>' +
       '<input type="text" id="reg-' + id + '-website" name="website" tabindex="-1" autocomplete="off" value=""></div>' +
       '<div id="reg-err-' + id + '"></div>' +
@@ -1327,6 +1576,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var head = '<div><h1>Register for an event</h1>' +
       '<p class="tk-muted">Select an event and complete the form. The ticket link is shown after registration.</p>' +
       (S.session ? '<p class="tk-mini">Signed in as ' + esc(S.session.name || S.session.email) + '. <a href="ticket.html">My tickets</a></p>' : '') +
+      '<div id="reg-find" class="tk-find">' + findHtml() + '</div>' +
       '</div>';
     if (!S.events.length) {
       return head + '<div class="tk-card tk-card-dashed tk-gate"><h2>No events are open for registration right now</h2>' +
@@ -1350,14 +1600,29 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return 'mailto:' + encodeURIComponent(email).replace(/%40/g, '@') + '?subject=My%20ticket&body=' + encodeURIComponent(link);
   }
   function typeLabel(r) { return TYPE_LABEL[r.attendee_type] || (r.kind === 'member' ? 'Member' : 'Guest'); }
+  /** The payment part of the success view: amount due, the proof status and, after a failed upload, Upload proof (retry). */
+  function payStatusHtml(ev, id, total, n) {
+    var pr = S.proof[id];
+    // the status pill is shown once, at the top of the success view (president 2026-10-11)
+    var out = '<div class="tk-pay" id="reg-paystat-' + id + '"><p><b>Amount due:</b> ' + esc(money(total)) + (n > 1 ? ' (' + attendees(n) + ')' : '') + '</p>' +
+      '<p class="tk-paynote">' + (ev.payment_note ? noteHtml(ev.payment_note) : 'Payment instructions are available from the chapter officers.') + '</p>';
+    if (!pr) return out + '<p class="tk-mini">' + PAY_LATER + '</p></div>';
+    if (pr.state === 'sending') return out + '<p role="status">Submitting the proof of payment.</p></div>';
+    if (pr.state === 'done') return out + '<p>The proof of payment was submitted and is pending review by the chapter officers.</p></div>';
+    return out + '<div class="tk-note tk-note-warn" role="alert"><p>The registration is complete, but the proof of payment could not be submitted.' +
+      (pr.error ? ' ' + esc(pr.error) : '') + '</p><p>Select Upload proof to try again, or upload it later from the ticket page.</p>' +
+      '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-primary" data-action="reg.proof.retry" data-id="' + esc(id) + '">Upload proof</button></div></div></div>';
+  }
   function successHtml(ev, res, name, email) {
     var id = ev.announcement_id;
     var group = Array.isArray(res.companions) ? res.companions : [];
     var total = res.group_total_sar == null ? res.fee_sar : res.group_total_sar;
     var pending = res.payment_status === 'pending' || res.group_payment_status === 'pending';
-    var pillHtml = TK.payPill(pending ? 'pending' : res.payment_status);   // Pending payment / Free / Paid (TK.PAY_LABEL)
+    var pr = S.proof[id];
+    // a paid registration shows its proof status (Awaiting payment / Pending review); otherwise Free / Paid (TK.PAY_LABEL)
+    var pillHtml = pending ? TK.proofPill(pr && pr.state === 'done' ? 'pending_review' : 'awaiting') : TK.payPill(res.payment_status);
     var link = ticketLink(res.token);
-    var people = '', itemise = oneFee(ev) === null;          // equal prices: never itemised
+    var people = '', itemise = false;                        // never a price per person (president 2026-10-11)
     if (group.length) {
       people = '<div class="tk-table-wrap"><table class="tk-grid tk-stack tk-people"><thead><tr><th>Name on the certificate</th><th>Designation</th>' +
         '<th>Ticket</th>' + (itemise ? '<th>Price</th>' : '') + '</tr></thead><tbody>' +
@@ -1367,7 +1632,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
               '<td data-label="Ticket" class="tk-nowrap">' + esc(p.ticket_no) + '</td>' +
               (itemise ? '<td data-label="Price" class="tk-num">' + esc(money(p.fee_sar)) + '</td>' : '') + '</tr>';
           }).join('') + '</tbody></table></div>' +
-        '<p>Total: ' + esc(money(total)) + ' (' + attendees(group.length + 1) + ')</p>' +
+        (pending ? '' : '<p>Total: ' + esc(money(total)) + ' (' + attendees(group.length + 1) + ')</p>') +   // pending: the Amount due below says it
         '<p>Each attendee has a separate QR code on the ticket page.</p>';
     }
     return '<div class="tk-note tk-note-good tk-done" id="reg-done-' + id + '" role="status" tabindex="-1">' +
@@ -1379,8 +1644,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<dt>Designation</dt><dd>' + typeLabel(res) + '</dd>' +
       (group.length && !itemise ? '' : '<dt>Fee</dt><dd>' + esc(money(res.fee_sar)) + '</dd>') + '</dl>' + people +
       '<p class="tk-mini">Names are printed on the certificates exactly as shown. To correct a name, contact a chapter officer.</p>' +
-      (pending ? '<div class="tk-pay"><p><b>Amount due:</b> ' + esc(money(total)) + '</p>' +
-        '<p class="tk-paynote">' + (ev.payment_note ? esc(ev.payment_note) : 'Payment instructions are available from the chapter officers.') + '</p></div>' : '') +
+      (pending ? payStatusHtml(ev, id, total, group.length + 1) : '') +
       '<p>Private ticket link. Anyone with this link can use the ticket. Keep it private.</p>' +
       '<div class="tk-field"><label for="reg-link-' + id + '">Ticket link</label>' +
       '<input id="reg-link-' + id + '" readonly value="' + esc(link) + '"></div>' +
@@ -1427,6 +1691,19 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (!lettersOk(vals.letters)) e.letters = LETTERS_BAD;
     return e;
   }
+  /** The payment rules (president 2026-10-11): everything optional; a proof needs STC Pay, and then the reference
+   *  shown on it; a reference needs a method. */
+  function payErrors(vals, file, e) {
+    var m = vals.method;
+    if (file) {
+      var bad = TK.proofFileError(file);
+      if (bad) e.proof = bad;
+      else if (m !== 'stcpay') e.method = 'Select STC Pay to attach a proof of payment.';
+      else if (!vals.bank) e.bank = 'Enter the reference number shown on the proof of payment.';
+    } else if (vals.bank && !m) e.method = 'Select the payment method for this reference number.';
+    if (m && !METHODS.some(function (x) { return x[0] === m; })) e.method = 'Select the payment method.';
+    return e;
+  }
   /** Letters after a name: trimmed, inner spaces collapsed ('' when none). */
   function cleanLetters(s) { return String(s == null ? '' : s).trim().replace(/\s+/g, ' '); }
   function lettersOk(s) { return s.length <= MAX.letters && LETTERS_RE.test(s); }
@@ -1440,10 +1717,36 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     people.forEach(function (l, i) { if (l && list[i] && list[i].ticket_no) { map[list[i].ticket_no] = l; n++; } });
     if (!n) return null;
     function failed() {
-      if (S.results[id]) S.results[id] += '<div class="tk-note tk-note-warn" role="alert" id="reg-letters-' + id + '">' + esc(LETTERS_FAILED) + '</div>';
-      TK.setHTML('reg-slot-' + id, S.results[id] || '');
+      if (S.done[id]) S.done[id].lettersFailed = true;
+      redrawResult(id);
     }
     return TK.rpc('cert_set_letters', { p_token: res.token, p_letters: map }).then(null, failed);
+  }
+
+  /** Draw the finished registration again (the proof status or the letters note changed). */
+  function redrawResult(id) {
+    var d = S.done[id];
+    if (!d) return;
+    S.results[id] = successHtml(d.ev, d.res, d.name, d.email) +
+      (d.lettersFailed ? '<div class="tk-note tk-note-warn" role="alert" id="reg-letters-' + id + '">' + esc(LETTERS_FAILED) + '</div>' : '');
+    TK.setHTML('reg-slot-' + id, S.results[id]);
+  }
+  /** Upload the proof chosen with the registration into the folder the server returned, then attach it with the token.
+   *  Never undoes the registration: a failure shows Upload proof (retry) and the registration stays Awaiting payment. */
+  function sendProof(id) {
+    var pr = S.proof[id], d = S.done[id];
+    if (!pr || !d || pr.state === 'sending' || pr.state === 'done') return null;
+    return TK.guard('reg.proof:' + id, function () {
+      pr.state = 'sending'; pr.error = '';
+      redrawResult(id);
+      return TK.submitProof({ token: d.res.token, folder: d.res.proof_folder, method: pr.method, reference: pr.reference, file: pr.file })
+        .then(function () { pr.state = 'done'; }, function (err) {
+          pr.state = 'failed';
+          pr.error = TK.isTimeout(err) && err.stage === 'attach'
+            ? 'The server did not respond in time; the proof may have been submitted. Check the ticket page before trying again.'
+            : err && err.stage === 'attach' ? TK.friendlyError(err) : '';
+        }).then(function () { redrawResult(id); });
+    });
   }
 
   // ------------------------------------------------------------------ the people being brought
@@ -1506,9 +1809,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       email: (S.session ? S.session.email : read(form, 'email')).trim(),
       phone: read(form, 'phone').trim(),
       bank: read(form, 'bank').trim(),
+      method: read(form, 'method').trim(),
       letters: cleanLetters(read(form, 'letters'))
     };
+    var pc = control(form, 'proof');
+    var file = pc && pc.files && pc.files.length ? pc.files[0] : null;
     var errs = validate(vals), first = null;
+    if (hasFee(ev)) payErrors(vals, file, errs);
     FIELDS.forEach(function (k) {
       setErr(id, k, errs[k]);
       mark(form, k, !!errs[k]);
@@ -1565,11 +1872,15 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         p_bank_ref: hasFee(ev) && vals.bank ? vals.bank : null,
         p_hp: read(form, 'website'),
         p_type: vals.type,
-        p_companions: people
+        p_companions: people,
+        p_method: hasFee(ev) && vals.method ? vals.method : null
       }).then(function (res) {
         var good = false;
         try {
           if (!res || !TK.tokenFromHash('#' + res.token) || !res.ticket_no) throw new Error('bad response');
+          S.done[id] = { ev: ev, res: res, name: vals.name, email: vals.email, lettersFailed: false };
+          // a proof chosen with the registration is sent next (only when the server says something is due)
+          if (file && res.proof_folder) S.proof[id] = { state: 'queued', method: vals.method, reference: vals.bank, file: file, error: '' };
           S.results[id] = successHtml(ev, res, vals.name, vals.email);
           good = true;
         } catch (e) { S.results[id] = receivedHtml(id); }
@@ -1578,8 +1889,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         var done = byId('reg-done-' + id);
         if (done && done.focus) done.focus();
         if (done && done.scrollIntoView) { try { done.scrollIntoView({ block: 'center' }); } catch (e) { /* old browser */ } }
-        // the registration is complete: the letters are a separate call that never rejects (a failure only adds a note)
-        return good ? saveLetters(id, res, vals.letters, letters) : null;
+        // the registration is complete: the letters and the proof are separate calls that never reject (a failure only adds a note
+        // or the Upload proof retry)
+        return good ? Promise.all([saveLetters(id, res, vals.letters, letters), sendProof(id)]) : null;
       }).then(null, function (err) {
         // a message naming an additional attendee ("Attendee 2: ...") is the server's own plain sentence
         var row = err && /^Attendee \d+: /.test(String(err.detail || ''));
@@ -1635,6 +1947,30 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return null;
   });
   TK.action('reg.submit', function (form) { return submit(form); });
+  /* a file was chosen: show its name and size, and say at once when it cannot be sent */
+  TK.action('reg.file', function (el) {
+    var id = el && el.getAttribute ? el.getAttribute('data-id') : '';
+    if (!evById(id)) return null;
+    var f = el.files && el.files.length ? el.files[0] : null;
+    TK.setHTML('reg-file-' + id, f ? esc(String(f.name || 'File') + ' · ' + TK.fileSize(f.size)) : '');
+    TK.setHTML('reg-ferr-' + id + '-proof', f ? esc(TK.proofFileError(f)) : '');
+    if (!f) return null;
+    // a photo is shrunk for upload at once (TK.prepareProof); the final size is shown next to the name
+    return TK.prepareProof(f).then(function (r) {
+      var cur = el.files && el.files.length ? el.files[0] : null;
+      if (cur !== f) return;                                          // another file was chosen meanwhile
+      if (r && r !== f) {
+        TK.setHTML('reg-file-' + id, esc(String(f.name || 'File') + ' · ' + TK.fileSize(r.size) + ' (reduced from ' + TK.fileSize(f.size) + ' for upload)'));
+      }
+      TK.setHTML('reg-ferr-' + id + '-proof', esc(TK.proofFileError(f)));
+    });
+  });
+  TK.action('reg.proof.retry', function (el) {
+    var id = el && el.getAttribute ? el.getAttribute('data-id') : '';
+    var pr = S.proof[id];
+    if (!pr || pr.state !== 'failed') return null;
+    return sendProof(id);
+  });
   TK.action('reg.copy', function (el) {
     var id = el.getAttribute('data-id');
     var input = byId('reg-link-' + id);
@@ -1652,6 +1988,54 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     }
     fallback();
     return null;
+  });
+
+  // ------------------------------------------------------------------ Find my ticket (12-email.sql)
+  /* A registrant who lost the ticket link asks for it by email. The answer is always the same neutral sentence (the
+   * database never says whether the address has tickets); the database sends the links only to an address that holds a
+   * ticket. S.find: '' (closed) | 'open' | 'sent'. */
+  var FIND_SENT = 'If this email has tickets, a message with the links is on its way.';
+  function findHtml() {
+    if (S.find === 'sent') return '<div class="tk-note tk-note-good" id="reg-find-done" role="status" tabindex="-1">' + esc(FIND_SENT) + '</div>';
+    if (S.find !== 'open') {
+      return '<p class="tk-mini"><button type="button" class="tk-btn tk-btn-small" data-action="reg.find.open">Find my ticket</button></p>';
+    }
+    return '<form class="tk-form tk-findform" id="reg-find-form" data-action="reg.find" novalidate>' +
+      '<p class="tk-mini">Enter the email address used for the registration. The ticket links will be sent to that address.</p>' +
+      '<div class="tk-field"><label for="reg-find-email">Email</label>' +
+      '<input type="email" id="reg-find-email" name="email" autocomplete="email" inputmode="email" maxlength="254" required></div>' +
+      '<div class="tk-hp" aria-hidden="true" inert><label for="reg-find-website">Leave this field empty</label>' +
+      '<input type="text" id="reg-find-website" name="website" tabindex="-1" autocomplete="off" value=""></div>' +
+      '<div id="reg-find-err" aria-live="polite"></div>' +
+      '<div class="tk-actions"><button type="submit" class="tk-btn tk-btn-primary" id="reg-find-btn">Send link</button></div>' +
+      '</form>';
+  }
+  function findErr(m) { TK.setHTML('reg-find-err', m ? '<div class="tk-note tk-note-crit">' + esc(m) + '</div>' : ''); }
+  TK.action('reg.find.open', function () {
+    S.find = 'open';
+    TK.setHTML('reg-find', findHtml());
+    var f = byId('reg-find-email');
+    if (f && f.focus) f.focus();
+    return null;
+  });
+  TK.action('reg.find', function (form) {
+    if (S.find !== 'open') return null;
+    var mail = read(form, 'email').trim();
+    if (!mail || mail.length > MAX.email || !EMAIL_RE.test(mail)) { findErr('Please enter a valid email address.'); return null; }
+    findErr('');
+    return TK.guard('reg.find', function () {
+      var btn = byId('reg-find-btn');
+      if (btn && btn.setAttribute) { btn.setAttribute('disabled', 'disabled'); btn.setAttribute('aria-busy', 'true'); }
+      return TK.rpc('ticketing_request_ticket_links', { p_email: mail, p_hp: read(form, 'website') }).then(function () {
+        S.find = 'sent';
+        TK.setHTML('reg-find', findHtml());
+        var d = byId('reg-find-done');
+        if (d && d.focus) d.focus();
+      }, function (err) {
+        if (btn && btn.removeAttribute) { btn.removeAttribute('disabled'); btn.removeAttribute('aria-busy'); }
+        findErr(TK.friendlyError(err));
+      });
+    });
   });
 
   // ------------------------------------------------------------------ page
