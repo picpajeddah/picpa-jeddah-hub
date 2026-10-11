@@ -358,6 +358,24 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 
 .tk-mg-confirm { display: grid; gap: var(--s2); text-align: left; }
 .tk-mg-confirm p { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+
+/* ---------- officer launcher (officers.html) */
+.tk-launcher { display: flex; flex-direction: column; gap: var(--s4); }
+.tk-launcher h1, .tk-launcher > p { margin: 0; }
+.tk-lrole { margin: 0; }
+.tk-lgroup h2 { margin-bottom: var(--s2); }
+.tk-lgrid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr; gap: var(--s3); }
+@media (min-width: 720px) { .tk-lgrid { grid-template-columns: 1fr 1fr; } }
+.tk-lcard {
+  position: relative; display: flex; flex-direction: column; gap: var(--s1); min-height: 64px;
+  padding: var(--s4) var(--s9) var(--s4) var(--s4); text-decoration: none; color: var(--text);
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--e1);
+}
+.tk-lcard:hover { border-color: var(--navy-500); box-shadow: var(--e2); }
+.tk-lcard-title { font-weight: 700; color: var(--navy-800); text-decoration: underline; text-underline-offset: 3px; }
+.tk-lcard-text { font-size: var(--fs-sm); color: var(--muted); }
+.tk-lcard-hint { display: block; margin-top: var(--s1); color: var(--text); font-weight: 600; }
+.tk-lcard-go { position: absolute; right: var(--s4); top: 50%; transform: translateY(-50%); font-size: var(--fs-xl); color: var(--navy-500); }
 </style>
 </head>
 <body data-page="ticket">
@@ -794,7 +812,7 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   }
   /* officers move between the door scanner, the console and their own tickets (relative links, same folder) */
   var OFFICER_NAV = [['manage', 'manage.html', 'Events console'], ['checkin', 'checkin.html', 'Door check-in'],
-    ['ticket', 'ticket.html', 'My tickets']];
+    ['ticket', 'ticket.html', 'My tickets'], ['officers', 'officers.html', 'Officer tools']];
   function navHtml() {
     var id = doc.body && doc.body.getAttribute ? doc.body.getAttribute('data-page') : null;
     if (id !== 'manage' && id !== 'checkin') return '';
