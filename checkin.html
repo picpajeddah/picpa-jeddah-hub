@@ -358,6 +358,23 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-mg-confirm { display: grid; gap: var(--s2); text-align: left; }
 .tk-mg-confirm p { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 
+/* ---------- console set-up: registration link row, Sell tickets / Edit sales form, stop / cancel */
+.tk-mg-sub { margin: 0; overflow-wrap: anywhere; }
+.tk-mg-link { display: grid; gap: var(--s1); margin-top: var(--s3); min-width: 0; }
+.tk-mg-link label { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+.tk-mg-linkrow { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; min-width: 0; }
+.tk-mg-linkrow input {
+  flex: 1 1 14rem; min-width: 0; min-height: 36px; padding: var(--s1) var(--s2); font-size: var(--fs-sm);
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); color: var(--navy-800);
+}
+.tk-mg-setup { display: grid; gap: var(--s4); align-content: start; }
+.tk-mg-setup h2, .tk-mg-setup p { margin: 0; }
+.tk-mg-setup .tk-err:empty { display: none; }
+.tk-mg-setup .tk-ferr { font-size: var(--fs-sm); color: var(--crit-ink); font-weight: 600; }
+.tk-mg-danger { display: grid; gap: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s4); }
+.tk-mg-first { border-top: 0; padding-top: 0; }
+.tk-mg-danger h3 { margin: 0; font-size: var(--fs-md); }
+
 /* ---------- officer launcher (officers.html) */
 .tk-launcher { display: flex; flex-direction: column; gap: var(--s4); }
 .tk-launcher h1, .tk-launcher > p { margin: 0; }
@@ -375,6 +392,20 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-lcard-text { font-size: var(--fs-sm); color: var(--muted); }
 .tk-lcard-hint { display: block; margin-top: var(--s1); color: var(--text); font-weight: 600; }
 .tk-lcard-go { position: absolute; right: var(--s4); top: 50%; transform: translateY(-50%); font-size: var(--fs-xl); color: var(--navy-500); }
+
+/* group registration (08-groups.sql): type choice per person, people rows, total, group cards */
+.tk-typepick { border: 0; padding: 0; margin: 0; min-width: 0; }
+.tk-typepick legend { font-weight: 600; font-size: var(--fs-sm); padding: 0; margin-bottom: var(--s1); }
+.tk-typeopts { display: flex; flex-wrap: wrap; gap: 0 var(--s4); }
+.tk-typeopt { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; font-size: var(--fs-sm); }
+.tk-comps { border-top: 1px solid var(--line); padding-top: var(--s3); }
+.tk-comphead { margin: 0 0 var(--s1); font-size: var(--fs-md, 1rem); }
+.tk-comprow { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--s3); margin: var(--s3) 0; }
+.tk-comprow .tk-field { margin-bottom: var(--s2); }
+.tk-total p { margin: var(--s2) 0; font-size: var(--fs-md, 1rem); }
+.tk-group-list { margin: var(--s2) 0; padding-left: var(--s5, 1.25rem); }
+.tk-person h2 { margin: 0; font-size: var(--fs-lg, 1.125rem); overflow-wrap: anywhere; }
+.tk-comprow-h { margin: 0 0 var(--s2); font-weight: 600; font-size: var(--fs-sm); }
 </style>
 </head>
 <body data-page="checkin">
@@ -1088,10 +1119,18 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     event_cancelled: ['crit', '✕', 'Event cancelled', 'Do not admit. The holder is due a refund if they paid.']
   };
 
+  /** A ticket of a group (08-groups.sql): the scan says who registered it; one payment covers the whole group. */
+  function isGroup(r) { return !!r && r.group_size != null && !!r.group_role; }
+  /** What the group still owes when that is more than this person's own fee (else null). */
+  function groupDue(r) { return isGroup(r) && num(r.group_due_sar) > num(r.fee_sar) ? num(r.group_due_sar) : null; }
   function detailsHtml(r) {
     var rows = '';
     if (r.holder_name) rows += '<dt>Name</dt><dd class="tk-ck-name">' + esc(r.holder_name) + '</dd>';
-    if (r.kind) rows += '<dt>Type</dt><dd>' + (r.kind === 'member' ? 'Member' : 'Guest') + '</dd>';
+    var type = { member: 'Member', officer: 'Officer', guest: 'Guest' }[r.attendee_type] || (r.kind ? (r.kind === 'member' ? 'Member' : 'Guest') : '');
+    if (type) rows += '<dt>Designation</dt><dd>' + type + '</dd>';
+    if (isGroup(r)) {
+      rows += '<dt>Group</dt><dd>Group of ' + esc(String(num(r.group_size))) + ' · registered by ' + esc(r.group_registered_by || '') + '</dd>';
+    }
     if (r.ticket_no) rows += '<dt>Ticket number</dt><dd class="tk-nowrap">' + esc(r.ticket_no) + '</dd>';
     if (r.receipt_doc) rows += '<dt>Receipt</dt><dd class="tk-nowrap">' + esc(r.receipt_doc) + '</dd>';
     if (r.result === 'already' && r.checked_in_at) {
@@ -1107,13 +1146,19 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     var head = st ? st[2] : 'Could not read the answer';
     var advice = st ? st[3] : 'Try scanning again. If it keeps happening, ask an officer.';
     var key = st ? r.result : 'unknown';
-    if (r.result === 'unpaid') head = 'Unpaid. ' + money(r.fee_sar) + ' due';
+    if (r.result === 'cash_recorded' && num(r.group_paid) > 1) {
+      advice = 'Paid for ' + num(r.group_paid) + ' people with one receipt. The others are checked in when their own QR code is scanned.';
+    }
+    var due = groupDue(r);
+    if (r.result === 'unpaid') head = due !== null ? 'Unpaid. ' + money(due) + ' due for the group' : 'Unpaid. ' + money(r.fee_sar) + ' due';
     var actions = '', note = '';
     if (r.result === 'unpaid') {
       if (!r.ticket_id) {
         note = '<p class="tk-ck-advice">This ticket can\'t be changed from here. Ask an officer.</p>';
       } else if (canCash()) {
-        actions += '<button type="button" class="tk-btn tk-btn-good tk-btn-block tk-ck-btn" data-action="ck.cash">Record cash and check in</button>';
+        actions += '<button type="button" class="tk-btn tk-btn-good tk-btn-block tk-ck-btn" data-action="ck.cash">' +
+          (due !== null ? 'Record cash for the group (' + esc(money(due)) + ') and check in' : 'Record cash and check in') + '</button>';
+        if (due !== null) note = '<p class="tk-ck-advice">One payment for the whole group: everyone in it becomes paid; only this person is checked in now.</p>';
       } else {
         note = '<p class="tk-ck-advice">Ask a ledger officer to record the payment.</p>';
       }
@@ -1433,7 +1478,9 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   function cashRecorded(prev, out) {
     return { result: 'cash_recorded', ticket_id: prev.ticket_id, ticket_no: prev.ticket_no || out.ticket_no, holder_name: prev.holder_name,
       kind: prev.kind, fee_sar: prev.fee_sar, payment_status: 'confirmed', checked_in_at: out.checked_in_at,
-      receipt_doc: out.ledger_doc || null, change_note: prev.change_note, changed_at: prev.changed_at, warning: out.warning || null };
+      receipt_doc: out.ledger_doc || null, change_note: prev.change_note, changed_at: prev.changed_at, warning: out.warning || null,
+      attendee_type: prev.attendee_type, group_size: prev.group_size, group_role: prev.group_role, group_registered_by: prev.group_registered_by,
+      group_due_sar: 0, group_paid: out.people };
   }
 
   function currentUnpaid() {

@@ -357,6 +357,23 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-mg-confirm { display: grid; gap: var(--s2); text-align: left; }
 .tk-mg-confirm p { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 
+/* ---------- console set-up: registration link row, Sell tickets / Edit sales form, stop / cancel */
+.tk-mg-sub { margin: 0; overflow-wrap: anywhere; }
+.tk-mg-link { display: grid; gap: var(--s1); margin-top: var(--s3); min-width: 0; }
+.tk-mg-link label { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+.tk-mg-linkrow { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; min-width: 0; }
+.tk-mg-linkrow input {
+  flex: 1 1 14rem; min-width: 0; min-height: 36px; padding: var(--s1) var(--s2); font-size: var(--fs-sm);
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); color: var(--navy-800);
+}
+.tk-mg-setup { display: grid; gap: var(--s4); align-content: start; }
+.tk-mg-setup h2, .tk-mg-setup p { margin: 0; }
+.tk-mg-setup .tk-err:empty { display: none; }
+.tk-mg-setup .tk-ferr { font-size: var(--fs-sm); color: var(--crit-ink); font-weight: 600; }
+.tk-mg-danger { display: grid; gap: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s4); }
+.tk-mg-first { border-top: 0; padding-top: 0; }
+.tk-mg-danger h3 { margin: 0; font-size: var(--fs-md); }
+
 /* ---------- officer launcher (officers.html) */
 .tk-launcher { display: flex; flex-direction: column; gap: var(--s4); }
 .tk-launcher h1, .tk-launcher > p { margin: 0; }
@@ -374,6 +391,20 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-lcard-text { font-size: var(--fs-sm); color: var(--muted); }
 .tk-lcard-hint { display: block; margin-top: var(--s1); color: var(--text); font-weight: 600; }
 .tk-lcard-go { position: absolute; right: var(--s4); top: 50%; transform: translateY(-50%); font-size: var(--fs-xl); color: var(--navy-500); }
+
+/* group registration (08-groups.sql): type choice per person, people rows, total, group cards */
+.tk-typepick { border: 0; padding: 0; margin: 0; min-width: 0; }
+.tk-typepick legend { font-weight: 600; font-size: var(--fs-sm); padding: 0; margin-bottom: var(--s1); }
+.tk-typeopts { display: flex; flex-wrap: wrap; gap: 0 var(--s4); }
+.tk-typeopt { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; font-size: var(--fs-sm); }
+.tk-comps { border-top: 1px solid var(--line); padding-top: var(--s3); }
+.tk-comphead { margin: 0 0 var(--s1); font-size: var(--fs-md, 1rem); }
+.tk-comprow { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--s3); margin: var(--s3) 0; }
+.tk-comprow .tk-field { margin-bottom: var(--s2); }
+.tk-total p { margin: var(--s2) 0; font-size: var(--fs-md, 1rem); }
+.tk-group-list { margin: var(--s2) 0; padding-left: var(--s5, 1.25rem); }
+.tk-person h2 { margin: 0; font-size: var(--fs-lg, 1.125rem); overflow-wrap: anywhere; }
+.tk-comprow-h { margin: 0 0 var(--s2); font-weight: 600; font-size: var(--fs-sm); }
 </style>
 </head>
 <body data-page="register">
@@ -1056,24 +1087,44 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   var DIGIT_RE = /[0-9٠-٩۰-۹]/g;                    // a real number has at least 6 digits ('+', '---' alone are not numbers)
   var GONE = { TKT_FULL: 1, TKT_CLOSED: 1, TKT_NOT_OPEN: 1 };   // the event can no longer be registered for
   var EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-  var FIELDS = ['name', 'email', 'phone', 'bank'];
+  var FIELDS = ['name', 'type', 'email', 'phone', 'bank'];
+  // group registration (president 2026-10-11): every person chooses a type; each person pays the price of that type
+  var TYPES = [['member', 'Member'], ['officer', 'Officer'], ['guest', 'Guest']];
+  var TYPE_LABEL = { member: 'Member', officer: 'Officer', guest: 'Guest' };
+  var NEED_TYPE = 'Please choose Member, Officer or Guest.';
 
-  // in-memory only: the open events, which forms are open, finished registrations (html incl. token), the session
-  var S = { events: [], open: {}, results: {}, mine: [], session: null, highlight: null };
+  // in-memory only: the open events, which forms are open, finished registrations (html incl. token), the session;
+  // comp[id] = the people being brought ([{name, type}]), type[id] = the registrant's type, nameOk[id] = the names the
+  // registrant already confirmed for the certificate
+  var S = { events: [], open: {}, results: {}, mine: [], session: null, highlight: null, comp: {}, type: {}, nameOk: {} };
 
   function byId(id) { return doc && doc.getElementById ? doc.getElementById(id) : null; }
   function num(n) { return Number(n) || 0; }
   function money(n) { return num(n) > 0 ? 'SAR ' + TK.fmt(n) : 'Free'; }
   function evById(id) { for (var i = 0; i < S.events.length; i++) if (S.events[i].announcement_id === id) return S.events[i]; return null; }
-  function hasFee(ev) { return num(ev.fee_member_sar) > 0 || num(ev.fee_guest_sar) > 0; }
-
-  /** Both fees when they differ, one amount when equal, "Free" when both are 0. */
-  function feeHtml(ev) {
-    var m = num(ev.fee_member_sar), g = num(ev.fee_guest_sar);
-    if (m === 0 && g === 0) return '<span class="tk-fee">Free</span>';
-    if (m === g) return '<span class="tk-fee">' + esc(money(m)) + '</span>';
-    return '<span class="tk-fee">Member: ' + esc(money(m)) + '</span> <span class="tk-fee">Guest: ' + esc(money(g)) + '</span>';
+  /** The price of each type (the Officer price falls back to the Member price on an older server). */
+  function fees(ev) {
+    var m = num(ev.fee_member_sar);
+    return { member: m, officer: ev.fee_officer_sar == null ? m : num(ev.fee_officer_sar), guest: num(ev.fee_guest_sar) };
   }
+  function oneFee(ev) { var f = fees(ev); return f.member === f.officer && f.member === f.guest ? f.member : null; }
+  function hasFee(ev) { var f = fees(ev); return f.member > 0 || f.officer > 0 || f.guest > 0; }
+
+  /** One amount when every type pays the same ("Free" when 0), else the price of each type. */
+  function feeHtml(ev) {
+    var one = oneFee(ev), f = fees(ev);
+    if (one === 0) return '<span class="tk-fee">Free</span>';
+    if (one !== null) return '<span class="tk-fee">' + esc(money(one)) + '</span> per person';   // equal prices: never itemised
+    return TYPES.map(function (t) { return '<span class="tk-fee">' + t[1] + ': ' + esc(money(f[t[0]])) + '</span>'; }).join(' ');
+  }
+  function attendees(n) { return n + (n === 1 ? ' attendee' : ' attendees'); }
+  /** How many people one registrant may bring: the max_companions setting and the places left. */
+  function limit(ev) {
+    var max = ev.max_companions == null ? 10 : Math.max(0, Math.floor(num(ev.max_companions)));
+    if (ev.places_left != null) max = Math.min(max, num(ev.places_left) - 1);
+    return Math.max(0, max);
+  }
+  function comps(id) { return S.comp[id] || (S.comp[id] = []); }
   function placesHtml(ev) {
     if (ev.places_left == null) return 'Open (no limit)';
     var n = num(ev.places_left);
@@ -1102,23 +1153,70 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
       '<span class="tk-err" id="' + eid + '" role="alert"></span></div>';
   }
 
+  /** The Member / Officer / Guest choice (no default). name = 'type' (the registrant) or 't<i>' (person i). */
+  function typePickHtml(ev, id, name, idBase, chosen, legend) {
+    var f = fees(ev), free = !hasFee(ev) || oneFee(ev) !== null;   // a price per option only when the prices differ
+    return '<fieldset class="tk-typepick"><legend>' + legend + '</legend><div class="tk-typeopts">' + TYPES.map(function (t) {
+      var rid = idBase + '-' + t[0];
+      return '<label class="tk-typeopt" for="' + rid + '"><input type="radio" id="' + rid + '" name="' + name + '" value="' + t[0] + '"' +
+        (chosen === t[0] ? ' checked' : '') + ' data-change="reg.recalc" data-id="' + esc(id) + '"> ' +
+        t[1] + (free ? '' : ' · ' + esc(money(f[t[0]]))) + '</label>';
+    }).join('') + '</div></fieldset>';
+  }
+  /** Additional attendees: one row each (full name, email, designation, Remove), then "+ Add attendee". */
+  function compsInner(ev) {
+    var id = ev.announcement_id, list = comps(id), max = limit(ev);
+    var rows = list.map(function (c, i) {
+      var cid = 'reg-' + id + '-c' + i, mid = 'reg-' + id + '-e' + i, eid = 'reg-ferr-' + id + '-c' + i;
+      return '<div class="tk-comprow"><p class="tk-comprow-h">Attendee ' + (i + 2) + '</p>' +
+        '<div class="tk-field"><label for="' + cid + '">Full name (as it should appear on the certificate)</label>' +
+        '<input id="' + cid + '" name="c' + i + '" value="' + esc(c.name || '') + '" type="text" maxlength="' + MAX.name +
+        '" autocomplete="off" aria-describedby="' + eid + '"></div>' +
+        '<div class="tk-field"><label for="' + mid + '">Email (optional)</label><input id="' + mid + '" name="e' + i + '" value="' + esc(c.email || '') +
+        '" type="email" inputmode="email" maxlength="' + MAX.email + '" autocomplete="off" aria-describedby="' + eid + '"></div>' +
+        typePickHtml(ev, id, 't' + i, 'reg-' + id + '-t' + i, c.type, 'Designation') +
+        '<span class="tk-err" id="' + eid + '" role="alert"></span>' +
+        '<button type="button" class="tk-btn tk-btn-small" data-action="reg.delp" data-id="' + esc(id) + '" data-i="' + i + '">Remove</button></div>';
+    }).join('');
+    return '<h3 class="tk-comphead">Additional attendees</h3>' +
+      '<p class="tk-hint">Each attendee receives a separate ticket and QR code. Maximum ' + max + '.</p>' + rows +
+      (list.length < max ? '<button type="button" class="tk-btn tk-btn-small" data-action="reg.addp" data-id="' + esc(id) + '">+ Add attendee</button>' : '');
+  }
+  /** The total: attendees x price when every type pays the same, else the sum of the chosen types. */
+  function totalHtml(ev) {
+    var id = ev.announcement_id, types = [S.type[id] || null].concat(comps(id).map(function (c) { return c.type || null; }));
+    var n = types.length, one = oneFee(ev), f = fees(ev), sum;
+    if (!hasFee(ev)) return '<p>Total: Free (' + attendees(n) + ')</p>';
+    if (one !== null) sum = one * n;
+    else {
+      if (types.some(function (t) { return !t; })) return '<p>Total: select the designation of each attendee to show the total.</p>';
+      sum = types.reduce(function (a, t) { return a + f[t]; }, 0);
+    }
+    return '<p>Total: ' + esc(money(sum)) + ' (' + attendees(n) + ')</p>';
+  }
+
   function formHtml(ev) {
-    var id = ev.announcement_id, s = S.session;
-    var who = s ? '<p class="tk-note tk-note-info">Signed in as <b>' + esc(s.name || s.email) + '</b>. Your email is fixed to your Hub login so the member rate can apply.</p>' : '';
+    var id = ev.announcement_id, s = S.session, one = oneFee(ev);
+    var who = s ? '<p class="tk-note tk-note-info">Signed in as <b>' + esc(s.name || s.email) + '</b>. The email address is that of the Hub account.</p>' : '';
     var pay = '';
     if (hasFee(ev)) {
-      pay = '<div class="tk-pay"><p><b>Amount:</b> ' + feeHtml(ev) + '</p>' +
+      pay = '<div class="tk-pay"><p><b>Price:</b> ' + (one !== null ? esc(money(one)) + ' per person' : feeHtml(ev) + ' (per person, by type)') + '</p>' +
         (ev.payment_note ? '<p class="tk-paynote">' + esc(ev.payment_note) + '</p>' : '') + '</div>';
     }
     return '<form class="tk-form tk-regform" id="reg-form-' + id + '" data-action="reg.submit" data-id="' + esc(id) + '" novalidate>' +
       who +
-      fieldHtml(id, 'name', 'Full name', 'type="text" autocomplete="name" maxlength="' + MAX.name + '" required', s ? s.name : '') +
+      fieldHtml(id, 'name', 'Full name (as it should appear on the certificate)', 'type="text" autocomplete="name" maxlength="' + MAX.name + '" required',
+        s ? s.name : '') +
+      '<div class="tk-field">' + typePickHtml(ev, id, 'type', 'reg-' + id + '-type', S.type[id], 'Designation') +
+      '<span class="tk-err" id="reg-ferr-' + id + '-type" role="alert"></span></div>' +
       fieldHtml(id, 'email', 'Email', 'type="email" inputmode="email" autocomplete="email" maxlength="' + MAX.email + '" required' + (s ? ' readonly' : ''),
-        s ? s.email : '', 'Your ticket link is shown on the next screen; keep it safe.') +
+        s ? s.email : '', 'The ticket link appears after registration. Keep it private.') +
       fieldHtml(id, 'phone', 'Mobile number', 'type="tel" inputmode="tel" autocomplete="tel" maxlength="' + MAX.phone + '" required', '', 'Include the country code, for example +966.') +
+      (limit(ev) > 0 ? '<div class="tk-comps" id="reg-comps-' + id + '">' + compsInner(ev) + '</div>' : '') +
       pay +
+      '<div class="tk-total" id="reg-total-' + id + '" aria-live="polite">' + totalHtml(ev) + '</div>' +
       (hasFee(ev) ? fieldHtml(id, 'bank', 'Bank transfer reference (optional)', 'type="text" autocomplete="off" maxlength="' + MAX.bank + '"', '',
-        'If you already paid by transfer, enter the reference. Otherwise leave it empty.') : '') +
+        'If payment was made by bank transfer, enter the transfer reference.') : '') +
       '<div class="tk-hp" aria-hidden="true" inert><label for="reg-' + id + '-website">Leave this field empty</label>' +
       '<input type="text" id="reg-' + id + '-website" name="website" tabindex="-1" autocomplete="off" value=""></div>' +
       '<div id="reg-err-' + id + '"></div>' +
@@ -1148,8 +1246,6 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
       '<dt>Places</dt><dd>' + placesHtml(ev) + '</dd>' +
       (ev.closes_at ? '<dt>Closes</dt><dd>' + esc(TK.when(ev.closes_at)) + '</dd>' : '') +
       '</dl>' +
-      (num(ev.fee_member_sar) !== num(ev.fee_guest_sar) && !S.session
-        ? '<p class="tk-mini">Members: <a href="./">sign in to the Hub first</a> to get the member rate.</p>' : '') +
       '<div id="reg-slot-' + id + '" class="tk-slot">' + slotHtml(ev) + '</div>' +
       (S.open[id] || S.results[id] ? '' : '<div class="tk-actions" id="reg-act-' + id + '">' + action + '</div>') +
       '</section>';
@@ -1157,12 +1253,12 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 
   function pageHtml() {
     var head = '<div><h1>Register for an event</h1>' +
-      '<p class="tk-muted">Choose an event, fill in your details and get your ticket link right away.</p>' +
+      '<p class="tk-muted">Select an event and complete the form. The ticket link is shown after registration.</p>' +
       (S.session ? '<p class="tk-mini">Signed in as ' + esc(S.session.name || S.session.email) + '. <a href="ticket.html">My tickets</a></p>' : '') +
       '</div>';
     if (!S.events.length) {
       return head + '<div class="tk-card tk-card-dashed tk-gate"><h2>No events are open for registration right now</h2>' +
-        '<p>Check the Hub for upcoming events, then come back here.</p>' +
+        '<p>Upcoming events are announced on the Hub.</p>' +
         '<div class="tk-actions"><a class="tk-btn" href="./">Back to the Hub</a></div></div>';
     }
     return head + S.events.map(cardHtml).join('');
@@ -1175,34 +1271,51 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     return base + '#' + token;
   }
   function receivedHtml(id) {
-    return '<div class="tk-note tk-note-good tk-done" id="reg-done-' + id + '" role="status" tabindex="-1"><h3>You\'re registered</h3>' +
+    return '<div class="tk-note tk-note-good tk-done" id="reg-done-' + id + '" role="status" tabindex="-1"><h3>Registration complete</h3>' +
       '<p>Your registration was received. Please contact a chapter officer for your ticket.</p></div>';
   }
   function mailtoHref(email, link) {
     return 'mailto:' + encodeURIComponent(email).replace(/%40/g, '@') + '?subject=My%20ticket&body=' + encodeURIComponent(link);
   }
+  function typeLabel(r) { return TYPE_LABEL[r.attendee_type] || (r.kind === 'member' ? 'Member' : 'Guest'); }
   function successHtml(ev, res, name, email) {
     var id = ev.announcement_id;
-    var pending = res.payment_status === 'pending';
-    var pillHtml = TK.payPill(res.payment_status);          // Pending payment / Free / Paid (TK.PAY_LABEL)
+    var group = Array.isArray(res.companions) ? res.companions : [];
+    var total = res.group_total_sar == null ? res.fee_sar : res.group_total_sar;
+    var pending = res.payment_status === 'pending' || res.group_payment_status === 'pending';
+    var pillHtml = TK.payPill(pending ? 'pending' : res.payment_status);   // Pending payment / Free / Paid (TK.PAY_LABEL)
     var link = ticketLink(res.token);
+    var people = '', itemise = oneFee(ev) === null;          // equal prices: never itemised
+    if (group.length) {
+      people = '<div class="tk-table-wrap"><table class="tk-grid tk-stack tk-people"><thead><tr><th>Name on the certificate</th><th>Designation</th>' +
+        '<th>Ticket</th>' + (itemise ? '<th>Price</th>' : '') + '</tr></thead><tbody>' +
+        [{ holder_name: name, attendee_type: res.attendee_type, kind: res.kind, ticket_no: res.ticket_no, fee_sar: res.fee_sar }].concat(group)
+          .map(function (p) {
+            return '<tr><td data-label="Name">' + esc(p.holder_name) + '</td><td data-label="Designation">' + typeLabel(p) + '</td>' +
+              '<td data-label="Ticket" class="tk-nowrap">' + esc(p.ticket_no) + '</td>' +
+              (itemise ? '<td data-label="Price" class="tk-num">' + esc(money(p.fee_sar)) + '</td>' : '') + '</tr>';
+          }).join('') + '</tbody></table></div>' +
+        '<p>Total: ' + esc(money(total)) + ' (' + attendees(group.length + 1) + ')</p>' +
+        '<p>Each attendee has a separate QR code on the ticket page.</p>';
+    }
     return '<div class="tk-note tk-note-good tk-done" id="reg-done-' + id + '" role="status" tabindex="-1">' +
-      '<h3>You\'re registered</h3>' +
+      '<h3>Registration complete</h3>' +
       '<p>Ticket number <b class="tk-nowrap">' + esc(res.ticket_no) + '</b></p>' +
       '<p class="tk-pills">' + pillHtml + '</p>' +
       '<dl class="tk-kv"><dt>Name</dt><dd>' + esc(name) + '</dd>' +
       '<dt>Event</dt><dd>' + esc(ev.title) + '</dd>' +
-      '<dt>Ticket type</dt><dd>' + (res.kind === 'member' ? 'Member' : 'Guest') + '</dd>' +
-      '<dt>Fee</dt><dd>' + esc(money(res.fee_sar)) + '</dd></dl>' +
-      (pending ? '<div class="tk-pay"><p><b>To pay:</b> ' + esc(money(res.fee_sar)) + '</p>' +
-        '<p class="tk-paynote">' + (ev.payment_note ? esc(ev.payment_note) : 'Please follow the chapter\'s payment instructions.') + '</p></div>' : '') +
-      '<p>Your private ticket link. Anyone who has it can use your ticket, so keep it to yourself and save it now.</p>' +
+      '<dt>Designation</dt><dd>' + typeLabel(res) + '</dd>' +
+      (group.length && !itemise ? '' : '<dt>Fee</dt><dd>' + esc(money(res.fee_sar)) + '</dd>') + '</dl>' + people +
+      '<p class="tk-mini">Names are printed on the certificates exactly as shown. To correct a name, contact a chapter officer.</p>' +
+      (pending ? '<div class="tk-pay"><p><b>Amount due:</b> ' + esc(money(total)) + '</p>' +
+        '<p class="tk-paynote">' + (ev.payment_note ? esc(ev.payment_note) : 'Payment instructions are available from the chapter officers.') + '</p></div>' : '') +
+      '<p>Private ticket link. Anyone with this link can use the ticket. Keep it private.</p>' +
       '<div class="tk-field"><label for="reg-link-' + id + '">Ticket link</label>' +
       '<input id="reg-link-' + id + '" readonly value="' + esc(link) + '"></div>' +
       '<div class="tk-actions">' +
       '<button type="button" class="tk-btn" data-action="reg.copy" data-id="' + esc(id) + '">Copy link</button>' +
       '<a class="tk-btn tk-btn-primary" id="reg-ticket-' + id + '" href="' + esc(link) + '" rel="noopener noreferrer">Open ticket</a>' +
-      '<a class="tk-btn" href="' + esc(mailtoHref(email, link)) + '">Email me this link</a>' +
+      '<a class="tk-btn" href="' + esc(mailtoHref(email, link)) + '">Email this link</a>' +
       (S.session ? '<a class="tk-btn" href="ticket.html">My tickets</a>' : '') +
       '</div></div>';
   }
@@ -1238,7 +1351,56 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     else if (vals.phone.length > MAX.phone || !PHONE_RE.test(vals.phone)) e.phone = 'Please enter a valid mobile number (digits, spaces, + and - only).';
     else if ((vals.phone.match(DIGIT_RE) || []).length < 6) e.phone = 'Please enter the full mobile number (at least 6 digits).';
     if (vals.bank.length > MAX.bank) e.bank = 'That reference is too long (up to ' + MAX.bank + ' characters).';
+    if (!TYPE_LABEL[vals.type]) e.type = NEED_TYPE;
     return e;
+  }
+
+  // ------------------------------------------------------------------ the people being brought
+  /** Copy what is typed / chosen on screen into S (before a redraw), then write it back after (a fresh DOM shows it too). */
+  function sync(id) {
+    function checked(base) {
+      for (var k = 0; k < TYPES.length; k++) { var r = byId(base + '-' + TYPES[k][0]); if (r && r.checked) return TYPES[k][0]; }
+      return null;
+    }
+    var t = checked('reg-' + id + '-type');
+    if (t) S.type[id] = t;
+    comps(id).forEach(function (c, i) {
+      var el = byId('reg-' + id + '-c' + i), em = byId('reg-' + id + '-e' + i);
+      if (el && typeof el.value === 'string') c.name = el.value;
+      if (em && typeof em.value === 'string') c.email = em.value;
+      var ct = checked('reg-' + id + '-t' + i);
+      if (ct) c.type = ct;
+    });
+  }
+  function writeBack(id) {
+    comps(id).forEach(function (c, i) {
+      var el = byId('reg-' + id + '-c' + i), em = byId('reg-' + id + '-e' + i);
+      if (el) el.value = c.name || '';
+      if (em) em.value = c.email || '';
+      TYPES.forEach(function (t) { var r = byId('reg-' + id + '-t' + i + '-' + t[0]); if (r) r.checked = c.type === t[0]; });
+    });
+  }
+  function drawComps(id) {
+    var ev = evById(id);
+    if (!ev) return;
+    TK.setHTML('reg-comps-' + id, compsInner(ev));
+    writeBack(id);
+    TK.setHTML('reg-total-' + id, totalHtml(ev));
+  }
+  function addPerson(id) {
+    var ev = evById(id);
+    if (!ev || S.results[id] || comps(id).length >= limit(ev)) return;
+    sync(id);
+    comps(id).push({ name: '', email: '', type: null });
+    drawComps(id);
+    var f = byId('reg-' + id + '-c' + (comps(id).length - 1));
+    if (f && f.focus) f.focus();
+  }
+  function removePerson(id, i) {
+    if (!evById(id) || S.results[id] || !(i >= 0 && i < comps(id).length)) return;
+    sync(id);
+    comps(id).splice(i, 1);
+    drawComps(id);
   }
 
   function submit(form) {
@@ -1247,6 +1409,7 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     if (!ev || S.results[id] || S.open[id] === false) return null;   // finished, unknown or closed meanwhile: nothing to send
     var vals = {
       name: read(form, 'name').trim(),
+      type: read(form, 'type').trim(),
       email: (S.session ? S.session.email : read(form, 'email')).trim(),
       phone: read(form, 'phone').trim(),
       bank: read(form, 'bank').trim()
@@ -1257,10 +1420,40 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
       mark(form, k, !!errs[k]);
       if (errs[k] && !first) first = k;
     });
+    // each additional attendee: full name (as on the certificate) and a designation; the email is optional (null when
+    // blank) but, when given, must be valid and their own
+    var seen = [vals.email.toLowerCase()];
+    var people = comps(id).map(function (c, i) {
+      var mail = read(form, 'e' + i).trim().toLowerCase();
+      var p = { name: read(form, 'c' + i).trim(), email: mail || null, type: read(form, 't' + i).trim() };
+      c.name = p.name; c.email = mail; if (TYPE_LABEL[p.type]) c.type = p.type;
+      var badMail = !!mail && (mail.length > MAX.email || !EMAIL_RE.test(mail));
+      var e = !p.name ? 'Please enter the full name (as it should appear on the certificate).'
+        : p.name.length > MAX.name ? 'The name is too long (up to ' + MAX.name + ' characters).'
+          : badMail ? 'Please enter a valid email address.'
+            : mail && seen.indexOf(mail) >= 0 ? 'Each attendee needs their own email address.'
+              : !TYPE_LABEL[p.type] ? NEED_TYPE : '';
+      if (mail && !badMail) seen.push(mail);
+      setErr(id, 'c' + i, e);
+      mark(form, 'c' + i, !!e);
+      if (e && !first) first = 'c' + i;
+      return p;
+    });
     if (first) {
       TK.setHTML('reg-err-' + id, '');
       var c = control(form, first);
       if (c && c.focus) c.focus();
+      return null;
+    }
+    // a one-word name gets a gentle question once; pressing Register again with the same names keeps them
+    var names = [vals.name].concat(people.map(function (p) { return p.name; }));
+    var single = names.filter(function (n) { return !/\s/.test(n); });
+    var key = JSON.stringify(names);
+    if (single.length && S.nameOk[id] !== key) {
+      S.nameOk[id] = key;
+      TK.setHTML('reg-err-' + id, '<div class="tk-note tk-note-info" role="alert"><p>Is this the name you want on your certificate? ' +
+        single.map(function (n) { return '<b>' + esc(n) + '</b>'; }).join(', ') + '</p>' +
+        '<p>Names are printed on the certificates as entered. Enter the full name, or select Register again to confirm.</p></div>');
       return null;
     }
     return TK.guard('register:' + id, function () {
@@ -1268,10 +1461,13 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
       TK.setHTML('reg-err-' + id, '');
       var btn = byId('reg-btn-' + id);
       if (btn && btn.setAttribute) { btn.setAttribute('disabled', 'disabled'); btn.setAttribute('aria-busy', 'true'); }
-      return TK.rpc('ticketing_register', {
+      // every registration goes through ticketing_register_group (the type is required; 08-groups.sql)
+      return TK.rpc('ticketing_register_group', {
         p_announcement: id, p_name: vals.name, p_email: vals.email, p_phone: vals.phone,
         p_bank_ref: hasFee(ev) && vals.bank ? vals.bank : null,
-        p_hp: read(form, 'website')
+        p_hp: read(form, 'website'),
+        p_type: vals.type,
+        p_companions: people
       }).then(function (res) {
         try {
           if (!res || !TK.tokenFromHash('#' + res.token) || !res.ticket_no) throw new Error('bad response');
@@ -1283,14 +1479,17 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
         if (done && done.focus) done.focus();
         if (done && done.scrollIntoView) { try { done.scrollIntoView({ block: 'center' }); } catch (e) { /* old browser */ } }
       }).then(null, function (err) {
-        var msg = err && err.code === 'TKT_DUPLICATE'
-          ? 'You\'re already registered for this event with this email, so your first attempt worked. Members: open My tickets. Guests: ask a chapter officer to cancel that ticket so you can register again.'
-          : TK.isTimeout(err)
-            // no answer in time: the registration may have been saved (a second try then says "already registered")
-            ? 'The server was slow, so your registration may have been saved. Members: check My tickets first. If you try again and are told you\'re already registered, your registration worked.'
-            : TK.friendlyError(err);
+        // a message naming an additional attendee ("Attendee 2: ...") is the server's own plain sentence
+        var row = err && /^Attendee \d+: /.test(String(err.detail || ''));
+        var msg = row ? String(err.detail)
+          : err && err.code === 'TKT_DUPLICATE'
+            ? 'This email is already registered for this event. Members: see My tickets. Guests: ask a chapter officer to cancel the existing ticket before registering again.'
+            : TK.isTimeout(err)
+              // no answer in time: the registration may have been saved (a second try then says "already registered")
+              ? 'The server did not respond in time. The registration may have been saved. Members: check My tickets first. If a new attempt reports that the email is already registered, the registration was saved.'
+              : TK.friendlyError(err);
         TK.setHTML('reg-err-' + id, '<div class="tk-note tk-note-crit" role="alert">' + esc(msg) +
-          (err && err.code === 'TKT_DUPLICATE' && S.session ? ' <a href="ticket.html">My tickets</a>' : '') + '</div>');
+          (!row && err && err.code === 'TKT_DUPLICATE' && S.session ? ' <a href="ticket.html">My tickets</a>' : '') + '</div>');
         if (btn) {
           if (btn.removeAttribute) { btn.removeAttribute('disabled'); btn.removeAttribute('aria-busy'); }
         }
@@ -1324,6 +1523,15 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   }
 
   TK.action('reg.open', function (el) { openForm(el.getAttribute('data-id')); });
+  TK.action('reg.addp', function (el) { addPerson(el.getAttribute('data-id')); return null; });
+  TK.action('reg.delp', function (el) { removePerson(el.getAttribute('data-id'), Number(el.getAttribute('data-i'))); return null; });
+  TK.action('reg.recalc', function (el) {
+    var id = el && el.getAttribute ? el.getAttribute('data-id') : '', ev = evById(id);
+    if (!ev || S.results[id]) return null;
+    sync(id);
+    TK.setHTML('reg-total-' + id, totalHtml(ev));
+    return null;
+  });
   TK.action('reg.submit', function (form) { return submit(form); });
   TK.action('reg.copy', function (el) {
     var id = el.getAttribute('data-id');

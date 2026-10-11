@@ -359,6 +359,23 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-mg-confirm { display: grid; gap: var(--s2); text-align: left; }
 .tk-mg-confirm p { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 
+/* ---------- console set-up: registration link row, Sell tickets / Edit sales form, stop / cancel */
+.tk-mg-sub { margin: 0; overflow-wrap: anywhere; }
+.tk-mg-link { display: grid; gap: var(--s1); margin-top: var(--s3); min-width: 0; }
+.tk-mg-link label { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+.tk-mg-linkrow { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; min-width: 0; }
+.tk-mg-linkrow input {
+  flex: 1 1 14rem; min-width: 0; min-height: 36px; padding: var(--s1) var(--s2); font-size: var(--fs-sm);
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); color: var(--navy-800);
+}
+.tk-mg-setup { display: grid; gap: var(--s4); align-content: start; }
+.tk-mg-setup h2, .tk-mg-setup p { margin: 0; }
+.tk-mg-setup .tk-err:empty { display: none; }
+.tk-mg-setup .tk-ferr { font-size: var(--fs-sm); color: var(--crit-ink); font-weight: 600; }
+.tk-mg-danger { display: grid; gap: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s4); }
+.tk-mg-first { border-top: 0; padding-top: 0; }
+.tk-mg-danger h3 { margin: 0; font-size: var(--fs-md); }
+
 /* ---------- officer launcher (officers.html) */
 .tk-launcher { display: flex; flex-direction: column; gap: var(--s4); }
 .tk-launcher h1, .tk-launcher > p { margin: 0; }
@@ -376,6 +393,20 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-lcard-text { font-size: var(--fs-sm); color: var(--muted); }
 .tk-lcard-hint { display: block; margin-top: var(--s1); color: var(--text); font-weight: 600; }
 .tk-lcard-go { position: absolute; right: var(--s4); top: 50%; transform: translateY(-50%); font-size: var(--fs-xl); color: var(--navy-500); }
+
+/* group registration (08-groups.sql): type choice per person, people rows, total, group cards */
+.tk-typepick { border: 0; padding: 0; margin: 0; min-width: 0; }
+.tk-typepick legend { font-weight: 600; font-size: var(--fs-sm); padding: 0; margin-bottom: var(--s1); }
+.tk-typeopts { display: flex; flex-wrap: wrap; gap: 0 var(--s4); }
+.tk-typeopt { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; font-size: var(--fs-sm); }
+.tk-comps { border-top: 1px solid var(--line); padding-top: var(--s3); }
+.tk-comphead { margin: 0 0 var(--s1); font-size: var(--fs-md, 1rem); }
+.tk-comprow { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--s3); margin: var(--s3) 0; }
+.tk-comprow .tk-field { margin-bottom: var(--s2); }
+.tk-total p { margin: var(--s2) 0; font-size: var(--fs-md, 1rem); }
+.tk-group-list { margin: var(--s2) 0; padding-left: var(--s5, 1.25rem); }
+.tk-person h2 { margin: 0; font-size: var(--fs-lg, 1.125rem); overflow-wrap: anywhere; }
+.tk-comprow-h { margin: 0 0 var(--s2); font-weight: 600; font-size: var(--fs-sm); }
 </style>
 </head>
 <body data-page="ticket">
@@ -1121,16 +1152,53 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
       '<dt>Date</dt><dd>' + esc(TK.when(e.event_date)) + '</dd>' +
       (e.venue ? '<dt>Venue</dt><dd>' + esc(e.venue) + '</dd>' : '') +
       '<dt>Ticket holder</dt><dd>' + esc(t.holder_name) + '</dd>' +
-      '<dt>Ticket type</dt><dd>' + (t.kind === 'member' ? 'Member' : 'Guest') + '</dd>' +
-      '<dt>Fee</dt><dd>' + esc(money(t.fee_sar)) + '</dd>' +
+      '<dt>Designation</dt><dd>' + typeLabel(t) + '</dd>' +
+      (t.group && t.group.registrant && samePrice(t.group) ? '' : '<dt>Fee</dt><dd>' + esc(money(t.fee_sar)) + '</dd>') +
       (t.checked_in_at ? '<dt>Checked in</dt><dd>' + esc(TK.when(t.checked_in_at)) + '</dd>' : '') +
+      (t.group && !t.group.registrant ? '<dt>Group</dt><dd>Registered by ' + esc(t.group.registered_by) + ' · group of ' +
+        esc(String(num(t.group.size))) + '</dd>' : '') +
       '</dl>' +
       '<div class="tk-actions tk-no-print">' +
       '<button type="button" class="tk-btn tk-btn-primary" data-action="tk.refresh">Refresh</button>' +
       '<button type="button" class="tk-btn" data-action="tkt.pdf">Download PDF</button>' +
       '<button type="button" class="tk-btn" data-action="tkt.print">Print</button>' +
       (session ? '<a class="tk-btn" href="ticket.html">My tickets</a>' : '') +
-      '</div></article>';
+      '</div></article>' + groupHtml(t);
+  }
+
+  // ------------------------------------------------------------------ a group (08-groups.sql): the registrant sees everyone
+  var TYPE_LABEL = { member: 'Member', officer: 'Officer', guest: 'Guest' };
+  function typeLabel(t) { return TYPE_LABEL[t.attendee_type] || (t.kind === 'member' ? 'Member' : 'Guest'); }
+  /** One card per person brought, each with its own QR code (drawn from that person's token; the token is never text). */
+  /** Every person of the group pays the same price: never itemised (president 2026-10-11). */
+  function samePrice(g) {
+    var l = (g && g.people) || [];
+    return l.every(function (p) { return num(p.fee_sar) === num(l[0] && l[0].fee_sar); });
+  }
+  function attendees(n) { return n + (n === 1 ? ' attendee' : ' attendees'); }
+  function personHtml(p, t, same) {
+    var pt = { payment_status: p.payment_status, status: 'active', checked_in_at: p.checked_in_at, event: evOf(t) };
+    var tok = p.token && TK.tokenFromHash('#' + p.token);
+    return '<article class="tk-card tk-ticket tk-person"><div class="tk-ticket-top"><h2>' + esc(p.holder_name) + '</h2>' +
+      '<p class="tk-pills">' + statusPill(pt) + '</p></div>' +
+      (!isDead(pt) && tok ? qrBlock(tok) : '') +
+      '<p class="tk-ticket-no">Ticket number <b class="tk-nowrap">' + esc(p.ticket_no) + '</b></p>' +
+      '<dl class="tk-kv"><dt>Designation</dt><dd>' + typeLabel(p) + '</dd>' + (same ? '' : '<dt>Fee</dt><dd>' + esc(money(p.fee_sar)) + '</dd>') +
+      (p.checked_in_at ? '<dt>Checked in</dt><dd>' + esc(TK.when(p.checked_in_at)) + '</dd>' : '') + '</dl></article>';
+  }
+  function groupHtml(t) {
+    var g = t.group;
+    if (!g || !g.registrant || !Array.isArray(g.people)) return '';
+    var others = g.people.filter(function (p) { return p && p.token; }), same = samePrice(g);
+    return '<section class="tk-card tk-group" aria-labelledby="tk-g-h"><h2 id="tk-g-h">Attendees</h2>' +
+      '<p>Total: ' + esc(money(g.total_sar)) + ' (' + attendees(num(g.size)) + ')</p>' +
+      '<ul class="tk-group-list">' + g.people.map(function (p) {
+        return '<li>' + esc(p.holder_name) + ' · ' + typeLabel(p) + ' · <span class="tk-nowrap">' + esc(p.ticket_no) + '</span>' +
+          (same ? '' : ' · ' + esc(money(p.fee_sar))) + '</li>';
+      }).join('') + '</ul>' +
+      '<p class="tk-mini">Each attendee has a separate QR code below, to be shown at the registration desk.' +
+      ' Names are printed on the certificates exactly as shown. To correct a name, contact a chapter officer.</p></section>' +
+      others.map(function (p) { return personHtml(p, t, same); }).join('');
   }
 
   function invalidHtml() {
@@ -1261,7 +1329,7 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     para(ticket.ticket_no, 15, true, RGB.text);
     y += 1;
     para('Ticket holder: ' + ticket.holder_name, 10, false, RGB.text, M, inner, 2);
-    para((ticket.kind === 'member' ? 'Member' : 'Guest') + ' ticket · Fee: ' + money(ticket.fee_sar), 10, false, RGB.text);
+    para(typeLabel(ticket) + ' ticket · Fee: ' + money(ticket.fee_sar), 10, false, RGB.text);
     if (ticket.checked_in_at) para('Checked in: ' + TK.when(ticket.checked_in_at), 10, false, RGB.text);
     y += 3;
 

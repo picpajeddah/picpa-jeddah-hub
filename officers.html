@@ -357,6 +357,23 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-mg-confirm { display: grid; gap: var(--s2); text-align: left; }
 .tk-mg-confirm p { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 
+/* ---------- console set-up: registration link row, Sell tickets / Edit sales form, stop / cancel */
+.tk-mg-sub { margin: 0; overflow-wrap: anywhere; }
+.tk-mg-link { display: grid; gap: var(--s1); margin-top: var(--s3); min-width: 0; }
+.tk-mg-link label { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+.tk-mg-linkrow { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; min-width: 0; }
+.tk-mg-linkrow input {
+  flex: 1 1 14rem; min-width: 0; min-height: 36px; padding: var(--s1) var(--s2); font-size: var(--fs-sm);
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); color: var(--navy-800);
+}
+.tk-mg-setup { display: grid; gap: var(--s4); align-content: start; }
+.tk-mg-setup h2, .tk-mg-setup p { margin: 0; }
+.tk-mg-setup .tk-err:empty { display: none; }
+.tk-mg-setup .tk-ferr { font-size: var(--fs-sm); color: var(--crit-ink); font-weight: 600; }
+.tk-mg-danger { display: grid; gap: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s4); }
+.tk-mg-first { border-top: 0; padding-top: 0; }
+.tk-mg-danger h3 { margin: 0; font-size: var(--fs-md); }
+
 /* ---------- officer launcher (officers.html) */
 .tk-launcher { display: flex; flex-direction: column; gap: var(--s4); }
 .tk-launcher h1, .tk-launcher > p { margin: 0; }
@@ -374,6 +391,20 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-lcard-text { font-size: var(--fs-sm); color: var(--muted); }
 .tk-lcard-hint { display: block; margin-top: var(--s1); color: var(--text); font-weight: 600; }
 .tk-lcard-go { position: absolute; right: var(--s4); top: 50%; transform: translateY(-50%); font-size: var(--fs-xl); color: var(--navy-500); }
+
+/* group registration (08-groups.sql): type choice per person, people rows, total, group cards */
+.tk-typepick { border: 0; padding: 0; margin: 0; min-width: 0; }
+.tk-typepick legend { font-weight: 600; font-size: var(--fs-sm); padding: 0; margin-bottom: var(--s1); }
+.tk-typeopts { display: flex; flex-wrap: wrap; gap: 0 var(--s4); }
+.tk-typeopt { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; font-size: var(--fs-sm); }
+.tk-comps { border-top: 1px solid var(--line); padding-top: var(--s3); }
+.tk-comphead { margin: 0 0 var(--s1); font-size: var(--fs-md, 1rem); }
+.tk-comprow { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--s3); margin: var(--s3) 0; }
+.tk-comprow .tk-field { margin-bottom: var(--s2); }
+.tk-total p { margin: var(--s2) 0; font-size: var(--fs-md, 1rem); }
+.tk-group-list { margin: var(--s2) 0; padding-left: var(--s5, 1.25rem); }
+.tk-person h2 { margin: 0; font-size: var(--fs-lg, 1.125rem); overflow-wrap: anywhere; }
+.tk-comprow-h { margin: 0 0 var(--s2); font-weight: 600; font-size: var(--fs-sm); }
 </style>
 </head>
 <body data-page="officers">

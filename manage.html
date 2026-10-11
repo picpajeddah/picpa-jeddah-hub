@@ -357,6 +357,23 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-mg-confirm { display: grid; gap: var(--s2); text-align: left; }
 .tk-mg-confirm p { margin: 0; font-size: var(--fs-sm); overflow-wrap: anywhere; }
 
+/* ---------- console set-up: registration link row, Sell tickets / Edit sales form, stop / cancel */
+.tk-mg-sub { margin: 0; overflow-wrap: anywhere; }
+.tk-mg-link { display: grid; gap: var(--s1); margin-top: var(--s3); min-width: 0; }
+.tk-mg-link label { font-size: var(--fs-xs); font-weight: 600; color: var(--muted); }
+.tk-mg-linkrow { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; min-width: 0; }
+.tk-mg-linkrow input {
+  flex: 1 1 14rem; min-width: 0; min-height: 36px; padding: var(--s1) var(--s2); font-size: var(--fs-sm);
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface-2); color: var(--navy-800);
+}
+.tk-mg-setup { display: grid; gap: var(--s4); align-content: start; }
+.tk-mg-setup h2, .tk-mg-setup p { margin: 0; }
+.tk-mg-setup .tk-err:empty { display: none; }
+.tk-mg-setup .tk-ferr { font-size: var(--fs-sm); color: var(--crit-ink); font-weight: 600; }
+.tk-mg-danger { display: grid; gap: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s4); }
+.tk-mg-first { border-top: 0; padding-top: 0; }
+.tk-mg-danger h3 { margin: 0; font-size: var(--fs-md); }
+
 /* ---------- officer launcher (officers.html) */
 .tk-launcher { display: flex; flex-direction: column; gap: var(--s4); }
 .tk-launcher h1, .tk-launcher > p { margin: 0; }
@@ -374,6 +391,20 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-lcard-text { font-size: var(--fs-sm); color: var(--muted); }
 .tk-lcard-hint { display: block; margin-top: var(--s1); color: var(--text); font-weight: 600; }
 .tk-lcard-go { position: absolute; right: var(--s4); top: 50%; transform: translateY(-50%); font-size: var(--fs-xl); color: var(--navy-500); }
+
+/* group registration (08-groups.sql): type choice per person, people rows, total, group cards */
+.tk-typepick { border: 0; padding: 0; margin: 0; min-width: 0; }
+.tk-typepick legend { font-weight: 600; font-size: var(--fs-sm); padding: 0; margin-bottom: var(--s1); }
+.tk-typeopts { display: flex; flex-wrap: wrap; gap: 0 var(--s4); }
+.tk-typeopt { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; font-size: var(--fs-sm); }
+.tk-comps { border-top: 1px solid var(--line); padding-top: var(--s3); }
+.tk-comphead { margin: 0 0 var(--s1); font-size: var(--fs-md, 1rem); }
+.tk-comprow { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--s3); margin: var(--s3) 0; }
+.tk-comprow .tk-field { margin-bottom: var(--s2); }
+.tk-total p { margin: var(--s2) 0; font-size: var(--fs-md, 1rem); }
+.tk-group-list { margin: var(--s2) 0; padding-left: var(--s5, 1.25rem); }
+.tk-person h2 { margin: 0; font-size: var(--fs-lg, 1.125rem); overflow-wrap: anywhere; }
+.tk-comprow-h { margin: 0 0 var(--s2); font-weight: 600; font-size: var(--fs-sm); }
 </style>
 </head>
 <body data-page="manage">
@@ -1039,8 +1070,12 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 
 // ---- pages/manage.js
 /**
- * pages/manage.js — manage.html: the officers' events page. Home screen = events overview (ticketing_event_summary);
- * a row opens one event with four tabs: Pending payments, Attendees, Walk-in, Export CSV.
+ * pages/manage.js — manage.html: the officers' events page. Home screen = the events list: ticketed events
+ * (ticketing_event_summary) merged with the published Hub events (ticketing_list_hub_events), newest first; a ticketed
+ * card shows the registration link (Copy link, Share on WhatsApp). Ticket sales are set up HERE (president's decision
+ * 2026-10-11; the Tracker no longer does it): Hub admins and ledger Approvers get Sell tickets / Edit sales (one form,
+ * ticketing_setup_event), Stop sales now and Cancel event (ticketing_cancel_event_by_id); everyone else sees the list.
+ * "Open tickets" opens one event with four tabs: Pending payments, Attendees, Walk-in, Export CSV.
  * The server decides everything; the role gating here only hides buttons. Every dynamic string goes through TK.esc.
  *
  * Mutating calls (confirm, cancel, walk-in) all go through run(): one call at a time (busy), a reply that arrives after the
@@ -1056,11 +1091,14 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   var doc = root.document;
 
   var TABS = [['pending', 'Pending payments'], ['attendees', 'Attendees'], ['walkin', 'Walk-in'], ['export', 'Export CSV']];
-  var CSV_HEAD = ['Ticket no', 'Name', 'Kind', 'Phone', 'Fee (SAR)', 'Payment status', 'Checked in at'];
+  var CSV_HEAD = ['Ticket no', 'Name', 'Designation', 'Phone', 'Fee (SAR)', 'Payment status', 'Checked in at'];
 
   // in memory only
-  var S = { access: null, summary: [], eventId: null, tab: 'pending', tickets: null, listError: '', search: '', notice: null,
-    busy: false, seq: 0, loadId: 0, sumId: 0, cancelId: null, confirming: null, confirmMode: null, wired: false };
+  // hub = ticketing_list_hub_events (null until loaded / when it failed); setupId = the event whose Sell tickets / Edit
+  // sales view is open; saved = the last set-up result (its registration link is shown at once); stopAsk = "Stop sales now?" step
+  var S = { access: null, summary: [], hub: null, eventId: null, setupId: null, saved: null, stopAsk: false, tab: 'pending',
+    tickets: null, listError: '', search: '', notice: null, busy: false, seq: 0, loadId: 0, sumId: 0, hubId: 0, cancelId: null,
+    confirming: null, confirmMode: null, wired: false };
 
   function byId(id) { return doc && doc.getElementById ? doc.getElementById(id) : null; }
   function num(n) { return Number(n) || 0; }
@@ -1079,6 +1117,26 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   // ------------------------------------------------------------------ roles (from ticketing_my_access; the database re-checks)
   function canWrite() { return !!S.access && (S.access.ledger_role === 'encoder' || S.access.ledger_role === 'approver'); }
   function canCancel() { return !!S.access && (!!S.access.hub_admin || canWrite()); }
+  /** Sell tickets / Edit sales / Stop sales / Cancel event: Hub admins and ledger Approvers (the database re-checks). */
+  function canManage() { return !!S.access && (!!S.access.hub_admin || S.access.ledger_role === 'approver'); }
+  function hubRow(id) { var l = S.hub || []; for (var i = 0; i < l.length; i++) if (l[i] && l[i].announcement_id === id) return l[i]; return null; }
+  /** Only an https link is shown, copied or shared. */
+  function httpsLink(l) { l = String(l == null ? '' : l).trim(); return /^https:\/\/[^\s"'<>\\]+$/i.test(l) ? l : ''; }
+  /** An ISO time as Jeddah wall-clock 'YYYY-MM-DDTHH:MM' (the datetime-local value; Jeddah is UTC+3, no daylight saving). */
+  function jLocal(iso) {
+    var d = iso ? Date.parse(iso) : NaN;
+    return isNaN(d) ? '' : new Date(d + 3 * 3600000).toISOString().slice(0, 16);
+  }
+  var SMALL = ['a', 'an', 'and', 'the', 'of', 'for', 'to', 'in', 'on', 'at', 'by', 'with'];
+  /** Default ticket code (same rule as the database): initials of the title's words (small words and words starting with a
+   *  digit skipped, at most 8) in capitals + the 2-digit year of the event (Jeddah time). 'EV' when no word qualifies. */
+  function defaultRef(title, date) {
+    var init = String(title || '').split(/[^A-Za-z0-9]+/).filter(function (w) {
+      return /^[A-Za-z]/.test(w) && SMALL.indexOf(w.toLowerCase()) < 0;
+    }).map(function (w) { return w.charAt(0); }).join('').toUpperCase().slice(0, 8) || 'EV';
+    var j = jLocal(date);
+    return init + (j ? j.slice(2, 4) : '');
+  }
   function eventCancelled() { var e = curEvent(); return !!e && e.event_status === 'cancelled'; }
 
   /** A plain sentence for any error. The ledger-event case names the fix. */
@@ -1097,6 +1155,17 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     return e.checkin_open ? TK.pill('good', 'Check-in open') : TK.pill('neutral', 'Check-in closed');
   }
   function kindLabel(k) { return k === 'member' ? 'Member' : 'Guest'; }
+  /** The type the person chose (Member / Officer / Guest; 08-groups.sql), else the verified kind (older tickets). */
+  var TYPE_LABEL = { member: 'Member', officer: 'Officer', guest: 'Guest' };
+  function typeLabel(t) { return TYPE_LABEL[t.attendee_type] || kindLabel(t.kind); }
+  // ---- groups (08-groups.sql): group_id = the registrant's ticket id on everyone in the group
+  function groupMembers(gid) { return (S.tickets || []).filter(function (x) { return x.group_id === gid; }); }
+  function groupActive(gid) { return groupMembers(gid).filter(function (x) { return x.status === 'active'; }); }
+  function groupLine(t) {
+    if (!t.group_id) return '';
+    var lead = ticketOf(t.group_id);
+    return '<div class="tk-mini">Group of ' + groupActive(t.group_id).length + ' · registered by ' + esc(lead ? lead.holder_name : '') + '</div>';
+  }
   function modeLabel(t) {
     var m = t.payment_mode === 'bank' ? 'Bank transfer' : t.payment_mode === 'cash' ? 'Cash' : 'Free';
     return m + (t.bank_ref ? ' · ref ' + t.bank_ref : '');
@@ -1150,7 +1219,43 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     return out;
   }
 
-  function eventCardHtml(e) {
+  /** The registration link (read-only field), Copy link and Share on WhatsApp. Nothing when the link is not https. */
+  function linkRowHtml(id, title, link) {
+    var l = httpsLink(link);
+    if (!l) return '';
+    var share = 'https://wa.me/?text=' + encodeURIComponent(String(title == null ? '' : title) + ' ' + l);
+    return '<div class="tk-mg-link"><label for="mg-link-' + esc(id) + '">Registration link</label><div class="tk-mg-linkrow">' +
+      '<input id="mg-link-' + esc(id) + '" type="text" readonly value="' + esc(l) + '">' +
+      '<button type="button" class="tk-btn tk-btn-small" data-action="cn.copy" data-link="' + esc(l) + '">Copy link</button>' +
+      '<a class="tk-btn tk-btn-small" href="' + esc(share) + '" target="_blank" rel="noopener noreferrer">Share on WhatsApp</a></div></div>';
+  }
+  function whenWhere(date, venue, ref) {
+    return esc(TK.when(date)) + (venue ? ' · ' + esc(venue) : '') + (ref ? ' · ' + esc(ref) : '');
+  }
+
+  /** The events list: ticketed events (summary) and, for sales managers, published Hub events not selling yet;
+   *  newest first by date. Without the Hub list (not loaded / failed) the ticketed events still show. */
+  function entries() {
+    var out = [], seen = {}, man = canManage();
+    (S.hub || []).forEach(function (h) {
+      if (!h || !h.announcement_id || seen[h.announcement_id]) return;
+      seen[h.announcement_id] = true;
+      var s = evRow(h.announcement_id);
+      if (s) out.push({ date: h.event_date || s.event_date, sum: s, hub: h });
+      else if (!h.ticketing && man) out.push({ date: h.event_date, sum: null, hub: h });
+    });
+    S.summary.forEach(function (s) { if (!seen[s.announcement_id]) out.push({ date: s.event_date, sum: s, hub: null }); });
+    function t(x) { var v = Date.parse(x.date); return isNaN(v) ? -Infinity : v; }
+    return out.map(function (x, i) { x.i = i; return x; }).sort(function (a, b) { return (t(b) - t(a)) || (a.i - b.i); });
+  }
+  function notSellingHtml(h) {
+    return '<article class="tk-card tk-mg-ev"><div class="tk-mg-evhead"><h2>' + esc(h.title) + '</h2>' + TK.pill('neutral', 'Not selling') + '</div>' +
+      '<p class="tk-muted">' + whenWhere(h.event_date, h.venue) + '</p>' +
+      '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-primary" data-action="cn.setup" data-id="' + esc(h.announcement_id) +
+      '" aria-label="' + esc('Sell tickets for ' + h.title) + '">Sell tickets</button></div></article>';
+  }
+
+  function eventCardHtml(e, h) {
     var cap = e.capacity === null || e.capacity === undefined ? '' : ' of ' + esc(String(num(e.capacity)));
     var stats = stat('Sold', esc(String(num(e.sold))) + cap) + stat('Paid', esc(String(num(e.paid)))) +
       stat('Pending', esc(String(num(e.pending)))) + stat('Free', esc(String(num(e.free)))) +
@@ -1159,19 +1264,99 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
       stats += stat('Ledger receipts', esc(num(e.receipts_submitted) + ' submitted · ' + num(e.receipts_approved) + ' approved'));
     }
     stats += stat('Refund due', esc(String(num(e.refund_due))));
+    var cancelled = e.event_status === 'cancelled';
+    var title = h && h.title != null ? h.title : e.title;
     return '<article class="tk-card tk-mg-ev">' +
       '<div class="tk-mg-evhead"><h2>' + esc(e.title) + '</h2>' + statusPill(e) + '</div>' +
-      '<p class="tk-muted">' + esc(TK.when(e.event_date)) + (e.ticket_ref ? ' · ' + esc(e.ticket_ref) : '') + '</p>' +
+      '<p class="tk-muted">' + whenWhere(e.event_date, h ? h.venue : '', e.ticket_ref) + '</p>' +
       '<dl class="tk-mg-stats">' + stats + '</dl>' + warningsHtml(e) +
       '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-primary" data-action="cn.open" data-id="' + esc(e.announcement_id) +
-      '" aria-label="' + esc('Open ' + e.title) + '">Open tickets</button></div></article>';
+      '" aria-label="' + esc('Open ' + e.title) + '">Open tickets</button>' +
+      (canManage() && h && !cancelled ? '<button type="button" class="tk-btn" data-action="cn.setup" data-id="' + esc(e.announcement_id) +
+        '" aria-label="' + esc('Edit sales for ' + e.title) + '">Edit sales</button>' : '') + '</div>' +
+      (h && !cancelled ? linkRowHtml(e.announcement_id, title, h.registration_link) : '') + '</article>';
   }
   function overviewHtml() {
-    var body = S.summary.length ? S.summary.map(eventCardHtml).join('')
-      : '<div class="tk-card tk-card-dashed tk-gate"><h2>No ticketed events yet</h2><p>Events appear here once ticketing is set up for them in the Tracker.</p></div>';
+    var list = entries();
+    var body = list.length ? list.map(function (x) { return x.sum ? eventCardHtml(x.sum, x.hub) : notSellingHtml(x.hub); }).join('')
+      : '<div class="tk-card tk-card-dashed tk-gate"><h2>No events yet</h2><p>' + (canManage()
+        ? 'Published Hub events appear here. Choose Sell tickets on one to open registration.'
+        : 'Events appear here once a Hub admin turns on ticket sales on this page.') + '</p></div>';
     return '<div class="tk-mg-top"><h1>Events console</h1>' +
       '<button type="button" class="tk-btn tk-btn-small" data-action="cn.refresh">Refresh</button></div>' +
       '<div id="mg-notice" class="tk-mg-notice"></div><div class="tk-mg-evs">' + body + '</div>';
+  }
+
+  // ------------------------------------------------------------------ Sell tickets / Edit sales (one form, both cases)
+  function setupEvent() { return S.setupId ? hubRow(S.setupId) : null; }
+  function issued(h) {                            // active tickets (the summary's "sold" when it is there)
+    var s = h ? evRow(h.announcement_id) : null;
+    return s ? num(s.sold) : h && h.ticketing ? num(h.ticketing.tickets_active) : 0;
+  }
+  function stopHtml() {
+    if (S.stopAsk) {
+      var dis = S.busy ? ' disabled' : '';
+      return '<p><b>Stop sales now?</b> Registration closes immediately. Tickets already issued stay valid.</p>' +
+        '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-danger tk-btn-small" data-action="cn.stop.go"' + dis + '>Yes, stop sales</button>' +
+        '<button type="button" class="tk-btn tk-btn-small" data-action="cn.stop.back"' + dis + '>Keep selling</button></div>';
+    }
+    return '<p class="tk-muted">Close registration now. Tickets already issued stay valid.</p>' +
+      '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-small" data-action="cn.stop">Stop sales now</button></div>';
+  }
+  function setupFormHtml(h) {
+    var t = h.ticketing, edit = !!t, locked = edit && num(t.tickets_issued) > 0;
+    function val(x) { return x === null || x === undefined ? '' : String(x); }
+    var ref = edit ? val(t.ticket_ref) : defaultRef(h.title, h.event_date);
+    var closes = edit ? jLocal(t.registration_closes_at) : jLocal(h.event_date);
+    function input(name, label, type, value, extra, hint) {
+      return '<div class="tk-field"><label for="mg-s-' + name + '">' + label + '</label><input id="mg-s-' + name + '" name="' + name +
+        '" type="' + type + '" value="' + esc(value) + '"' + (extra || '') + '>' + (hint ? '<span class="tk-hint">' + hint + '</span>' : '') + '</div>';
+    }
+    return '<form class="tk-form tk-form-2" data-action="cn.setup.save" id="mg-sform" novalidate>' +
+      // one price per type (president 2026-10-11): each person pays the price of the type they choose when registering
+      input('fee_member', 'Member price (SAR)', 'text', edit ? val(t.fee_member_sar) : '', ' inputmode="decimal" autocomplete="off" required', '0 = free') +
+      input('fee_officer', 'Officer price (SAR)', 'text', edit ? val(t.fee_officer_sar == null ? t.fee_member_sar : t.fee_officer_sar) : '',
+        ' inputmode="decimal" autocomplete="off" required', '0 = free') +
+      input('fee_guest', 'Guest price (SAR)', 'text', edit ? val(t.fee_guest_sar) : '', ' inputmode="decimal" autocomplete="off" required', '0 = free') +
+      input('capacity', 'Seats', 'text', edit ? val(t.capacity) : '', ' inputmode="numeric" autocomplete="off"', 'Blank = no limit') +
+      input('ticket_ref', 'Ticket code', 'text', ref, ' maxlength="20" autocomplete="off" spellcheck="false"' + (locked ? ' readonly' : ''),
+        locked ? 'Fixed: tickets have been issued with this code.' : 'Used in ticket numbers, e.g. GMM26. Letters, digits, - or _.') +
+      input('opens', 'Registration opens (optional)', 'datetime-local', edit ? jLocal(t.registration_opens_at) : '', '', 'Jeddah time. Blank = open now') +
+      input('closes', 'Registration closes', 'datetime-local', closes, '',
+        edit ? 'Jeddah time. Blank = one day after the event' : 'Jeddah time. Set to the event start') +
+      // review I-2: the officer may name the existing ledger event (for paid events); blank = match or create automatically
+      input('ledger_event_code', 'Ledger event code (optional)', 'text', edit ? val(t.ledger_event_code) : '',
+        ' maxlength="20" autocomplete="off" spellcheck="false"', 'For paid events. Leave blank to match or create automatically.') +
+      '<div class="tk-field tk-wide"><label for="mg-s-note">Payment instructions</label><textarea id="mg-s-note" name="note" maxlength="2000" rows="3">' +
+      esc(edit ? val(t.payment_note) : '') + '</textarea><span class="tk-hint">Shown on the registration page, e.g. bank transfer details. Up to 2000 characters.</span></div>' +
+      '<label class="tk-check tk-wide"><input type="checkbox" name="checkin"' + (edit && t.checkin_open ? ' checked' : '') + '> Check-in open (the door can scan tickets)</label>' +
+      '<p class="tk-ferr tk-wide" id="mg-s-err" role="alert"></p>' +
+      '<div class="tk-wide"><button type="submit" class="tk-btn tk-btn-primary" id="mg-sgo">' + (edit ? 'Save changes' : 'Turn on ticket sales') + '</button></div></form>';
+  }
+  function setupHtml() {
+    var h = setupEvent();
+    if (!h) return overviewHtml();
+    var t = h.ticketing, cancelled = !!t && t.event_status === 'cancelled';
+    var link = S.saved && S.saved.id === h.announcement_id ? S.saved.link : (t ? h.registration_link : '');
+    var body;
+    if (cancelled) {
+      body = '<section class="tk-card tk-mg-setup"><h2>Ticket sales</h2><p>This event was cancelled. Its ticket sales cannot be changed.</p>' +
+        (t.change_note ? '<p class="tk-muted">' + esc(t.change_note) + '</p>' : '') + '</section>';
+    } else {
+      body = '<section class="tk-card tk-mg-setup"><h2>' + (t ? 'Edit sales' : 'Sell tickets') + '</h2>' +
+        (t ? '' : '<p class="tk-muted">Members, officers and guests register on the registration page (and may bring people with them); each person pays the price of the type they choose. Enter all three prices (0 = free).</p>') +
+        setupFormHtml(h) + '</section>';
+      if (t) {
+        body += '<section class="tk-card tk-mg-setup"><div class="tk-mg-danger tk-mg-first"><h3>Stop sales</h3><div id="mg-stop">' + stopHtml() + '</div></div>' +
+          '<div class="tk-mg-danger"><h3>Cancel event</h3><p class="tk-muted">Closes registration and cancels the tickets. Paid tickets become due a refund. This cannot be undone.</p>' +
+          '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-danger" data-action="cn.evcancel">Cancel event</button></div></div></section>';
+      }
+    }
+    return '<div class="tk-mg-top"><button type="button" class="tk-btn tk-btn-small" data-action="cn.back">All events</button></div>' +
+      '<div class="tk-mg-evline"><h1>' + esc(h.title) + '</h1>' + (t ? statusPill(t) : TK.pill('neutral', 'Not selling')) + '</div>' +
+      '<p class="tk-mg-sub tk-muted">' + whenWhere(h.event_date, h.venue) + '</p>' +
+      (link && !cancelled ? '<section class="tk-card">' + linkRowHtml(h.announcement_id, h.title, link) + '</section>' : '') +
+      '<div id="mg-notice" class="tk-mg-notice"></div>' + body;
   }
 
   // ------------------------------------------------------------------ event view
@@ -1199,12 +1384,13 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 
   /** The registration's own mode (bank / cash), used as the default of the confirm step. */
   function defaultMode(t) { return t && t.payment_mode === 'bank' ? 'bank' : 'cash'; }
-  function confirmStepHtml(t) {
+  function confirmStepHtml(t, g) {
     var mode = S.confirmMode === 'bank' || S.confirmMode === 'cash' ? S.confirmMode : defaultMode(t);
     var dis = S.busy ? ' disabled' : '';
     var opt = function (v, label) { return '<option value="' + v + '"' + (mode === v ? ' selected' : '') + '>' + label + '</option>'; };
-    return '<div class="tk-mg-confirm"><p>Confirm <b>' + esc(money(t.fee_sar)) + '</b> received from <b>' + esc(t.holder_name) +
-      '</b>? This posts a Ledger receipt.</p>' +
+    return '<div class="tk-mg-confirm"><p>' + (g
+      ? 'Confirm <b>' + esc(money(g.total)) + '</b> received from <b>' + esc(g.name) + '</b> for ' + g.size + (g.size === 1 ? ' attendee' : ' attendees') + '? This posts one Ledger receipt for the group.'
+      : 'Confirm <b>' + esc(money(t.fee_sar)) + '</b> received from <b>' + esc(t.holder_name) + '</b>? This posts a Ledger receipt.') + '</p>' +
       (needsReconfirm(t) ? '<p class="tk-mini">The earlier receipt ' + esc(t.receipt_doc || '') + ' was ' + esc(t.receipt_status) +
         ' in the Ledger. Confirm only if the money has now arrived; a new receipt is made.</p>' : '') +
       '<div class="tk-field tk-mg-cmode"><label for="mg-c-mode">Received by</label>' +
@@ -1225,17 +1411,41 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   function pendingRows() {
     return (S.tickets || []).filter(confirmable);
   }
+  /** Pending lines: one per single ticket, and ONE per group (its unpaid people together, with the total; 08-groups.sql). */
+  function pendingEntries() {
+    var out = [], seen = {};
+    pendingRows().forEach(function (t) {
+      if (!t.group_id) { out.push({ t: t, g: null }); return; }
+      if (seen[t.group_id]) { seen[t.group_id].rows.push(t); seen[t.group_id].total += num(t.fee_sar); return; }
+      var lead = ticketOf(t.group_id) || t;
+      var e = { t: t, g: { lead: lead, name: lead.holder_name, rows: [t], total: num(t.fee_sar), size: 0 } };
+      seen[t.group_id] = e.g;
+      out.push(e);
+    });
+    out.forEach(function (e) { if (e.g) e.g.size = e.g.rows.length; });
+    return out;
+  }
   function pendingListHtml() {
-    var rows = pendingRows();
+    var rows = pendingEntries();
     if (!rows.length) return '<p class="tk-muted">No payments are waiting.</p>';
     var showBtn = canWrite() && !eventCancelled();
-    return '<div class="tk-table-wrap"><table class="tk-grid tk-stack"><thead><tr><th>Ticket</th><th>Name</th><th>Type</th><th>Fee</th>' +
-      '<th>How they will pay</th>' + (showBtn ? '<th></th>' : '') + '</tr></thead><tbody>' + rows.map(function (t) {
-        return '<tr><td data-label="Ticket" class="tk-nowrap">' + esc(t.ticket_no) + '</td><td data-label="Name">' + esc(t.holder_name) + '</td>' +
-          '<td data-label="Type">' + kindLabel(t.kind) + '</td><td data-label="Fee" class="tk-num">' + esc(money(t.fee_sar)) + '</td>' +
+    return '<div class="tk-table-wrap"><table class="tk-grid tk-stack"><thead><tr><th>Ticket</th><th>Name</th><th>Designation</th><th>Fee</th>' +
+      '<th>How they will pay</th>' + (showBtn ? '<th></th>' : '') + '</tr></thead><tbody>' + rows.map(function (e) {
+        var t = e.t, g = e.g;
+        var others = g ? groupActive(g.lead.id).length - 1 : 0;
+        var no = g ? g.lead.ticket_no + (others > 0 ? ' (+' + others + ')' : '') : t.ticket_no;
+        // equal prices are never itemised; the price per attendee only when the group's prices differ
+        var same = !g || g.rows.every(function (x) { return num(x.fee_sar) === num(g.rows[0].fee_sar); });
+        var name = g ? esc(g.name) + '<div class="tk-mini">' + g.rows.map(function (x) {
+          return esc(x.holder_name) + ' (' + typeLabel(x) + (same ? '' : ', ' + esc(money(x.fee_sar))) + ')';
+        }).join(', ') + '</div>'
+          : esc(t.holder_name);
+        return '<tr><td data-label="Ticket" class="tk-nowrap">' + esc(no) + '</td><td data-label="Name">' + name + '</td>' +
+          '<td data-label="Designation">' + (g ? g.size + (g.size === 1 ? ' attendee' : ' attendees') : typeLabel(t)) + '</td>' +
+          '<td data-label="Fee" class="tk-num">' + esc(money(g ? g.total : t.fee_sar)) + '</td>' +
           '<td data-label="Payment">' + esc(modeLabel(t)) +
           (needsReconfirm(t) ? '<div class="tk-pills">' + TK.pill('warn', 'Receipt ' + t.receipt_status + ': counts as unpaid') + '</div>' : '') + '</td>' +
-          (showBtn ? '<td data-label="">' + (S.confirming === t.id ? confirmStepHtml(t) :
+          (showBtn ? '<td data-label="">' + (S.confirming === t.id ? confirmStepHtml(t, g) :
             '<button type="button" class="tk-btn tk-btn-good tk-btn-small" data-action="cn.confirm" data-id="' + esc(t.id) + '"' +
             (S.busy ? ' disabled' : '') + '>' + (needsReconfirm(t) ? 'Confirm again' : 'Confirm payment') + '</button>') + '</td>' : '') + '</tr>';
       }).join('') + '</tbody></table></div>';
@@ -1263,14 +1473,23 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     var rows = (S.tickets || []).filter(function (t) { return matches(t, q); });
     if (!rows.length) return '<p class="tk-muted">' + ((S.tickets || []).length ? 'No tickets match your search.' : 'No tickets yet.') + '</p>';
     var showCancel = canCancel();
-    return '<div class="tk-table-wrap"><table class="tk-grid tk-stack"><thead><tr><th>Ticket</th><th>Name</th><th>Type</th><th>Phone</th><th>Fee</th>' +
+    function cancelBtn(t) {
+      var dis = S.busy ? ' disabled' : '';
+      if (t.group_id) {
+        // a group is cancelled as a whole (from the registrant's row); one person of a group: a later step
+        var open = groupMembers(t.group_id).some(function (x) { return x.status === 'active' && !x.checked_in_at; });
+        return t.group_id === t.id && open ? '<button type="button" class="tk-btn tk-btn-danger tk-btn-small" data-action="cn.gcancel" data-id="' +
+          esc(t.id) + '"' + dis + '>Cancel group</button>' : '';
+      }
+      return t.status === 'active' && !t.checked_in_at ? '<button type="button" class="tk-btn tk-btn-danger tk-btn-small" data-action="cn.cancel" data-id="' +
+        esc(t.id) + '"' + dis + '>Cancel ticket</button>' : '';
+    }
+    return '<div class="tk-table-wrap"><table class="tk-grid tk-stack"><thead><tr><th>Ticket</th><th>Name</th><th>Designation</th><th>Phone</th><th>Fee</th>' +
       '<th>Status</th>' + (showCancel ? '<th></th>' : '') + '</tr></thead><tbody>' + rows.map(function (t) {
-        var can = showCancel && t.status === 'active' && !t.checked_in_at;
-        return '<tr><td data-label="Ticket" class="tk-nowrap">' + esc(t.ticket_no) + '</td><td data-label="Name">' + esc(t.holder_name) + '</td>' +
-          '<td data-label="Type">' + kindLabel(t.kind) + '</td><td data-label="Phone">' + esc(t.phone || '') + '</td>' +
+        return '<tr><td data-label="Ticket" class="tk-nowrap">' + esc(t.ticket_no) + '</td><td data-label="Name">' + esc(t.holder_name) + groupLine(t) + '</td>' +
+          '<td data-label="Designation">' + typeLabel(t) + '</td><td data-label="Phone">' + esc(t.phone || '') + '</td>' +
           '<td data-label="Fee" class="tk-num">' + esc(money(t.fee_sar)) + '</td><td data-label="Status">' + attendeeStatus(t) + '</td>' +
-          (showCancel ? '<td data-label="">' + (can ? '<button type="button" class="tk-btn tk-btn-danger tk-btn-small" data-action="cn.cancel" data-id="' +
-            esc(t.id) + '"' + (S.busy ? ' disabled' : '') + '>Cancel ticket</button>' : '') + '</td>' : '') + '</tr>';
+          (showCancel ? '<td data-label="">' + cancelBtn(t) + '</td>' : '') + '</tr>';
       }).join('') + '</tbody></table></div>';
   }
   function countsLine() {
@@ -1345,7 +1564,7 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     } else if (S.tab === 'export') drawPanel();
   }
   function drawPage() {
-    TK.setHTML('mg-page', S.eventId ? eventShellHtml() : overviewHtml());
+    TK.setHTML('mg-page', S.eventId ? eventShellHtml() : S.setupId ? setupHtml() : overviewHtml());
     drawNotice();
     if (S.eventId) drawPanel();
   }
@@ -1376,6 +1595,27 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     }
     return force ? go() : TK.guard('mg.summary.' + seq, go);
   }
+
+  /** The published Hub events (ticketing_list_hub_events). A failure keeps the ticketed events and says so plainly. */
+  function hubNote(err) { return 'The list of Hub events without ticket sales could not be loaded: ' + friendly(err) + ' Ticketed events are shown below.'; }
+  function loadHub(force) {
+    var seq = S.seq;
+    function go() {
+      var id = ++S.hubId;
+      return TK.rpc('ticketing_list_hub_events').then(function (list) {
+        if (id !== S.hubId || seq !== S.seq) return;
+        if (!Array.isArray(list)) throw TK.makeError('UNKNOWN');
+        S.hub = list;
+        if (!S.eventId) drawPage();
+      }).then(null, function (err) {
+        if (id !== S.hubId || seq !== S.seq) return;
+        if (err && err.code === 'TKT_NO_ACCESS') { noAccess(); return; }
+        if (!S.eventId && !S.setupId) setNotice('warn', [hubNote(err)]);
+      });
+    }
+    return force ? go() : TK.guard('mg.hub.' + seq, go);
+  }
+  function loadLists(force) { return Promise.all([loadSummary(force), loadHub(force)]); }
 
   function loadTickets(force) {
     var ev = S.eventId, seq = S.seq;
@@ -1429,12 +1669,16 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     S.seq += 1;
     S.busy = false;
     S.eventId = id;
+    S.setupId = null;
+    S.saved = null;
+    S.stopAsk = false;
     S.tab = tab;
     S.tickets = null;
     S.listError = '';
     S.search = '';
     S.notice = null;
     S.cancelId = null;
+    S.gcancelId = null;
     S.confirming = null;
     S.confirmMode = null;
     TK.closeModal();
@@ -1450,13 +1694,16 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     S.seq += 1;
     S.busy = false;
     S.eventId = null;
+    S.setupId = null;
+    S.saved = null;
+    S.stopAsk = false;
     S.tickets = null;
     S.notice = null;
     TK.closeModal();
     drawPage();
-    return loadSummary();
+    return loadLists();
   });
-  TK.action('cn.refresh', function () { S.notice = null; return loadSummary(true); });
+  TK.action('cn.refresh', function () { S.notice = null; return loadLists(true); });
   TK.action('cn.tab', function (el) {
     var t = el && el.getAttribute ? el.getAttribute('data-tab') : '';
     if (!S.eventId || !TABS.some(function (x) { return x[0] === t; })) return null;
@@ -1498,8 +1745,13 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     var mode = S.confirmMode === 'bank' || S.confirmMode === 'cash' ? S.confirmMode : defaultMode(t);
     S.confirming = null;
     S.confirmMode = null;
-    var who = t.holder_name, no = t.ticket_no;
-    function msg(out) { return 'Payment confirmed for ' + who + ' (' + (out.ticket_no || no) + '). Ledger receipt ' + (out.ledger_doc || '(number not returned)') + '.'; }
+    var lead = t.group_id ? ticketOf(t.group_id) : null;
+    var who = lead ? lead.holder_name : t.holder_name, no = lead ? lead.ticket_no : t.ticket_no;
+    function msg(out) {
+      var many = num(out.people) > 1;
+      return 'Payment confirmed for ' + who + (many ? '\'s group (' + num(out.people) + ' people, ' + no + ')' : ' (' + (out.ticket_no || no) + ')') +
+        '. Ledger receipt ' + (out.ledger_doc || '(number not returned)') + '.';
+    }
     return run(function () { return TK.rpc('ticketing_confirm_payment', { p_ticket: id, p_mode: mode, p_bank_ref: t.bank_ref || null }); }, {
       ok: function (out) {
         if (!isObj(out)) { setNotice('crit', [friendly(TK.makeError('UNKNOWN')), 'Check the list below before trying again.']); return loadTickets(true); }
@@ -1583,6 +1835,57 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     });
   });
 
+  // ------------------------------------------------------------------ actions: cancel a whole group (08-groups.sql)
+  TK.action('cn.gcancel', function (el) {
+    var id = el && el.getAttribute ? el.getAttribute('data-id') : '';
+    var t = ticketOf(id);
+    if (!t || t.group_id !== t.id || !canCancel() || S.busy) return null;
+    S.gcancelId = id;
+    var who = groupMembers(id).filter(function (x) { return x.status === 'active' && !x.checked_in_at; });
+    TK.modal('<h2>Cancel group</h2><p>Registered by <b>' + esc(t.holder_name) + '</b> · ' + esc(t.ticket_no) + '</p>' +
+      '<p>These tickets stop working:</p><ul>' + who.map(function (x) { return '<li>' + esc(x.holder_name) + ' · ' + esc(x.ticket_no) + '</li>'; }).join('') + '</ul>' +
+      '<p>People already checked in keep their ticket. If the group paid, you will be told which Ledger receipt to settle.</p>' +
+      '<form class="tk-form" data-action="cn.gcancel.go" id="mg-gform" novalidate>' +
+      '<div class="tk-field"><label for="mg-greason">Reason (required)</label>' +
+      '<textarea id="mg-greason" name="reason" maxlength="500" rows="3" required aria-describedby="mg-greason-err"></textarea>' +
+      '<span class="tk-hint">4 to 500 characters.</span><span class="tk-err" id="mg-greason-err" role="alert"></span></div>' +
+      '<div class="tk-modal-actions"><button type="button" class="tk-btn" data-action="tk.closeModal">Keep the group</button>' +
+      '<button type="submit" class="tk-btn tk-btn-danger" id="mg-ggo">Cancel group</button></div></form>', { label: 'Cancel group' });
+    var r = byId('mg-greason');
+    if (r && r.focus) r.focus();
+    return null;
+  });
+  TK.action('cn.gcancel.go', function (form) {
+    var id = S.gcancelId, t = id ? ticketOf(id) : null;
+    if (!t || !canCancel() || S.busy) return null;
+    var f = field(form, 'reason');
+    var reason = String(f && f.value != null ? f.value : '').trim().replace(/\s+/g, ' ');
+    function gErr(m) { TK.setHTML('mg-greason-err', esc(m || '')); }
+    if (reason.length < 4) { gErr('Please give a reason of at least 4 characters.'); return null; }
+    if (reason.length > 500) { gErr('That reason is too long (up to 500 characters).'); return null; }
+    gErr('');
+    var go = byId('mg-ggo');
+    if (go && go.setAttribute) go.setAttribute('disabled', 'disabled');
+    function enable() { if (go && go.removeAttribute) go.removeAttribute('disabled'); }
+    return run(function () { return TK.rpc('ticketing_cancel_group', { p_ticket: id, p_reason: reason }); }, {
+      ok: function (out) {
+        if (!isObj(out)) { enable(); gErr(friendly(TK.makeError('UNKNOWN')) + ' Check the list before trying again.'); return loadTickets(true); }
+        TK.closeModal();
+        S.gcancelId = null;
+        S.notice = { kind: num(out.refund_due) > 0 ? 'warn' : out.already_cancelled ? 'info' : 'good', lines: [out.message || 'Group cancelled.'] };
+        drawNotice();
+        return loadTickets(true);
+      },
+      err: function (err) {
+        if (err && err.code === 'TKT_NO_ACCESS') { noAccess(); return; }
+        if (TK.isTimeout(err)) { TK.closeModal(); S.gcancelId = null; setNotice('warn', [TK.MAYBE_SAVED]); loadTickets(true); return; }
+        enable();
+        gErr(friendly(err));
+      },
+      stale: function (out) { TK.closeModal(); if (isObj(out)) TK.toast(out.message || 'Group cancelled.', 'good'); }
+    });
+  });
+
   // ------------------------------------------------------------------ actions: walk-in
   TK.action('cn.walk', function (form) {
     if (!canWrite() || S.busy || !S.eventId || eventCancelled()) return null;
@@ -1632,6 +1935,194 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     });
   });
 
+  // ------------------------------------------------------------------ actions: Sell tickets / Edit sales
+  TK.action('cn.setup', function (el) {
+    var id = el && el.getAttribute ? el.getAttribute('data-id') : '';
+    var h = id ? hubRow(id) : null;
+    if (!h || !canManage()) return null;
+    S.seq += 1;
+    S.busy = false;
+    S.eventId = null;
+    S.setupId = id;
+    S.saved = null;
+    S.stopAsk = false;
+    S.tickets = null;
+    S.notice = null;
+    TK.closeModal();
+    drawPage();
+    return loadLists(true);                         // edit the stored values as they are now (another officer may have changed them)
+  });
+  function setupError(m) { TK.setHTML('mg-s-err', esc(m || '')); }
+  function val(form, name) { var f = field(form, name); return String(f && f.value != null ? f.value : '').trim(); }
+  var FEE = /^\d{1,7}(\.\d{1,2})?$/, WHEN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
+  /** The form as p_params, or a plain sentence (the Tracker's former rules; the database checks them again). */
+  function readSetup(form, h) {
+    var t = h.ticketing, locked = !!t && num(t.tickets_issued) > 0;
+    var fm = val(form, 'fee_member'), fo = val(form, 'fee_officer'), fg = val(form, 'fee_guest'), cap = val(form, 'capacity');
+    var opens = val(form, 'opens').slice(0, 16), closes = val(form, 'closes').slice(0, 16), note = val(form, 'note');
+    var ck = field(form, 'checkin'), ref = val(form, 'ticket_ref');
+    if (fm === '' || fo === '' || fg === '') return 'Enter all three prices (0 = free).';
+    if (!FEE.test(fm) || !FEE.test(fo) || !FEE.test(fg)) return 'Prices must be 0 or more, with at most 2 decimals (SAR). Use 0 for a free event.';
+    if (cap !== '' && (!/^\d{1,6}$/.test(cap) || Number(cap) < 1)) return 'Seats must be a whole number of 1 or more, or empty for no limit.';
+    var capN = cap === '' ? null : Number(cap);
+    if (t && capN !== null && capN < issued(h) && capN !== t.capacity) {
+      return 'Seats cannot be below the ' + issued(h) + ' tickets already issued.';
+    }
+    if (opens && !WHEN.test(opens)) return 'Enter the date and time registration opens (Jeddah time).';
+    if (closes && !WHEN.test(closes)) return 'Enter the date and time registration closes (Jeddah time).';
+    if (opens && closes && closes <= opens) return 'Registration must close after it opens.';
+    if (note.length > 2000) return 'Payment instructions can be up to 2000 characters.';
+    if (!locked && !/^[A-Za-z0-9_-]{1,20}$/.test(ref)) return 'The ticket code must be 1 to 20 letters, digits, "-" or "_" (for example GMM26).';
+    var p = { fee_member_sar: Number(fm), fee_officer_sar: Number(fo), fee_guest_sar: Number(fg), capacity: capN, registration_opens_at: opens || null,
+      registration_closes_at: closes || null, checkin_open: !!(ck && ck.checked), payment_note: note || null };
+    if (!locked) p.ticket_ref = ref;
+    var led = val(form, 'ledger_event_code');
+    if (led) {
+      if (led.length > 20 || /[\u0000-\u001f]/.test(led)) return 'The ledger event code is too long (up to 20 characters).';
+      p.ledger_event_code = led;
+    }
+    return p;
+  }
+  function backfillLine(out) {
+    var bf = Math.max(0, Math.floor(num(out.backfilled))), sk = Math.max(0, Math.floor(num(out.backfill_skipped)));
+    var l = bf ? (bf === 1 ? '1 earlier Hub registration got a ticket.' : bf + ' earlier Hub registrations got tickets.') : '';
+    if (sk) l += (l ? ' ' : '') + (sk === 1 ? '1 Hub registration could not get a ticket' : sk + ' Hub registrations could not get a ticket') + ' (check the attendee list).';
+    return l;
+  }
+  /** After a write: reload both lists, then redraw this view (the form shows the stored values). */
+  function afterWrite() { return loadLists(true).then(function () { if (!S.eventId) safe(drawPage); }); }
+  TK.action('cn.setup.save', function (form) {
+    var h = setupEvent();
+    if (!h || !canManage() || S.busy || (h.ticketing && h.ticketing.event_status === 'cancelled')) return null;
+    var p = readSetup(form, h);
+    if (typeof p === 'string') { setupError(p); return null; }
+    setupError('');
+    var id = h.announcement_id, created = !h.ticketing, title = h.title;
+    var go = byId('mg-sgo');
+    if (go && go.setAttribute) go.setAttribute('disabled', 'disabled');
+    function first(out) { return created ? 'Ticket sales are on for ' + title + '. Copy or share the registration link.' : 'Ticket sales updated.'; }
+    return run(function () { return TK.rpc('ticketing_setup_event', { p_announcement: id, p_params: p }); }, {
+      ok: function (out) {
+        if (!isObj(out)) { setupError(friendly(TK.makeError('UNKNOWN')) + ' Check the events list before trying again.'); return afterWrite(); }
+        S.saved = { id: id, link: httpsLink(out.registration_link) };
+        var warn = out.link_warning || out.ledger_event_note || out.backfill_skipped;
+        S.notice = { kind: warn ? 'warn' : 'good', lines: [first(out), out.link_warning, out.ledger_event_note,
+          out.change_note ? 'Registrants will see: ' + out.change_note : '', backfillLine(out)] };
+        return afterWrite();
+      },
+      err: function (err) {
+        if (TK.isTimeout(err)) { S.notice = { kind: 'warn', lines: [TK.MAYBE_SAVED] }; drawNotice(); afterWrite(); return; }
+        setupError(friendly(err));
+      },
+      stale: function (out) { if (isObj(out)) TK.toast(first(out), 'good'); },
+      done: function () { if (go && go.removeAttribute) go.removeAttribute('disabled'); }
+    });
+  });
+
+  // ------------------------------------------------------------------ actions: registration link
+  TK.action('cn.copy', function (el) {
+    var link = httpsLink(el && el.getAttribute ? el.getAttribute('data-link') : '');
+    if (!link) return null;
+    var manual = 'Select the link and copy it by hand.';
+    var clip = root.navigator && root.navigator.clipboard;
+    if (!clip || typeof clip.writeText !== 'function') { TK.toast(manual, 'info'); return null; }
+    var p;
+    try { p = Promise.resolve(clip.writeText(link)); } catch (e) { p = Promise.reject(e); }
+    return p.then(function () { TK.toast('Link copied.', 'good'); }, function () { TK.toast(manual, 'info'); });
+  });
+
+  // ------------------------------------------------------------------ actions: Stop sales now
+  function selling() { var h = setupEvent(); return h && h.ticketing && h.ticketing.event_status !== 'cancelled' ? h : null; }
+  function drawStop() { TK.setHTML('mg-stop', stopHtml()); }
+  TK.action('cn.stop', function () {
+    if (!canManage() || S.busy || !selling()) return null;
+    S.stopAsk = true;
+    drawStop();
+    return null;
+  });
+  TK.action('cn.stop.back', function () { if (S.busy) return null; S.stopAsk = false; drawStop(); return null; });
+  TK.action('cn.stop.go', function () {
+    var h = selling();
+    if (!h || !canManage() || S.busy || !S.stopAsk) return null;
+    // the server closes registration at its own time (never this device's clock) and clears a future opening time
+    var p = { stop_now: true };
+    var id = h.announcement_id;
+    var done = 'Ticket sales stopped. Registration is closed; tickets already issued stay valid.';
+    var r = run(function () { return TK.rpc('ticketing_setup_event', { p_announcement: id, p_params: p }); }, {
+      ok: function (out) {
+        S.stopAsk = false;
+        S.notice = isObj(out) ? { kind: 'good', lines: [done] }
+          : { kind: 'crit', lines: [friendly(TK.makeError('UNKNOWN')), 'Check the event before trying again.'] };
+        return afterWrite();
+      },
+      err: function (err) {
+        S.stopAsk = false;
+        if (TK.isTimeout(err)) { S.notice = { kind: 'warn', lines: [TK.MAYBE_SAVED] }; drawNotice(); afterWrite(); return; }
+        setNotice('crit', [friendly(err)]);
+        drawStop();
+      },
+      stale: function (out) { if (isObj(out)) TK.toast(done, 'good'); }
+    });
+    drawStop();                                     // the buttons show as busy
+    return r;
+  });
+
+  // ------------------------------------------------------------------ actions: Cancel event
+  function eReasonError(m) { TK.setHTML('mg-ereason-err', esc(m || '')); }
+  TK.action('cn.evcancel', function () {
+    var h = selling();
+    if (!h || !canManage() || S.busy) return null;
+    var n = issued(h);
+    TK.modal('<h2>Cancel event</h2><p><b>' + esc(h.title) + '</b></p>' +
+      '<p>' + esc(n === 1 ? '1 ticket has been issued.' : n + ' tickets have been issued.') + ' Cancelling closes registration and cancels ' +
+      'the tickets: unpaid ones are cancelled, paid ones become due a refund. Every ticket page shows the cancellation. This cannot be undone.</p>' +
+      '<form class="tk-form" data-action="cn.evcancel.go" id="mg-eform" novalidate>' +
+      '<div class="tk-field"><label for="mg-ereason">Reason (required, shown to ticket holders)</label>' +
+      '<textarea id="mg-ereason" name="reason" maxlength="500" rows="3" required aria-describedby="mg-ereason-err"></textarea>' +
+      '<span class="tk-hint">4 to 500 characters.</span><span class="tk-err" id="mg-ereason-err" role="alert"></span></div>' +
+      '<div class="tk-modal-actions"><button type="button" class="tk-btn" data-action="tk.closeModal">Keep the event</button>' +
+      '<button type="submit" class="tk-btn tk-btn-danger" id="mg-ego">Cancel event</button></div></form>', { label: 'Cancel event' });
+    var r = byId('mg-ereason');
+    if (r && r.focus) r.focus();
+    return null;
+  });
+  function evCancelLines(out) {
+    if (out.already_cancelled) return { kind: 'info', lines: ['This event was already cancelled.'] };
+    var due = num(out.refund_due), cx = num(out.cancelled), bank = num(out.pending_with_bank_ref);
+    var lines = ['Event cancelled. Registration is closed and every ticket page shows the cancellation.'];
+    if (due) lines.push((due === 1 ? '1 paid ticket is' : due + ' paid tickets are') + ' due a refund: refund the holders, then reverse each receipt in the Ledger (open the event\'s tickets to see them).');
+    if (cx) lines.push(cx === 1 ? '1 unpaid ticket was cancelled.' : cx + ' unpaid tickets were cancelled.');
+    if (bank) lines.push((bank === 1 ? '1 pending ticket carries' : bank + ' pending tickets carry') + ' a bank reference — check the bank statement.');
+    return { kind: due || bank ? 'warn' : 'good', lines: lines };
+  }
+  TK.action('cn.evcancel.go', function (form) {
+    var h = selling();
+    if (!h || !canManage() || S.busy) return null;
+    var f = field(form, 'reason');
+    var reason = String(f && f.value != null ? f.value : '').trim().replace(/\s+/g, ' ');
+    if (reason.length < 4) { eReasonError('Please give a reason of at least 4 characters.'); return null; }
+    if (reason.length > 500) { eReasonError('That reason is too long (up to 500 characters).'); return null; }
+    eReasonError('');
+    var go = byId('mg-ego');
+    if (go && go.setAttribute) go.setAttribute('disabled', 'disabled');
+    function enable() { if (go && go.removeAttribute) go.removeAttribute('disabled'); }
+    var id = h.announcement_id;
+    return run(function () { return TK.rpc('ticketing_cancel_event_by_id', { p_announcement: id, p_reason: reason }); }, {
+      ok: function (out) {
+        if (!isObj(out)) { enable(); eReasonError(friendly(TK.makeError('UNKNOWN')) + ' Check the events list before trying again.'); return afterWrite(); }
+        TK.closeModal();
+        S.notice = evCancelLines(out);
+        return afterWrite();
+      },
+      err: function (err) {
+        if (TK.isTimeout(err)) { TK.closeModal(); S.notice = { kind: 'warn', lines: [TK.MAYBE_SAVED] }; drawNotice(); afterWrite(); return; }
+        enable();
+        eReasonError(friendly(err));
+      },
+      stale: function (out) { TK.closeModal(); if (isObj(out)) TK.toast('Event cancelled.', 'good'); }
+    });
+  });
+
   // ------------------------------------------------------------------ actions: CSV
   function csvCell(v) {
     var s = TK.safeText(v);
@@ -1641,7 +2132,7 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   function buildCsv(rows) {
     var lines = [CSV_HEAD.map(csvCell).join(',')];
     (rows || []).forEach(function (t) {
-      lines.push([t.ticket_no, t.holder_name, t.kind, t.phone, (Number(t.fee_sar) || 0).toFixed(2), t.payment_status,
+      lines.push([t.ticket_no, t.holder_name, typeLabel(t), t.phone, (Number(t.fee_sar) || 0).toFixed(2), t.payment_status,
         t.checked_in_at ? TK.when(t.checked_in_at) : ''].map(csvCell).join(','));
     });
     return '﻿' + lines.join('\r\n');
@@ -1685,10 +2176,19 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
       S.search = '';
       S.notice = null;
       S.cancelId = null;
+      S.setupId = null;
+      S.saved = null;
+      S.stopAsk = false;
+      S.hub = null;
       TK.closeModal();
-      return TK.rpc('ticketing_event_summary').then(function (list) {
+      // the Hub events list is fetched alongside; its failure never hides the ticketed events (a plain note instead)
+      var hub = TK.rpc('ticketing_list_hub_events').then(function (l) { return { list: l }; }, function (e) { return { err: e }; });
+      return Promise.all([TK.rpc('ticketing_event_summary'), hub]).then(function (r) {
+        var list = r[0], hr = r[1];
         S.summary = Array.isArray(list) ? list : [];
-        if (ctx.eventId && evRow(ctx.eventId)) { S.eventId = ctx.eventId; S.tab = 'attendees'; }
+        if (hr.err || !Array.isArray(hr.list)) S.notice = { kind: 'warn', lines: [hubNote(hr.err || TK.makeError('UNKNOWN'))] };
+        else S.hub = hr.list;
+        if (ctx.eventId && evRow(ctx.eventId)) { S.eventId = ctx.eventId; S.tab = 'attendees'; S.notice = null; }
         return { html: '<div class="tk-mg" id="mg-page"></div>', mount: function () { drawPage(); if (S.eventId) loadTickets(); } };
       }, function (err) {
         if (err && err.code === 'TKT_NO_ACCESS') return { html: '<div id="mg-page"></div>', mount: noAccess };
