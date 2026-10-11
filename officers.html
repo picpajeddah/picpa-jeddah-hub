@@ -405,6 +405,34 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-group-list { margin: var(--s2) 0; padding-left: var(--s5, 1.25rem); }
 .tk-person h2 { margin: 0; font-size: var(--fs-lg, 1.125rem); overflow-wrap: anywhere; }
 .tk-comprow-h { margin: 0 0 var(--s2); font-weight: 600; font-size: var(--fs-sm); }
+
+/* certificates (certificates.html): design switch, options, editable attendee table, sending progress, preview */
+body[data-page="certificates"] .tk-view { max-width: 1240px; }
+.tk-ct { display: grid; gap: var(--s4); }
+.tk-ct-pick { max-width: 40rem; }
+.tk-ct-opts { display: grid; gap: var(--s3); }
+.tk-ct-optrow { display: flex; flex-wrap: wrap; gap: var(--s4); align-items: flex-end; }
+.tk-ct-seg { border: 0; margin: 0; padding: 0; min-width: 0; }
+.tk-ct-seg legend { font-size: var(--fs-sm); font-weight: 600; color: var(--navy-800); padding: 0; margin-bottom: var(--s1); }
+.tk-ct-segbtns { display: inline-flex; }
+.tk-ct-segbtns .tk-btn { min-height: 44px; border-radius: 0; }
+.tk-ct-segbtns .tk-btn:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+.tk-ct-segbtns .tk-btn:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; margin-left: -1px; }
+.tk-ct-segbtns .tk-btn[aria-pressed="true"] { background: var(--navy-500); border-color: var(--navy-500); color: var(--on-dark); }
+.tk-ct-sign { margin: 0; font-size: var(--fs-sm); }
+.tk-ct-table input[type="text"], .tk-ct-table input[type="email"] {
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: var(--s1) var(--s2); min-height: 40px;
+  width: 100%; min-width: 9rem; background: var(--surface); font-size: 16px;
+}
+.tk-ct-table input[aria-invalid="true"] { border-color: var(--crit); }
+.tk-ct-table input:disabled { background: var(--surface-2); color: var(--muted); }
+.tk-ct-table input[type="checkbox"] { width: 20px; height: 20px; }
+.tk-ct-table .tk-err { display: block; font-size: var(--fs-xs); color: var(--crit-ink); text-align: left; }
+.tk-ct-table .tk-actions { justify-content: flex-end; }
+.tk-ct-run progress { display: block; width: 100%; height: 12px; accent-color: var(--navy-500); margin: var(--s2) 0; }
+.tk-modal:has(.tk-ct-frame) { width: min(1000px, calc(100vw - 2 * var(--s4))); }
+.tk-ct-frame { display: block; width: 100%; height: min(70vh, 640px); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
+@media (min-width: 640px) { .tk-ct-table .tk-actions { justify-content: flex-start; flex-wrap: nowrap; } }
 </style>
 </head>
 <body data-page="officers">
@@ -428,6 +456,7 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
  *   TK.rpc(name, args)        Promise<data>; throws Error with .code (TKT_X, LEDGER_X, NETWORK, NO_PERMISSION,
  *                             SIGNED_OUT, LIB_MISSING or UNKNOWN), .detail (the database sentence), .pgCode
  *   TK.session()              Promise<{id, email, name} | null>   (an anonymous visitor is normal: null)
+ *   TK.accessToken()          Promise<string | null>: the session's access token (for the certificate mailer only)
  *   TK.MARK / TK.logo(size, cls)    the official chapter mark (four polygons) / its inline svg
  *   TK.tokenFromHash([hash])  '#t=<token>' or '#<token>' -> token (^[A-Za-z0-9_-]{20,128}$) or null
  *   TK.eventIdFromHash([hash])      '#event=<uuid>' -> uuid or null;  TK.hashParams([hash]) -> {k: v}
@@ -493,8 +522,9 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 
   // ===================================================================== errors
   var GENERIC_TEXT = "That didn't work. Try again, or ask an officer.";
-  var CODE_RE = /\b((?:TKT|LEDGER)_[A-Z][A-Z_]*)\b/;
-  var ANY_CODE = /\b(?:TKT|LEDGER)_/;
+  // CERT_ = the certificate functions (09-certificates.sql): their sentence is shown when plain, the code never
+  var CODE_RE = /\b((?:TKT|LEDGER|CERT)_[A-Z][A-Z_]*)\b/;
+  var ANY_CODE = /\b(?:TKT|LEDGER|CERT)_/;
 
   /** A database sentence is shown only when it is short and carries no code. */
   function plain(s) {
@@ -660,6 +690,15 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     }, function () { return null; });
   }
 
+  /** The signed-in user's current access token (handed to the certificate mailer, which checks it with the database),
+   *  or null when nobody is signed in. Never stored or logged. */
+  function accessToken() {
+    return Promise.resolve().then(function () { return client().auth.getSession(); }).then(function (r) {
+      var s = r && r.data && r.data.session;
+      return s && typeof s.access_token === 'string' && s.access_token ? s.access_token : null;
+    }, function () { return null; });
+  }
+
   // ===================================================================== brand
   /* Official chapter mark: four traced chevrons, 200x200, no strokes. Never redrawn. */
   var MARK = [
@@ -768,7 +807,7 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   return {
     esc: esc, safeText: safeText, localISO: localISO, fmt: fmt, when: when,
     ERRORS: ERRORS, friendlyError: friendlyError, makeError: makeError,
-    client: client, useClient: useClient, rpc: rpc, session: session, limits: LIMITS, isTimeout: isTimeout,
+    client: client, useClient: useClient, rpc: rpc, session: session, accessToken: accessToken, limits: LIMITS, isTimeout: isTimeout,
     MAYBE_SAVED: MAYBE_SAVED,
     MARK: MARK, logo: logo,
     tokenFromHash: tokenFromHash, eventIdFromHash: eventIdFromHash, hashParams: hashParams,
@@ -1095,7 +1134,8 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     ['At the event', [
       ['Check-in', 'Scan tickets at the door, on a phone.', './checkin.html', 'scanner'],
       ['Register for an event', 'Sign up for a chapter event and get a ticket.', './register.html', 'all'],
-      ['My tickets', 'Your tickets and their payment status.', './ticket.html', 'signed']]],
+      ['My tickets', 'Your tickets and their payment status.', './ticket.html', 'signed'],
+      ['Certificates', 'Issue certificates of attendance and e-mail them to attendees.', './certificates.html', 'admin']]],
     ['Hub', [
       ['Chapter Hub', 'Members, programs and the directory.', './', 'all'],
       ['Hub Admin Panel', 'Open the Hub, then choose Admin Panel under Officers in the menu. Approvals, registrations and certificates.', './', 'admin']]]

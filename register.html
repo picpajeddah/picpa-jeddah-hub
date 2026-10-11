@@ -405,6 +405,34 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 .tk-group-list { margin: var(--s2) 0; padding-left: var(--s5, 1.25rem); }
 .tk-person h2 { margin: 0; font-size: var(--fs-lg, 1.125rem); overflow-wrap: anywhere; }
 .tk-comprow-h { margin: 0 0 var(--s2); font-weight: 600; font-size: var(--fs-sm); }
+
+/* certificates (certificates.html): design switch, options, editable attendee table, sending progress, preview */
+body[data-page="certificates"] .tk-view { max-width: 1240px; }
+.tk-ct { display: grid; gap: var(--s4); }
+.tk-ct-pick { max-width: 40rem; }
+.tk-ct-opts { display: grid; gap: var(--s3); }
+.tk-ct-optrow { display: flex; flex-wrap: wrap; gap: var(--s4); align-items: flex-end; }
+.tk-ct-seg { border: 0; margin: 0; padding: 0; min-width: 0; }
+.tk-ct-seg legend { font-size: var(--fs-sm); font-weight: 600; color: var(--navy-800); padding: 0; margin-bottom: var(--s1); }
+.tk-ct-segbtns { display: inline-flex; }
+.tk-ct-segbtns .tk-btn { min-height: 44px; border-radius: 0; }
+.tk-ct-segbtns .tk-btn:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+.tk-ct-segbtns .tk-btn:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; margin-left: -1px; }
+.tk-ct-segbtns .tk-btn[aria-pressed="true"] { background: var(--navy-500); border-color: var(--navy-500); color: var(--on-dark); }
+.tk-ct-sign { margin: 0; font-size: var(--fs-sm); }
+.tk-ct-table input[type="text"], .tk-ct-table input[type="email"] {
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: var(--s1) var(--s2); min-height: 40px;
+  width: 100%; min-width: 9rem; background: var(--surface); font-size: 16px;
+}
+.tk-ct-table input[aria-invalid="true"] { border-color: var(--crit); }
+.tk-ct-table input:disabled { background: var(--surface-2); color: var(--muted); }
+.tk-ct-table input[type="checkbox"] { width: 20px; height: 20px; }
+.tk-ct-table .tk-err { display: block; font-size: var(--fs-xs); color: var(--crit-ink); text-align: left; }
+.tk-ct-table .tk-actions { justify-content: flex-end; }
+.tk-ct-run progress { display: block; width: 100%; height: 12px; accent-color: var(--navy-500); margin: var(--s2) 0; }
+.tk-modal:has(.tk-ct-frame) { width: min(1000px, calc(100vw - 2 * var(--s4))); }
+.tk-ct-frame { display: block; width: 100%; height: min(70vh, 640px); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
+@media (min-width: 640px) { .tk-ct-table .tk-actions { justify-content: flex-start; flex-wrap: nowrap; } }
 </style>
 </head>
 <body data-page="register">
@@ -428,6 +456,7 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
  *   TK.rpc(name, args)        Promise<data>; throws Error with .code (TKT_X, LEDGER_X, NETWORK, NO_PERMISSION,
  *                             SIGNED_OUT, LIB_MISSING or UNKNOWN), .detail (the database sentence), .pgCode
  *   TK.session()              Promise<{id, email, name} | null>   (an anonymous visitor is normal: null)
+ *   TK.accessToken()          Promise<string | null>: the session's access token (for the certificate mailer only)
  *   TK.MARK / TK.logo(size, cls)    the official chapter mark (four polygons) / its inline svg
  *   TK.tokenFromHash([hash])  '#t=<token>' or '#<token>' -> token (^[A-Za-z0-9_-]{20,128}$) or null
  *   TK.eventIdFromHash([hash])      '#event=<uuid>' -> uuid or null;  TK.hashParams([hash]) -> {k: v}
@@ -493,8 +522,9 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 
   // ===================================================================== errors
   var GENERIC_TEXT = "That didn't work. Try again, or ask an officer.";
-  var CODE_RE = /\b((?:TKT|LEDGER)_[A-Z][A-Z_]*)\b/;
-  var ANY_CODE = /\b(?:TKT|LEDGER)_/;
+  // CERT_ = the certificate functions (09-certificates.sql): their sentence is shown when plain, the code never
+  var CODE_RE = /\b((?:TKT|LEDGER|CERT)_[A-Z][A-Z_]*)\b/;
+  var ANY_CODE = /\b(?:TKT|LEDGER|CERT)_/;
 
   /** A database sentence is shown only when it is short and carries no code. */
   function plain(s) {
@@ -660,6 +690,15 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     }, function () { return null; });
   }
 
+  /** The signed-in user's current access token (handed to the certificate mailer, which checks it with the database),
+   *  or null when nobody is signed in. Never stored or logged. */
+  function accessToken() {
+    return Promise.resolve().then(function () { return client().auth.getSession(); }).then(function (r) {
+      var s = r && r.data && r.data.session;
+      return s && typeof s.access_token === 'string' && s.access_token ? s.access_token : null;
+    }, function () { return null; });
+  }
+
   // ===================================================================== brand
   /* Official chapter mark: four traced chevrons, 200x200, no strokes. Never redrawn. */
   var MARK = [
@@ -768,7 +807,7 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   return {
     esc: esc, safeText: safeText, localISO: localISO, fmt: fmt, when: when,
     ERRORS: ERRORS, friendlyError: friendlyError, makeError: makeError,
-    client: client, useClient: useClient, rpc: rpc, session: session, limits: LIMITS, isTimeout: isTimeout,
+    client: client, useClient: useClient, rpc: rpc, session: session, accessToken: accessToken, limits: LIMITS, isTimeout: isTimeout,
     MAYBE_SAVED: MAYBE_SAVED,
     MARK: MARK, logo: logo,
     tokenFromHash: tokenFromHash, eventIdFromHash: eventIdFromHash, hashParams: hashParams,
@@ -1082,12 +1121,18 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   var doc = root.document;
 
   // caps match the database (ticketing_clean_input)
-  var MAX = { name: 120, email: 254, phone: 40, bank: 80 };
+  var MAX = { name: 120, email: 254, phone: 40, bank: 80, letters: 60 };
+  // letters after a name (CPA, MBA): the same characters and cap as the database (cert_set_letters, 09-certificates.sql)
+  var LETTERS_RE = /^[A-Za-z0-9 ,.()&\/'-]*$/;
+  var LETTERS_LABEL = 'Letters after your name (optional)';
+  var LETTERS_HINT = 'For example CPA, MBA, CMA. Printed after your name on the certificate.';
+  var LETTERS_BAD = "Use letters, digits, spaces and , . ( ) & / ' - only (up to 60 characters).";
+  var LETTERS_FAILED = 'Your registration is complete, but the letters after your name could not be saved; tell an officer.';
   var PHONE_RE = /^[0-9٠-٩۰-۹+(). -]+$/;
   var DIGIT_RE = /[0-9٠-٩۰-۹]/g;                    // a real number has at least 6 digits ('+', '---' alone are not numbers)
   var GONE = { TKT_FULL: 1, TKT_CLOSED: 1, TKT_NOT_OPEN: 1 };   // the event can no longer be registered for
   var EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-  var FIELDS = ['name', 'type', 'email', 'phone', 'bank'];
+  var FIELDS = ['name', 'letters', 'type', 'email', 'phone', 'bank'];
   // group registration (president 2026-10-11): every person chooses a type; each person pays the price of that type
   var TYPES = [['member', 'Member'], ['officer', 'Officer'], ['guest', 'Guest']];
   var TYPE_LABEL = { member: 'Member', officer: 'Officer', guest: 'Guest' };
@@ -1168,10 +1213,14 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     var id = ev.announcement_id, list = comps(id), max = limit(ev);
     var rows = list.map(function (c, i) {
       var cid = 'reg-' + id + '-c' + i, mid = 'reg-' + id + '-e' + i, eid = 'reg-ferr-' + id + '-c' + i;
+      var lid = 'reg-' + id + '-l' + i, lh = 'reg-hint-' + id + '-l' + i;
       return '<div class="tk-comprow"><p class="tk-comprow-h">Attendee ' + (i + 2) + '</p>' +
         '<div class="tk-field"><label for="' + cid + '">Full name (as it should appear on the certificate)</label>' +
         '<input id="' + cid + '" name="c' + i + '" value="' + esc(c.name || '') + '" type="text" maxlength="' + MAX.name +
         '" autocomplete="off" aria-describedby="' + eid + '"></div>' +
+        '<div class="tk-field"><label for="' + lid + '">' + LETTERS_LABEL + '</label>' +
+        '<input id="' + lid + '" name="l' + i + '" value="' + esc(c.letters || '') + '" type="text" maxlength="' + MAX.letters +
+        '" autocomplete="off" aria-describedby="' + lh + ' ' + eid + '"><span class="tk-hint" id="' + lh + '">' + LETTERS_HINT + '</span></div>' +
         '<div class="tk-field"><label for="' + mid + '">Email (optional)</label><input id="' + mid + '" name="e' + i + '" value="' + esc(c.email || '') +
         '" type="email" inputmode="email" maxlength="' + MAX.email + '" autocomplete="off" aria-describedby="' + eid + '"></div>' +
         typePickHtml(ev, id, 't' + i, 'reg-' + id + '-t' + i, c.type, 'Designation') +
@@ -1207,6 +1256,7 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
       who +
       fieldHtml(id, 'name', 'Full name (as it should appear on the certificate)', 'type="text" autocomplete="name" maxlength="' + MAX.name + '" required',
         s ? s.name : '') +
+      fieldHtml(id, 'letters', LETTERS_LABEL, 'type="text" autocomplete="off" maxlength="' + MAX.letters + '"', '', LETTERS_HINT) +
       '<div class="tk-field">' + typePickHtml(ev, id, 'type', 'reg-' + id + '-type', S.type[id], 'Designation') +
       '<span class="tk-err" id="reg-ferr-' + id + '-type" role="alert"></span></div>' +
       fieldHtml(id, 'email', 'Email', 'type="email" inputmode="email" autocomplete="email" maxlength="' + MAX.email + '" required' + (s ? ' readonly' : ''),
@@ -1352,7 +1402,26 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     else if ((vals.phone.match(DIGIT_RE) || []).length < 6) e.phone = 'Please enter the full mobile number (at least 6 digits).';
     if (vals.bank.length > MAX.bank) e.bank = 'That reference is too long (up to ' + MAX.bank + ' characters).';
     if (!TYPE_LABEL[vals.type]) e.type = NEED_TYPE;
+    if (!lettersOk(vals.letters)) e.letters = LETTERS_BAD;
     return e;
+  }
+  /** Letters after a name: trimmed, inner spaces collapsed ('' when none). */
+  function cleanLetters(s) { return String(s == null ? '' : s).trim().replace(/\s+/g, ' '); }
+  function lettersOk(s) { return s.length <= MAX.letters && LETTERS_RE.test(s); }
+
+  /** After a successful registration: save the letters typed for the registrant and each companion (cert_set_letters, by
+   *  ticket number, with the registrant's token). Never undoes the registration; a failure only adds a note. */
+  function saveLetters(id, res, mine, people) {
+    var map = {}, n = 0;
+    if (mine && res.ticket_no) { map[res.ticket_no] = mine; n++; }
+    var list = Array.isArray(res.companions) ? res.companions : [];
+    people.forEach(function (l, i) { if (l && list[i] && list[i].ticket_no) { map[list[i].ticket_no] = l; n++; } });
+    if (!n) return null;
+    function failed() {
+      if (S.results[id]) S.results[id] += '<div class="tk-note tk-note-warn" role="alert" id="reg-letters-' + id + '">' + esc(LETTERS_FAILED) + '</div>';
+      TK.setHTML('reg-slot-' + id, S.results[id] || '');
+    }
+    return TK.rpc('cert_set_letters', { p_token: res.token, p_letters: map }).then(null, failed);
   }
 
   // ------------------------------------------------------------------ the people being brought
@@ -1365,18 +1434,20 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     var t = checked('reg-' + id + '-type');
     if (t) S.type[id] = t;
     comps(id).forEach(function (c, i) {
-      var el = byId('reg-' + id + '-c' + i), em = byId('reg-' + id + '-e' + i);
+      var el = byId('reg-' + id + '-c' + i), em = byId('reg-' + id + '-e' + i), lt = byId('reg-' + id + '-l' + i);
       if (el && typeof el.value === 'string') c.name = el.value;
       if (em && typeof em.value === 'string') c.email = em.value;
+      if (lt && typeof lt.value === 'string') c.letters = lt.value;
       var ct = checked('reg-' + id + '-t' + i);
       if (ct) c.type = ct;
     });
   }
   function writeBack(id) {
     comps(id).forEach(function (c, i) {
-      var el = byId('reg-' + id + '-c' + i), em = byId('reg-' + id + '-e' + i);
+      var el = byId('reg-' + id + '-c' + i), em = byId('reg-' + id + '-e' + i), lt = byId('reg-' + id + '-l' + i);
       if (el) el.value = c.name || '';
       if (em) em.value = c.email || '';
+      if (lt) lt.value = c.letters || '';
       TYPES.forEach(function (t) { var r = byId('reg-' + id + '-t' + i + '-' + t[0]); if (r) r.checked = c.type === t[0]; });
     });
   }
@@ -1391,7 +1462,7 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     var ev = evById(id);
     if (!ev || S.results[id] || comps(id).length >= limit(ev)) return;
     sync(id);
-    comps(id).push({ name: '', email: '', type: null });
+    comps(id).push({ name: '', email: '', type: null, letters: '' });
     drawComps(id);
     var f = byId('reg-' + id + '-c' + (comps(id).length - 1));
     if (f && f.focus) f.focus();
@@ -1412,7 +1483,8 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
       type: read(form, 'type').trim(),
       email: (S.session ? S.session.email : read(form, 'email')).trim(),
       phone: read(form, 'phone').trim(),
-      bank: read(form, 'bank').trim()
+      bank: read(form, 'bank').trim(),
+      letters: cleanLetters(read(form, 'letters'))
     };
     var errs = validate(vals), first = null;
     FIELDS.forEach(function (k) {
@@ -1423,16 +1495,20 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
     // each additional attendee: full name (as on the certificate) and a designation; the email is optional (null when
     // blank) but, when given, must be valid and their own
     var seen = [vals.email.toLowerCase()];
+    var letters = [];                                          // per companion, kept OUT of the ticketing_register_group call
     var people = comps(id).map(function (c, i) {
       var mail = read(form, 'e' + i).trim().toLowerCase();
       var p = { name: read(form, 'c' + i).trim(), email: mail || null, type: read(form, 't' + i).trim() };
-      c.name = p.name; c.email = mail; if (TYPE_LABEL[p.type]) c.type = p.type;
+      var lt = cleanLetters(read(form, 'l' + i));
+      c.name = p.name; c.email = mail; c.letters = lt; if (TYPE_LABEL[p.type]) c.type = p.type;
+      letters.push(lt);
       var badMail = !!mail && (mail.length > MAX.email || !EMAIL_RE.test(mail));
       var e = !p.name ? 'Please enter the full name (as it should appear on the certificate).'
         : p.name.length > MAX.name ? 'The name is too long (up to ' + MAX.name + ' characters).'
-          : badMail ? 'Please enter a valid email address.'
-            : mail && seen.indexOf(mail) >= 0 ? 'Each attendee needs their own email address.'
-              : !TYPE_LABEL[p.type] ? NEED_TYPE : '';
+          : !lettersOk(lt) ? 'Letters after the name: ' + LETTERS_BAD
+            : badMail ? 'Please enter a valid email address.'
+              : mail && seen.indexOf(mail) >= 0 ? 'Each attendee needs their own email address.'
+                : !TYPE_LABEL[p.type] ? NEED_TYPE : '';
       if (mail && !badMail) seen.push(mail);
       setErr(id, 'c' + i, e);
       mark(form, 'c' + i, !!e);
@@ -1469,15 +1545,19 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
         p_type: vals.type,
         p_companions: people
       }).then(function (res) {
+        var good = false;
         try {
           if (!res || !TK.tokenFromHash('#' + res.token) || !res.ticket_no) throw new Error('bad response');
           S.results[id] = successHtml(ev, res, vals.name, vals.email);
+          good = true;
         } catch (e) { S.results[id] = receivedHtml(id); }
         TK.setHTML('reg-slot-' + id, S.results[id]);
         TK.setHTML('reg-act-' + id, '');
         var done = byId('reg-done-' + id);
         if (done && done.focus) done.focus();
         if (done && done.scrollIntoView) { try { done.scrollIntoView({ block: 'center' }); } catch (e) { /* old browser */ } }
+        // the registration is complete: the letters are a separate call that never rejects (a failure only adds a note)
+        return good ? saveLetters(id, res, vals.letters, letters) : null;
       }).then(null, function (err) {
         // a message naming an additional attendee ("Attendee 2: ...") is the server's own plain sentence
         var row = err && /^Attendee \d+: /.test(String(err.detail || ''));
