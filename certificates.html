@@ -396,8 +396,12 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
 /* group registration (08-groups.sql): type choice per person, people rows, total, group cards */
 .tk-typepick { border: 0; padding: 0; margin: 0; min-width: 0; }
 .tk-typepick legend { font-weight: 600; font-size: var(--fs-sm); padding: 0; margin-bottom: var(--s1); }
-.tk-typeopts { display: flex; flex-wrap: wrap; gap: 0 var(--s4); }
-.tk-typeopt { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; font-size: var(--fs-sm); }
+.tk-typeopts { display: flex; flex-wrap: wrap; gap: 0 var(--s5, 24px); }
+/* a radio option: the 44px tap target comes from the label; the circle keeps its normal size (the full-width text-field
+   style of .tk-field input must not reach it); the text stays on one line next to it, options wrap as whole units */
+.tk-typeopt { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; padding: 0 var(--s1); font-size: var(--fs-md, 1rem); font-weight: 400; color: var(--text, inherit); white-space: nowrap; cursor: pointer; }
+.tk-field .tk-typeopt { font-weight: 400; }
+.tk-typeopt input[type="radio"], .tk-field .tk-typeopt input[type="radio"] { width: 20px; height: 20px; min-height: 0; flex: none; margin: 0; padding: 0; border: 0; accent-color: var(--navy-800); }
 .tk-comps { border-top: 1px solid var(--line); padding-top: var(--s3); }
 .tk-comphead { margin: 0 0 var(--s1); font-size: var(--fs-md, 1rem); }
 .tk-comprow { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: var(--s3); margin: var(--s3) 0; }
@@ -483,8 +487,6 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 .tk-mg-pf { margin: 0; min-width: 0; max-width: 100%; }
 .tk-mg-pf select { max-width: 100%; }
 .tk-mg-pay td[data-label="Reference"] { overflow-wrap: anywhere; }
-.tk-methodpick .tk-typeopt { white-space: nowrap; }
-.tk-methodpick .tk-typeopt input[type="radio"] { width: 22px; height: 22px; min-height: 0; flex: none; margin: 0; padding: 0; }
 .tk-mg-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s2); }
 .tk-mg-acts .tk-btn { white-space: nowrap; }
 .tk-mg-acts .tk-mg-confirm { flex-basis: 100%; }
@@ -497,7 +499,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 // ---- tk-core.js
 /**
  * tk-core.js — the shared core of the three ticketing pages (register, ticket, checkin).
- * window.TK in the browser, module.exports in Node. No DOM access here (see tk-shell.js for that).
+ * window.TK in the browser, module.exports in Node. No DOM access here (see tk-shell.js for that), except the one guarded
+ * off-screen canvas that shrinks a proof-of-payment photo before upload (shrinkProof).
  *
  *   TK.esc(s)                 HTML-escape; the ONLY way user text reaches innerHTML
  *   TK.safeText(s)            CSV/Excel cell guard: a leading = + - @ TAB CR (after trim) gets a ' prefix
@@ -892,9 +895,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (!t) return { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf' }[ext] || '';
     return '';
   }
-  /** '' when the file can be sent, else one formal sentence. */
+  /** '' when the file can be sent, else one formal sentence. When the file was already prepared for upload (prepareProof:
+   *  a photo shrunk in the browser), the prepared file is what is checked. */
   function proofFileError(file) {
     if (!file || typeof file !== 'object') return 'Select the proof of payment file.';
+    if (file._tkReady && typeof file._tkReady === 'object' && file._tkReady !== file) file = file._tkReady;
     var name = String(file.name || ''), t = String(file.type || '').toLowerCase();
     if (/^image\/hei[cf]/.test(t) || /\.hei[cf]$/i.test(name)) {
       return 'HEIC images are not accepted. Save the image as JPG or PNG (or take a screenshot), then select it again.';
@@ -904,6 +909,77 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (Number(file.size) > PROOF.maxBytes) return 'The file is larger than 5 MB. Select a smaller file.';
     return '';
   }
+  // ---------------------------------------------------------------- shrinking a photo before upload (president 2026-10-11)
+  /* A JPEG / PNG / WebP photo larger than 400 KB or longer than 1600 px on its longer side is redrawn on a canvas at most 1600 px
+   * long and encoded as JPEG quality 0.8 (receipt text stays readable). The smaller of the original and the result is kept, so
+   * a PNG stays a PNG when JPEG would not be smaller. PDFs are never changed. Any problem (no canvas, decoding fails, the
+   * browser takes too long) keeps the original: shrinking never blocks an upload (the 5 MB limit still applies).
+   * The only DOM use in this file: a canvas from root.document (guarded). */
+  var SHRINK = { maxSide: 1600, minBytes: 400 * 1024, quality: 0.8, ms: 15000 };
+  function decodeImage(file) {
+    if (typeof root.createImageBitmap === 'function') {
+      return Promise.resolve(root.createImageBitmap(file)).then(function (b) {
+        return { src: b, w: b.width, h: b.height, close: function () { if (b && typeof b.close === 'function') b.close(); } };
+      });
+    }
+    return new Promise(function (resolve, reject) {
+      var U = root.URL;
+      if (!U || typeof U.createObjectURL !== 'function' || typeof root.Image !== 'function') { reject(new Error('no image decoder')); return; }
+      var url = U.createObjectURL(file), img = new root.Image();
+      img.onload = function () {
+        resolve({ src: img, w: img.naturalWidth || img.width, h: img.naturalHeight || img.height, close: function () { U.revokeObjectURL(url); } });
+      };
+      img.onerror = function () { U.revokeObjectURL(url); reject(new Error('the image could not be read')); };
+      img.src = url;
+    });
+  }
+  function shrinkNow(file) {
+    if (!/^image\//.test(proofType(file))) return Promise.resolve(file);              // PDFs (and unknown types): unchanged
+    return decodeImage(file).then(function (d) {
+      var big = Math.max(Number(d.w) || 0, Number(d.h) || 0), cv, ctx, w, h, k;
+      try {
+        if (!(big > 0) || (Number(file.size) <= SHRINK.minBytes && big <= SHRINK.maxSide)) return file;
+        k = Math.min(1, SHRINK.maxSide / big);
+        w = Math.max(1, Math.round(d.w * k)); h = Math.max(1, Math.round(d.h * k));
+        cv = root.document && typeof root.document.createElement === 'function' ? root.document.createElement('canvas') : null;
+        if (!cv || typeof cv.getContext !== 'function' || typeof cv.toBlob !== 'function') return file;
+        cv.width = w; cv.height = h;
+        ctx = cv.getContext('2d');
+        if (!ctx) return file;
+        ctx.fillStyle = 'white';                                     // a transparent PNG becomes white, not black, in JPEG
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(d.src, 0, 0, w, h);
+      } finally { d.close(); }
+      return new Promise(function (resolve) { cv.toBlob(resolve, 'image/jpeg', SHRINK.quality); }).then(function (b) {
+        if (!b || !(Number(b.size) > 0) || Number(b.size) >= Number(file.size)) return file;   // keep the smaller one
+        var name = String(file.name || 'proof').replace(/\.[A-Za-z0-9]+$/, '') + '.jpg', out = b;
+        try { out = new root.File([b], name, { type: 'image/jpeg' }); } catch (e) { try { out.name = name; } catch (e2) { /* read-only */ } }
+        return out;
+      });
+    });
+  }
+  /** The file to upload: the photo shrunk (or the original when nothing is gained or anything fails). Never rejects. */
+  function shrinkProof(file) {
+    if (!file || typeof file !== 'object') return Promise.resolve(file);
+    var timer = null;
+    var late = new Promise(function (resolve) {
+      if (typeof root.setTimeout === 'function') timer = root.setTimeout(function () { resolve(file); }, SHRINK.ms);
+    });
+    var work = Promise.resolve().then(function () { return shrinkNow(file); }).then(null, function () { return file; });
+    return Promise.race([work, late]).then(function (f) {
+      if (timer !== null && typeof root.clearTimeout === 'function') root.clearTimeout(timer);
+      return f || file;
+    });
+  }
+  /** shrinkProof once per chosen file (cached on the file object; the result is also kept as file._tkReady). */
+  function prepareProof(file) {
+    if (!file || typeof file !== 'object') return Promise.resolve(file);
+    if (file._tkPrep) return file._tkPrep;
+    var p = shrinkProof(file).then(function (f) { try { file._tkReady = f; } catch (e) { /* frozen */ } return f; });
+    try { file._tkPrep = p; } catch (e) { /* frozen */ }
+    return p;
+  }
+
   var FOLDER_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   /** 24 random URL-safe characters for the object name (never derived from the token). */
   function randomName() {
@@ -928,7 +1004,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   /** Upload one proof file into '<folder>/<random>.<ext>' (folder = the server's proof_folder / upload_folder). Resolves to
    *  the object path; rejects with code UPLOAD_FAILED (refused or not stored), TIMEOUT or NETWORK. Never replaces a file. */
   function uploadProof(folder, file) {
-    return Promise.resolve().then(function () {
+    return Promise.resolve().then(function () { return prepareProof(file); }).then(function (f) {
+      file = f;                                                       // the shrunk photo, or the original
       var bad = proofFileError(file);
       if (bad) throw makeError('UPLOAD_FAILED', bad, bad);
       if (!FOLDER_RE.test(String(folder || ''))) throw makeError('UPLOAD_FAILED', 'bad folder');
@@ -974,6 +1051,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     pill: pill, PAY_LABEL: PAY_LABEL, RESULT_LABEL: RESULT_LABEL, payPill: payPill, resultPill: resultPill,
     PROOF_LABEL: PROOF_LABEL, proofPill: proofPill, METHOD_LABEL: METHOD_LABEL, PROOF: PROOF, fileSize: fileSize,
     proofFileError: proofFileError, uploadProof: uploadProof, submitProof: submitProof, proofUrl: proofUrl,
+    SHRINK: SHRINK, shrinkProof: shrinkProof, prepareProof: prepareProof,
     ORG: 'Philippine Institute of Certified Public Accountants',
     CHAPTER: 'Western Region · Jeddah Chapter'
   };
@@ -1443,7 +1521,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     T(doc, x, ln + 9.3, s.position, 2.8, 400, COL.muted, { anchor: anchor });
   }
   // An officer's electronic signature (data URI, PNG or JPEG), centred above the signature line, fitted into
-  // a 46 mm x boxH box with its aspect ratio kept, its bottom 1 mm above the line. A bad image is skipped (the line stays).
+  // a 46 mm x boxH box with its aspect ratio kept, its bottom 2 mm below the line. A bad image is skipped (the line stays).
   function signatureImage(doc, cx, ln, uri, boxH) {
     try {
       var m = /^data:image\/(png|jpeg);base64,/.exec(String(uri || ''));
@@ -1451,7 +1529,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       var p = doc.getImageProperties(uri), boxW = 46;
       if (!p || !p.width || !p.height) return;
       var k = Math.min(boxW / p.width, boxH / p.height), w = p.width * k, h = p.height * k;
-      doc.addImage(uri, m[1] === 'png' ? 'PNG' : 'JPEG', cx - w / 2, ln - 1 - h, w, h, undefined, 'FAST');
+      // like a pen signature: the bottom of the ink crosses the line a little (2 mm), still clear of the printed name
+      doc.addImage(uri, m[1] === 'png' ? 'PNG' : 'JPEG', cx - w / 2, ln + 2 - h, w, h, undefined, 'FAST');
     } catch (e) { /* unreadable image: leave the line for a wet signature */ }
   }
   function logo(doc, x, y, w) {
@@ -1912,6 +1991,34 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (uri.length > SIG.maxUri) throw sigErr('TOO_BIG');
     return uri;
   }
+  /** A saved e-signature (PNG data URI) turned a quarter turn: dir -1 = left (anticlockwise), 1 = right (clockwise).
+   *  Transparency is kept; the result is fitted to the same 600 x 200 box and size limit as an upload. */
+  function rotateSignature(uri, dir) {
+    return new Promise(function (resolve, reject) {
+      if (typeof root.Image !== 'function' || !doc || !doc.createElement) return reject(TK.makeError('LIB_MISSING'));
+      var img = new root.Image();
+      img.onerror = function () { reject(sigErr('UNREADABLE')); };
+      img.onload = function () {
+        try {
+          var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+          if (!(w > 0 && h > 0)) throw sigErr('UNREADABLE');
+          var r = canvasOf(h, w), rx = r.getContext && r.getContext('2d');
+          if (!rx) throw TK.makeError('LIB_MISSING');
+          rx.translate(h / 2, w / 2);
+          rx.rotate(dir < 0 ? -Math.PI / 2 : Math.PI / 2);
+          rx.drawImage(img, -w / 2, -h / 2);
+          var out = sigFit(h, w, SIG.maxW, SIG.maxH);
+          var b = canvasOf(out.w, out.h), bx = b.getContext('2d');
+          bx.drawImage(r, 0, 0, h, w, 0, 0, out.w, out.h);
+          var res = String(b.toDataURL('image/png') || '');
+          if (!/^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(res)) throw sigErr('UNREADABLE');
+          if (res.length > SIG.maxUri) throw sigErr('TOO_BIG');
+          resolve(res);
+        } catch (e) { reject(e && (e.sigMsg || e.code === 'LIB_MISSING') ? e : sigErr('UNREADABLE')); }
+      };
+      img.src = uri;
+    });
+  }
   /** A chosen file -> a promise of the cleaned PNG data URI (rejects with .sigMsg, a plain sentence). Nothing is kept. */
   function readSignature(file) {
     return new Promise(function (resolve, reject) {
@@ -2294,6 +2401,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         acts = '<label class="tk-btn tk-btn-small tk-ct-file">' + (o.has_signature ? 'Replace' : 'Upload') +
           '<input type="file" accept="image/png,image/jpeg" data-change="ct.sig.file" data-o="' + esc(id) + '" aria-label="' +
           esc((o.has_signature ? 'Replace the e-signature of ' : 'Upload the e-signature of ') + name) + '"' + off + '></label>' +
+          (o.has_signature && img ? '<button type="button" class="tk-btn tk-btn-small" data-action="ct.sig.rot" data-d="-1" data-o="' + esc(id) +
+            '" aria-label="' + esc('Rotate the e-signature of ' + name + ' to the left') + '"' + off + '>↺ Rotate left</button>' +
+            '<button type="button" class="tk-btn tk-btn-small" data-action="ct.sig.rot" data-d="1" data-o="' + esc(id) +
+            '" aria-label="' + esc('Rotate the e-signature of ' + name + ' to the right') + '"' + off + '>↻ Rotate right</button>' : '') +
           (o.has_signature ? '<button type="button" class="tk-btn tk-btn-small" data-action="ct.sig.ask" data-o="' + esc(id) + '" aria-label="' +
             esc('Remove the e-signature of ' + name) + '"' + off + '>Remove</button>' : '');
       }
@@ -2486,6 +2597,25 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     }).then(function () {
       S.sigBusy = '';
       if (mine === S.seq) sigDone('good', 'The e-signature of ' + (o.full_name || '') + ' was saved.');
+    }, function (err) {
+      S.sigBusy = '';
+      if (mine === S.seq) sigDone('crit', err && err.sigMsg ? err.sigMsg : TK.isTimeout(err) ? TK.MAYBE_SAVED : TK.friendlyError(err));
+    });
+  });
+  // a quarter turn of a saved e-signature (a phone photo taken sideways), saved straight away
+  TK.action('ct.sig.rot', function (el) {
+    var id = el && el.getAttribute ? el.getAttribute('data-o') : '', o = officerById(id);
+    var dir = Number(el && el.getAttribute ? el.getAttribute('data-d') : 0);
+    var img = own(S.img, id) ? S.img[id] : null;
+    if (!o || !img || (dir !== 1 && dir !== -1) || S.busy || S.sigBusy) return null;
+    S.sigBusy = id; S.sigConfirm = ''; S.sigMsg = null;
+    drawSettings();
+    var mine = S.seq;
+    return rotateSignature(img, dir).then(function (uri) {
+      return TK.rpc('cert_save_signature', { p_officer: id, p_image: uri }).then(function () { S.img[id] = uri; });
+    }).then(function () {
+      S.sigBusy = '';
+      if (mine === S.seq) sigDone('good', 'The e-signature of ' + (o.full_name || '') + ' was turned and saved.');
     }, function (err) {
       S.sigBusy = '';
       if (mine === S.seq) sigDone('crit', err && err.sigMsg ? err.sigMsg : TK.isTimeout(err) ? TK.MAYBE_SAVED : TK.friendlyError(err));
@@ -3331,7 +3461,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   });
 
   TK.certificatesPage = { certData: certData, rowError: rowError, clean: clean, parseList: parseList, registerCsv: registerCsv, S: S,
-    signError: signError, sigFit: sigFit, sigCutoff: sigCutoff, sigClear: sigClear, sigBounds: sigBounds, readSignature: readSignature,
+    signError: signError, sigFit: sigFit, sigCutoff: sigCutoff, sigClear: sigClear, sigBounds: sigBounds, readSignature: readSignature, rotateSignature: rotateSignature,
     SIG: SIG };
 }(typeof window !== 'undefined' ? window : globalThis));
 </script>
