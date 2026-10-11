@@ -434,6 +434,28 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 .tk-modal:has(.tk-ct-frame) { width: min(1000px, calc(100vw - 2 * var(--s4))); }
 .tk-ct-frame { display: block; width: 100%; height: min(70vh, 640px); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
 @media (min-width: 640px) { .tk-ct-table .tk-actions { justify-content: flex-start; flex-wrap: nowrap; } }
+/* certificates phase 2: the view switch, the type choice, the list tools */
+.tk-ct-switch { display: flex; flex-wrap: wrap; gap: var(--s1); border-bottom: 1px solid var(--line); }
+.tk-ct-tab {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--s3); font-size: var(--fs-sm); font-weight: 600;
+  color: var(--navy-700); text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px;
+}
+.tk-ct-tab:hover { color: var(--navy-500); }
+.tk-ct-tab[aria-current="page"] { color: var(--navy-900); border-bottom-color: var(--navy-500); }
+.tk-ct-types { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: var(--s2); grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+.tk-ct-types legend { font-size: var(--fs-sm); font-weight: 600; color: var(--navy-800); padding: 0; margin-bottom: var(--s1); }
+.tk-ct-type {
+  display: flex; gap: var(--s2); align-items: flex-start; padding: var(--s2) var(--s3); min-height: 44px; cursor: pointer;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface);
+}
+.tk-ct-type:has(input:checked) { border-color: var(--navy-500); background: var(--navy-100); }
+.tk-ct-type input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; }
+.tk-ct-type > span { display: grid; gap: 2px; font-size: var(--fs-sm); }
+.tk-ct-title { flex: 1 1 18rem; }
+.tk-ct-tools { margin-top: var(--s2); }
+.tk-ct-paste { min-height: 10rem; font-family: inherit; }
+.tk-ct-table .tk-btn { white-space: nowrap; }
+@media (min-width: 640px) { .tk-ct-reg .tk-actions { flex-wrap: wrap; } table.tk-stack.tk-ct-reg td { overflow-wrap: normal; } }
 </style>
 </head>
 <body data-page="certificates">
@@ -1456,8 +1478,16 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
  * time, to the chapter mailer (settings.mailer_url, an Apps Script web app) with the officer's own access token; the mailer
  * asks the database for the recipient (never this page) and records the result. A QUOTA reply stops the run.
  *
+ * Phase 2 (spec §6b): three views by the URL fragment, switched at the top ("Attendance · Other certificates · Register"):
+ *   #event=<uuid>  attendance (above);
+ *   #others        participation / appreciation / recognition / achievement certificates for a typed list of people
+ *                  (cert_issue_others), e-mailed through the same queue (Stop, QUOTA) as attendance;
+ *   #register      every issued certificate (cert_register) with Preview, Download, Send/Resend, Edit (cert_update), CSV.
+ * The other two views read the settings and signatories from cert_event() of the newest listed event (the database has no
+ * separate settings reader).
+ *
  * Every dynamic string goes through TK.esc; status pills carry a word and a dot (never colour alone). Nothing is stored,
- * logged or put in the URL other than #event=<uuid>.
+ * logged or put in the URL other than #event=<uuid>, #others or #register.
  */
 (function (root) {
   'use strict';
@@ -1466,7 +1496,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   var doc = root.document;
 
   // caps and characters match the database (cert_issue / cert_set_letters)
-  var MAX = { name: 120, letters: 60, email: 254 };
+  var MAX = { name: 120, letters: 60, email: 254, role: 80, award: 60, title: 200, batch: 300 };
   var LETTERS_RE = /^[A-Za-z0-9 ,.()&\/'-]*$/;
   var EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1487,14 +1517,39 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   var ROW_FAIL = { NO_EMAIL: 'no e-mail address', BAD_PDF: 'the PDF could not be attached', SEND_FAILED: 'Gmail could not send it',
     DB_ERROR: 'the database could not be reached', BAD_REQUEST: 'the mailer refused the request', BAD_REPLY: 'the mailer gave no clear answer' };
 
+  /* the other four types: [value, label, who it is for (plain words), the role printed by default] */
+  var TYPES = [
+    ['participation', 'Participation', 'Contestants and others who took part', 'Contestant'],
+    ['appreciation', 'Appreciation', 'Sponsors, speakers, teachers and volunteers', 'Sponsor'],
+    ['recognition', 'Recognition', 'Facilitators, hosts and committee members', 'Facilitator'],
+    ['achievement', 'Achievement', 'Winners of a contest; add each person’s award, for example 1st place', 'Contestant']
+  ];
+  var TYPE_LABEL = { attendance: 'Attendance', participation: 'Participation', appreciation: 'Appreciation',
+    recognition: 'Recognition', achievement: 'Achievement' };
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
   // in memory only. rows[i] = {key, name, letters, email, cert (cert_event certificate or null), sel, sending}
+  // view: 'event' (attendance) | 'others' | 'register'; S.rows always holds the rows of the view on screen.
+  // o: the "Other certificates" list (kept while switching views); ctx: settings + signatories for the other two views.
   var S = { access: null, events: [], eventId: null, data: null, rows: [], layout: 'formal', date: '', loadError: '',
-    note: null, busy: false, run: null, showSettings: false, seq: 0 };
+    note: null, busy: false, run: null, showSettings: false, seq: 0, view: 'event', o: null, ctx: null, regType: '',
+    regLoaded: false, editing: null };
 
   function byId(id) { return doc && doc.getElementById ? doc.getElementById(id) : null; }
   function own(map, k) { return typeof k === 'string' && Object.prototype.hasOwnProperty.call(map, k); }
   function isAdmin() { return !!S.access && !!S.access.hub_admin; }
-  function settings() { return (S.data && S.data.settings) || {}; }
+  /** The settings, signatories and positions of the view on screen. */
+  function ctxData() { return S.view === 'event' ? S.data : S.ctx; }
+  function settings() { var d = ctxData(); return (d && d.settings) || {}; }
+  function sigList() { var d = ctxData(); return (d && d.signatories) || []; }
+  function sq(s) { return String(s == null ? '' : s).trim().replace(/\s+/g, ' '); }
+  function todayJ() { return jDate(new Date().toISOString()); }
+  function evById(id) { for (var i = 0; i < S.events.length; i++) if (S.events[i].id === id) return S.events[i]; return null; }
+  /** 'YYYY-MM-DD' -> '11 Oct 2026' */
+  function dateText(d) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d || ''));
+    return m ? Number(m[3]) + ' ' + MONTHS[Number(m[2]) - 1] + ' ' + m[1] : '';
+  }
   function ready() { var s = settings(); return !!s.mailer_ready && !!s.mailer_url; }
   function evInfo() { return (S.data && S.data.event) || {}; }
   /** An ISO time as the Jeddah calendar date 'YYYY-MM-DD' (Jeddah is UTC+3, no daylight saving). */
@@ -1559,11 +1614,33 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     R.setup(d, A);
     return d;
   }
+  /** The renderer's data for any row: attendance rows (this event), "Other certificates" rows, register rows. */
   function certData(r) {
-    var e = evInfo(), x = clean(r), sig = (S.data && S.data.signatories) || [];
+    if (r && r.kind === 'other') return otherData(r);
+    if (r && r.kind === 'reg') return fromCert(r.cert);
+    var e = evInfo(), x = clean(r), sig = sigList();
     return { layout: S.layout, type: 'attendance', name: x.name, postNominals: x.letters, eventTitle: e.title || '',
       eventDate: jDate(e.event_date), venue: e.venue || '', issuedDate: S.date, certNo: r.cert ? r.cert.ref || '' : '',
       signatories: sig, term: sig[0] && sig[0].term ? sig[0].term : '' };
+  }
+  /** An issued certificate (cert_json) as the renderer wants it; the held line only when it is linked to a listed event. */
+  function fromCert(c) {
+    c = c || {};
+    var type = own(TYPE_LABEL, c.cert_type) ? c.cert_type : 'attendance', ev = c.announcement_id ? evById(c.announcement_id) : null;
+    var sig = sigList();
+    return { layout: c.layout === 'modern' ? 'modern' : 'formal', type: type, name: c.recipient_name || '',
+      postNominals: c.post_nominals || '', role: type === 'attendance' || type === 'achievement' ? '' : c.recipient_role || '',
+      award: type === 'achievement' ? c.detail || '' : '', eventTitle: c.event_title || '',
+      eventDate: ev ? jDate(ev.event_date) : '', venue: ev ? ev.venue || '' : '', issuedDate: c.issued_date || '',
+      certNo: c.ref || '', signatories: sig, term: sig[0] && sig[0].term ? sig[0].term : '' };
+  }
+  /** A row of the "Other certificates" list: what is on screen until it is issued, then its certificate. */
+  function otherData(r) {
+    if (r.cert) return fromCert(r.cert);
+    var o = S.o, x = oClean(r), ev = o.link ? evById(o.link) : null, sig = sigList(), ach = o.type === 'achievement';
+    return { layout: o.layout, type: o.type, name: x.name, postNominals: x.letters, role: ach ? '' : sq(o.role),
+      award: ach ? x.award : '', eventTitle: oTitle(), eventDate: ev ? jDate(ev.event_date) : '', venue: ev ? ev.venue || '' : '',
+      issuedDate: o.date, certNo: '', signatories: sig, term: sig[0] && sig[0].term ? sig[0].term : '' };
   }
   /** One page per row, in order. */
   function pdfOf(rows) {
@@ -1686,7 +1763,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       (S.eventId ? '' : '<option value="" selected>Choose an event</option>') + opts + '</select></div>';
   }
   function signHtml() {
-    var sig = (S.data && S.data.signatories) || [];
+    var sig = sigList();
     var names = sig.map(function (s) {
       return '<span class="tk-nowrap">' + esc(s.full_name) + ' · ' + esc(s.position + (s.term ? ', ' + s.term : '')) + '</span>';
     }).join('<br>');
@@ -1694,17 +1771,22 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       ' Check the signatories under Settings.</p></div>' : '';
     return '<p class="tk-ct-sign"><span class="tk-muted">Signed by</span><br>' + (names || '—') + '</p>' + warn;
   }
+  /** Design (Formal · Modern) and the date; t = S (attendance) or S.o (other certificates). */
+  function layoutDateHtml(t) {
+    return '<fieldset class="tk-ct-seg"><legend>Design</legend><div class="tk-ct-segbtns">' + LAYOUTS.map(function (l) {
+        return '<button type="button" class="tk-btn tk-btn-small" data-action="ct.layout" data-v="' + l[0] + '" aria-pressed="' +
+          (t.layout === l[0] ? 'true' : 'false') + '"' + dis() + '>' + l[1] + '</button>';
+      }).join('') + '</div></fieldset>' +
+      '<div class="tk-field"><label for="ct-date">Date on the certificate</label><input id="ct-date" type="date" value="' + esc(t.date) +
+      '" data-change="ct.date" aria-describedby="ct-date-err"' + dis() + '><span class="tk-err" id="ct-date-err" role="alert"></span></div>';
+  }
   function optionsHtml() {
     return '<section class="tk-card tk-ct-opts" aria-label="Certificate options"><div class="tk-ct-optrow">' +
-      '<fieldset class="tk-ct-seg"><legend>Design</legend><div class="tk-ct-segbtns">' + LAYOUTS.map(function (l) {
-        return '<button type="button" class="tk-btn tk-btn-small" data-action="ct.layout" data-v="' + l[0] + '" aria-pressed="' +
-          (S.layout === l[0] ? 'true' : 'false') + '"' + dis() + '>' + l[1] + '</button>';
-      }).join('') + '</div></fieldset>' +
-      '<div class="tk-field"><label for="ct-date">Date on the certificate</label><input id="ct-date" type="date" value="' + esc(S.date) +
-      '" data-change="ct.date" aria-describedby="ct-date-err"' + dis() + '><span class="tk-err" id="ct-date-err" role="alert"></span></div>' +
-      '</div>' + signHtml() + '</section>';
+      layoutDateHtml(S) + '</div>' + signHtml() + '</section>';
   }
   function actionsHtml() {
+    if (S.view === 'others') return oActionsHtml();
+    if (S.view === 'register') return rActionsHtml();
     if (!S.data) return '';
     var n = selected().length;
     return '<div class="tk-actions">' +
@@ -1728,7 +1810,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (!c) return TK.pill('neutral', 'Not issued');
     if (c.send_status === 'sent') return TK.pill('good', 'Sent' + (c.sent_at ? ' ' + TK.when(c.sent_at) : ''));
     if (c.send_status === 'failed') return TK.pill('crit', 'Failed: ' + (c.send_error || 'not sent'));
-    if (!c.recipient_email) return TK.pill('warn', 'No e-mail');
+    if (!c.recipient_email) return r.kind ? TK.pill('info', 'Issued · download') : TK.pill('warn', 'No e-mail');
     return TK.pill('info', 'Issued');
   }
   function rowHtml(r, i) {
@@ -1755,6 +1837,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<td data-label="Actions"><div class="tk-actions">' + acts + '</div></td></tr>';
   }
   function tableHtml() {
+    if (S.view === 'others') return oTableHtml();
+    if (S.view === 'register') return rTableHtml();
     if (!S.data) return '';
     if (!S.rows.length) {
       return '<div class="tk-card tk-card-dashed"><h2>No attendees yet</h2><p>No one is marked as attended for this event yet. ' +
@@ -1767,8 +1851,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       S.rows.map(rowHtml).join('') + '</tbody></table></div>';
   }
   function settingsHtml() {
-    if (!S.showSettings || !S.data) return '';
-    var s = settings(), pos = (S.data.positions || []).slice();
+    if (!S.showSettings || !ctxData()) return '';
+    var s = settings(), pos = (ctxData().positions || []).slice();
     function posSelect(id, name, cur) {
       var list = pos.slice();
       if (cur && list.indexOf(cur) < 0) list.unshift(cur);
@@ -1810,7 +1894,24 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<div id="ct-table">' + tableHtml() + '</div>' +
       '<div id="ct-settings">' + settingsHtml() + '</div>';
   }
-  function pageInner() { return headHtml() + pickerHtml() + bodyHtml(); }
+  /** The top switch: plain links, so the address shows the view and Back works (the shell redraws on hashchange). */
+  function switchHtml() {
+    var items = [['event', S.eventId ? '#event=' + S.eventId : '#event', 'Attendance'], ['others', '#others', 'Other certificates'],
+      ['register', '#register', 'Register']];
+    return '<nav class="tk-ct-switch" aria-label="Certificates">' + items.map(function (it) {
+      return '<a class="tk-ct-tab" href="' + esc(it[1]) + '"' + (S.view === it[0] ? ' aria-current="page"' : '') + '>' + it[2] + '</a>';
+    }).join('') + '</nav>';
+  }
+  function mailerWarnHtml() {
+    return ready() ? '' : '<div class="tk-note tk-note-warn"><p><b>E-mail sending is not set up yet.</b> You can still issue and download ' +
+      'certificates. Add the mailer address under Settings.</p></div>';
+  }
+  function pageInner() {
+    var top = headHtml() + switchHtml();
+    if (S.view === 'others') return top + othersHtml();
+    if (S.view === 'register') return top + registerHtml();
+    return top + pickerHtml() + bodyHtml();
+  }
   function nonAdminHtml() {
     return '<div class="tk-ct">' + headHtml() + '<div class="tk-note"><p><b>Hub administrators issue certificates.</b></p>' +
       '<p>Ask a Hub administrator when a certificate needs to be issued or corrected.</p></div></div>';
@@ -1868,7 +1969,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   TK.action('ct.layout', function (el) {
     var v = el && el.getAttribute ? el.getAttribute('data-v') : '';
     if (S.busy || (v !== 'formal' && v !== 'modern')) return null;
-    S.layout = v;
+    (S.view === 'others' && S.o ? S.o : S).layout = v;
     drawPage();
     return null;
   });
@@ -1876,7 +1977,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var v = el && typeof el.value === 'string' ? el.value.trim() : '';
     if (S.busy) return null;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) { TK.setHTML('ct-date-err', esc('Enter the date on the certificate.')); return null; }
-    S.date = v;
+    (S.view === 'others' && S.o ? S.o : S).date = v;
     TK.setHTML('ct-date-err', '');
     return null;
   });
@@ -1907,7 +2008,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return null;
   });
   TK.action('ct.settings', function () {
-    if (S.busy || !S.data) return null;
+    if (S.busy || !ctxData()) return null;
     S.showSettings = !S.showSettings;
     drawSettings(); drawActions();
     var f = S.showSettings && byId('ct-s-url');
@@ -2008,21 +2109,25 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function saveFile(rows, name) {
     try { pdfOf(rows).save(name); return true; } catch (e) { TK.toast(TK.friendlyError(e), 'crit'); return false; }
   }
-  TK.action('ct.preview', function (el) {
-    var x = rowOf(el);
-    if (!x || S.busy) return null;
+  /** The PDF of one row in a modal (<iframe> with a blob URL, freed on close). Saves nothing. */
+  function showPreview(r) {
     var url;
     try {
-      var blob = pdfOf([x.r]).output('blob');
+      var blob = pdfOf([r]).output('blob');
       if (!root.URL || typeof root.URL.createObjectURL !== 'function') throw TK.makeError('LIB_MISSING');
       url = root.URL.createObjectURL(blob);
     } catch (e) { TK.toast(TK.friendlyError(e), 'crit'); return null; }
-    var name = clean(x.r).name || 'this person';
-    TK.modal('<h2>Preview</h2><p class="tk-mini">' + esc(name) + (x.r.cert ? ' · ' + esc(x.r.cert.ref) : ' · not issued yet') + '</p>' +
+    var name = certData(r).name || 'this person';
+    TK.modal('<h2>Preview</h2><p class="tk-mini">' + esc(name) + (r.cert ? ' · ' + esc(r.cert.ref) : ' · not issued yet') + '</p>' +
       '<iframe class="tk-ct-frame" title="' + esc('Certificate preview for ' + name) + '" src="' + esc(url) + '"></iframe>' +
       '<div class="tk-modal-actions"><button type="button" class="tk-btn" data-action="tk.closeModal">Close</button></div>',
       { label: 'Certificate preview', onClose: function () { try { root.URL.revokeObjectURL(url); } catch (e) { /* gone */ } } });
     return null;
+  }
+  TK.action('ct.preview', function (el) {
+    var x = rowOf(el);
+    if (!x || S.busy) return null;
+    return showPreview(x.r);
   });
   TK.action('ct.download', function (el) {
     var x = rowOf(el);
@@ -2057,7 +2162,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   });
 
   TK.action('ct.save', function (form) {
-    if (S.busy || !S.data) return null;
+    if (S.busy || !ctxData()) return null;
     function val(n) {
       var els = form && form.elements, c = els ? (els.namedItem ? els.namedItem(n) : els[n]) : null;
       return c && c.value != null ? String(c.value).trim() : '';
@@ -2076,29 +2181,603 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return TK.rpc('cert_save_settings', { p_mailer_url: url || null, p_signatory_1: s1, p_signatory_2: s2,
       p_default_layout: lay === 'modern' ? 'modern' : 'formal' }).then(function () {
       if (mine !== S.seq) return null;
-      return openEvent(id).then(function () { setNote('good', ['Settings saved.']); });
+      return (S.view === 'event' ? openEvent(id) : reloadCtx()).then(function () { setNote('good', ['Settings saved.']); });
     }, function (err) {
       if (go && go.removeAttribute) go.removeAttribute('disabled');
       TK.setHTML('ct-s-err', esc(TK.friendlyError(err)));
     });
   });
 
+  // ------------------------------------------------------------------ shared by "Other certificates" and the register
+  /** Settings, signatories and positions for the other two views: cert_event() of the newest listed event. */
+  function loadCtx(mine) {
+    var ev = S.events[0];
+    if (!ev) { S.ctx = null; return Promise.resolve(); }
+    return TK.rpc('cert_event', { p_announcement: ev.id }).then(function (d) {
+      if (mine !== S.seq) return;
+      S.ctx = d && typeof d === 'object' && d.settings ? { settings: d.settings, signatories: Array.isArray(d.signatories) ? d.signatories : [],
+        positions: Array.isArray(d.positions) ? d.positions : [] } : null;
+    });
+  }
+  function reloadCtx() {
+    S.seq += 1;
+    var mine = S.seq;
+    S.showSettings = false;
+    return loadCtx(mine).then(function () { if (mine === S.seq) drawPage(); }, function (err) {
+      if (mine === S.seq) { S.note = { kind: 'crit', lines: [TK.friendlyError(err)] }; drawPage(); }
+    });
+  }
+  function noCtxHtml() {
+    return S.ctx ? '' : '<div class="tk-note tk-note-warn"><p>The signatories and the mailer address are read from a Hub event, and no ' +
+      'event with attendees is listed yet, so certificates print without signatories and cannot be e-mailed for now.</p></div>';
+  }
+  function againLabel(c) { return c && (c.send_status === 'sent' || c.send_status === 'failed' || Number(c.send_count) > 0) ? 'Resend' : 'Send'; }
+  /** Send one issued row now (its e-mail is on the certificate). */
+  function sendRow(r) {
+    if (!r || !r.cert || !r.cert.recipient_email || S.busy || !ready()) return null;
+    return locked(function () { return sendQueue([r]); });
+  }
+  function rowAt(el) {
+    var k = Number(el && el.getAttribute ? el.getAttribute('data-k') : NaN);
+    return k >= 0 && k < S.rows.length ? S.rows[k] : null;
+  }
+
+  // ------------------------------------------------------------------ other certificates (#others)
+  function blankRow() {
+    S.o.n += 1;
+    return { kind: 'other', key: 'p' + S.o.n, name: '', letters: '', email: '', award: '', cert: null, sending: false, showErr: false };
+  }
+  function newOthers() {
+    S.o = { type: 'participation', role: 'Contestant', title: '', link: '', date: todayJ(), layout: 'formal', rows: [], n: 0 };
+    S.o.rows.push(blankRow());
+  }
+  function typeDef(t) { for (var i = 0; i < TYPES.length; i++) if (TYPES[i][0] === t) return TYPES[i]; return TYPES[0]; }
+  function oClean(r) { return { name: sq(r.name), letters: sq(r.letters), email: sq(r.email).toLowerCase(), award: sq(r.award) }; }
+  function oTitle() {
+    var t = sq(S.o.title), ev = S.o.link ? evById(S.o.link) : null;
+    return t || (ev ? ev.title : '');
+  }
+  function oBlank(r) { var x = oClean(r); return !r.cert && !x.name && !x.letters && !x.email && !x.award; }
+  function oPending() { return S.o.rows.filter(function (r) { return !r.cert && !oBlank(r); }); }
+  function oRowError(r) {
+    var x = oClean(r);
+    if (!x.name) return 'Enter the name.';
+    if (x.name.length > MAX.name) return 'The name is too long (up to 120 characters).';
+    if (x.letters.length > MAX.letters || !LETTERS_RE.test(x.letters)) return LETTERS_HELP;
+    if (x.email && (x.email.length > MAX.email || !EMAIL_RE.test(x.email))) return 'Enter a valid e-mail address, or leave it empty.';
+    if (S.o.type === 'achievement' && x.award.length > MAX.award) return 'The award is too long (up to 60 characters).';
+    return '';
+  }
+  /** The problems with the type, role, event and date (one sentence each). */
+  function oFormErrors() {
+    var o = S.o, out = [];
+    if (o.type !== 'achievement' && (!sq(o.role) || sq(o.role).length > MAX.role)) out.push('Enter the role, for example Sponsor (up to 80 characters).');
+    if (!oTitle()) out.push('Enter the event or project, or link a Hub event.');
+    else if (oTitle().length > MAX.title) out.push('The event or project is too long (up to 200 characters).');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(o.date || '')) out.push('Enter the date on the certificate.');
+    return out;
+  }
+  /**
+   * "Paste a list": one person per line, `Name | Award | email`; the last two are optional. With two parts, the second is
+   * the e-mail when it has an @, else the award. Blank lines are skipped; a wrong e-mail is kept (and flagged), never dropped.
+   */
+  function parseList(text) {
+    var out = [];
+    String(text == null ? '' : text).split(/\r\n|\r|\n/).forEach(function (line) {
+      if (!line.trim()) return;
+      var p = line.split('|').map(sq), name = p[0] || '', award = '', email = '';
+      if (p.length >= 3) { award = p[1]; email = sq(p.slice(2).join(' ')); }
+      else if (p.length === 2) { if (p[1].indexOf('@') >= 0) email = p[1]; else award = p[1]; }
+      if (!name && !award && !email) return;
+      out.push({ name: name, award: award, email: email });
+    });
+    return out;
+  }
+  function issueOthers(rows) {
+    var o = S.o, ach = o.type === 'achievement';
+    return TK.rpc('cert_issue_others', { p_cert_type: o.type, p_role: ach ? typeDef('achievement')[3] : sq(o.role),
+      p_event_title: sq(o.title), p_announcement: o.link || null, p_issued_date: o.date || null, p_layout: o.layout,
+      p_items: rows.map(function (r) {
+        var x = oClean(r);
+        return { name: x.name, letters: x.letters, email: x.email, award: ach ? x.award : '' };
+      }) }).then(function (list) {
+      list = Array.isArray(list) ? list : [];
+      rows.forEach(function (r, i) {
+        var c = list[i];
+        if (!c || !c.id) return;
+        r.cert = c; r.name = c.recipient_name || r.name; r.letters = c.post_nominals || ''; r.email = c.recipient_email || '';
+        if (c.detail != null) r.award = c.detail;
+      });
+    });
+  }
+
+  function oActionsHtml() {
+    var n = oPending().length;
+    return '<div class="tk-actions">' +
+      '<button type="button" class="tk-btn tk-btn-primary" id="ct-go" data-action="ct.o.ask"' + (n && !S.busy ? '' : ' disabled') + '>' +
+      (ready() ? 'Issue &amp; e-mail' : 'Issue') + ' (' + n + ')</button>' +
+      '<button type="button" class="tk-btn" data-action="ct.o.all"' + dis() + '>Download all</button>' +
+      (S.ctx ? '<button type="button" class="tk-btn" data-action="ct.settings" aria-controls="ct-settings" aria-expanded="' +
+        (S.showSettings ? 'true' : 'false') + '"' + dis() + '>Settings</button>' : '') + '</div>';
+  }
+  function oFormHtml() {
+    var o = S.o, d = dis(), lk = o.rows.some(function (r) { return r.cert; }) ? ' disabled' : d;
+    var types = TYPES.map(function (t) {
+      return '<label class="tk-ct-type"><input type="radio" name="ct-o-type" value="' + t[0] + '" data-change="ct.o.type"' +
+        (o.type === t[0] ? ' checked' : '') + lk + '><span><b>' + t[1] + '</b><span class="tk-mini">' + esc(t[2]) + '</span></span></label>';
+    }).join('');
+    var linked = false;
+    var evs = S.events.map(function (e) {
+      if (e.id === o.link) linked = true;
+      return '<option value="' + esc(e.id) + '"' + (e.id === o.link ? ' selected' : '') + '>' + esc(e.title + ' · ' + dayText(e.event_date)) + '</option>';
+    }).join('');
+    return '<section class="tk-card tk-ct-opts" aria-label="What to issue">' +
+      '<fieldset class="tk-ct-types"><legend>Type of certificate</legend>' + types + '</fieldset>' +
+      '<div class="tk-ct-optrow">' +
+      (o.type === 'achievement' ? '' : '<div class="tk-field"><label for="ct-o-role">Role</label><input id="ct-o-role" type="text" maxlength="' +
+        MAX.role + '" autocomplete="off" value="' + esc(o.role) + '" data-change="ct.o.field" data-f="role" aria-describedby="ct-o-roleh"' + lk +
+        '><span class="tk-hint" id="ct-o-roleh">Printed in the sentence, for example “as ' + esc(typeDef(o.type)[3]) + '”.</span></div>') +
+      '<div class="tk-field tk-ct-title"><label for="ct-o-title">Event or project</label><input id="ct-o-title" type="text" maxlength="' + MAX.title +
+        '" autocomplete="off" value="' + esc(o.title) + '" data-change="ct.o.field" data-f="title"' + lk + '></div>' +
+      '<div class="tk-field"><label for="ct-o-link">Link to a Hub event (optional)</label><select id="ct-o-link" data-change="ct.o.link"' + lk + '>' +
+        '<option value=""' + (o.link && linked ? '' : ' selected') + '>Not linked</option>' + evs + '</select></div>' +
+      '</div><div class="tk-ct-optrow">' + layoutDateHtml(o) + '</div>' + signHtml() + '</section>';
+  }
+  function oRowHtml(r, i) {
+    var d = dis(), x = oClean(r), label = x.name || 'this person', ach = S.o.type === 'achievement';
+    var off = r.cert ? ' disabled' : d, err = r.showErr && !r.cert ? oRowError(r) : '';
+    function input(f, type, max, aria) {
+      var bad = err && ((f === 'email' && /e-mail/.test(err)) || (f === 'name' && /name/.test(err)) || (f === 'letters' && /^Letters/.test(err)) ||
+        (f === 'award' && /award/.test(err)));
+      return '<input type="' + type + '" id="ct-' + f + '-' + i + '" value="' + esc(r[f]) + '" maxlength="' + max + '" autocomplete="off"' +
+        ' data-change="ct.o.edit" data-k="' + i + '" data-f="' + f + '" aria-label="' + esc(aria + ' for ' + label) + '"' +
+        ' aria-describedby="ct-err-' + i + '"' + (bad ? ' aria-invalid="true"' : '') + off + '>';
+    }
+    var acts = '<button type="button" class="tk-btn tk-btn-small" data-action="ct.o.preview" data-k="' + i + '"' + d + '>Preview</button>';
+    if (r.cert) acts += '<button type="button" class="tk-btn tk-btn-small" data-action="ct.o.download" data-k="' + i + '"' + d + '>Download</button>';
+    if (r.cert && r.cert.recipient_email && ready()) {
+      acts += '<button type="button" class="tk-btn tk-btn-small" data-action="ct.o.send" data-k="' + i + '"' + d + '>' + againLabel(r.cert) + '</button>';
+    }
+    if (!r.cert) acts += '<button type="button" class="tk-btn tk-btn-small" data-action="ct.o.remove" data-k="' + i + '"' + d +
+      ' aria-label="' + esc('Remove ' + label) + '">Remove</button>';
+    return '<tr id="ct-row-' + i + '">' +
+      '<td data-label="Name">' + input('name', 'text', MAX.name, 'Name') + '<span class="tk-err" id="ct-err-' + i + '" role="alert">' + esc(err) + '</span></td>' +
+      '<td data-label="Letters">' + input('letters', 'text', MAX.letters, 'Letters after the name') + '</td>' +
+      '<td data-label="E-mail (optional)">' + input('email', 'email', MAX.email, 'E-mail') + '</td>' +
+      (ach ? '<td data-label="Award">' + input('award', 'text', MAX.award, 'Award') + '</td>' : '') +
+      '<td data-label="Certificate no." class="tk-nowrap">' + (r.cert ? esc(r.cert.ref) : '—') + '</td>' +
+      '<td data-label="Status">' + statusHtml(r) + '</td>' +
+      '<td data-label="Actions"><div class="tk-actions">' + acts + '</div></td></tr>';
+  }
+  function oTableHtml() {
+    var o = S.o, d = dis(), ach = o.type === 'achievement', issued = o.rows.some(function (r) { return r.cert; });
+    var tools = '<div class="tk-actions tk-ct-tools">' +
+      '<button type="button" class="tk-btn" data-action="ct.o.add"' + d + '>+ Add person</button>' +
+      '<button type="button" class="tk-btn" data-action="ct.o.pasteAsk"' + d + '>Paste a list</button>' +
+      (issued ? '<button type="button" class="tk-btn" data-action="ct.o.reset"' + d + '>Start a new list</button>' : '') + '</div>';
+    return '<div class="tk-table-wrap"><table class="tk-grid tk-stack tk-ct-table"><thead><tr>' +
+      '<th>Name</th><th>Letters</th><th>E-mail (optional)</th>' + (ach ? '<th>Award</th>' : '') +
+      '<th>Certificate no.</th><th>Status</th><th>Actions</th></tr></thead><tbody>' +
+      o.rows.map(oRowHtml).join('') + '</tbody></table></div>' + tools +
+      (issued ? '<p class="tk-mini">Issued rows are locked. To correct one, open the Register.</p>' : '');
+  }
+  function othersHtml() {
+    return '<div id="ct-note">' + noticeHtml(S.note) + '</div>' + noCtxHtml() + (S.ctx ? mailerWarnHtml() : '') + oFormHtml() +
+      '<div id="ct-actions">' + actionsHtml() + '</div>' +
+      '<div id="ct-run">' + runHtml() + '</div>' +
+      '<div id="ct-table">' + tableHtml() + '</div>' +
+      '<div id="ct-settings">' + settingsHtml() + '</div>';
+  }
+
+  TK.action('ct.o.type', function (el) {
+    var v = el && typeof el.value === 'string' ? el.value : '', o = S.o;
+    if (!o || S.busy || !TYPES.some(function (t) { return t[0] === v; }) || o.rows.some(function (r) { return r.cert; })) return null;
+    // the role follows the type until the officer types their own
+    var defaults = TYPES.map(function (t) { return t[3]; });
+    if (!sq(o.role) || defaults.indexOf(sq(o.role)) >= 0) o.role = typeDef(v)[3];
+    o.type = v;
+    drawPage();
+    return null;
+  });
+  TK.action('ct.o.field', function (el) {
+    var f = el && el.getAttribute ? el.getAttribute('data-f') : '';
+    if (!S.o || S.busy || (f !== 'role' && f !== 'title')) return null;
+    S.o[f] = String(el.value == null ? '' : el.value);
+    return null;
+  });
+  TK.action('ct.o.link', function (el) {
+    var v = el && typeof el.value === 'string' ? el.value : '';
+    if (!S.o || S.busy) return null;
+    var ev = v ? evById(v) : null;
+    if (v && !ev) return null;
+    S.o.link = ev ? ev.id : '';
+    if (ev) S.o.title = ev.title || '';
+    drawPage();
+    return null;
+  });
+  TK.action('ct.o.edit', function (el) {
+    var r = rowAt(el), f = el && el.getAttribute ? el.getAttribute('data-f') : '';
+    if (!r || r.kind !== 'other' || r.cert || S.busy || ['name', 'letters', 'email', 'award'].indexOf(f) < 0) return null;
+    r[f] = String(el.value == null ? '' : el.value);
+    r.showErr = true;
+    var msg = oRowError(r), k = S.rows.indexOf(r);
+    TK.setHTML('ct-err-' + k, esc(msg));
+    if (el.setAttribute && el.removeAttribute) { if (msg) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid'); }
+    drawActions();
+    return null;
+  });
+  TK.action('ct.o.add', function () {
+    if (!S.o || S.busy) return null;
+    S.o.rows.push(blankRow());
+    drawTable(); drawActions();
+    var f = byId('ct-name-' + (S.o.rows.length - 1));
+    if (f && f.focus) f.focus();
+    return null;
+  });
+  TK.action('ct.o.remove', function (el) {
+    var r = rowAt(el);
+    if (!r || r.cert || S.busy) return null;
+    S.o.rows.splice(S.o.rows.indexOf(r), 1);
+    if (!S.o.rows.length) S.o.rows.push(blankRow());
+    drawTable(); drawActions();
+    return null;
+  });
+  TK.action('ct.o.reset', function () {
+    if (!S.o || S.busy) return null;
+    var keep = { type: S.o.type, role: S.o.role, layout: S.o.layout };
+    newOthers();
+    Object.assign(S.o, keep);
+    S.rows = S.o.rows; S.note = null;
+    drawPage();
+    return null;
+  });
+  TK.action('ct.o.pasteAsk', function () {
+    if (!S.o || S.busy) return null;
+    TK.modal('<form class="tk-form" id="ct-paste" data-action="ct.o.paste" novalidate><h2>Paste a list</h2>' +
+      '<div class="tk-field"><label for="ct-p-list">One person per line: Name | Award | e-mail</label>' +
+      '<textarea id="ct-p-list" name="list" rows="8" class="tk-ct-paste" aria-describedby="ct-p-hint ct-p-err"></textarea>' +
+      '<span class="tk-hint" id="ct-p-hint">Leave out what you don’t have: “Maria Cruz”, “Maria Cruz | 1st place” and ' +
+      '“Maria Cruz | 1st place | her e-mail address” all work. Empty lines are skipped.</span></div>' +
+      '<p class="tk-ferr" id="ct-p-err" role="alert"></p>' +
+      '<div class="tk-modal-actions"><button type="button" class="tk-btn" data-action="tk.closeModal">Cancel</button>' +
+      '<button type="submit" class="tk-btn tk-btn-primary">Add to the list</button></div></form>', { label: 'Paste a list' });
+    var f = byId('ct-p-list');
+    if (f && f.focus) f.focus();
+    return null;
+  });
+  TK.action('ct.o.paste', function (form) {
+    if (!S.o || S.busy) return null;
+    var els = form && form.elements, c = els ? (els.namedItem ? els.namedItem('list') : els.list) : null;
+    var list = parseList(c && c.value != null ? c.value : '');
+    if (!list.length) { TK.setHTML('ct-p-err', esc('Paste at least one line with a name.')); return null; }
+    var keep = S.o.rows.filter(function (r) { return !oBlank(r); });
+    if (keep.filter(function (r) { return !r.cert; }).length + list.length > MAX.batch) {
+      TK.setHTML('ct-p-err', esc('Up to 300 people at a time. Split the list and issue it in parts.'));
+      return null;
+    }
+    S.o.rows.length = 0;
+    keep.forEach(function (r) { S.o.rows.push(r); });
+    list.forEach(function (p) {
+      var r = blankRow();
+      r.name = p.name; r.award = p.award; r.email = p.email; r.showErr = true;
+      S.o.rows.push(r);
+    });
+    TK.closeModal();
+    var bad = list.length ? S.o.rows.slice(-list.length).filter(oRowError).length : 0;
+    var lines = [plural(list.length, 'person was', 'people were') + ' added to the list.'];
+    if (bad) lines.push(plural(bad, 'line needs', 'lines need') + ' a fix; see the message under the name.');
+    if (S.o.type !== 'achievement' && list.some(function (p) { return p.award; })) lines.push('Awards print only on Achievement certificates.');
+    S.note = { kind: bad ? 'warn' : 'good', lines: lines };
+    drawPage();
+    return null;
+  });
+
+  /** The rows to issue, after showing every problem (null when there are any). */
+  function oCheck() {
+    var rows = oPending(), form = oFormErrors(), bad = 0;
+    rows.forEach(function (r) { r.showErr = true; if (oRowError(r)) bad += 1; });
+    if (form.length || bad) {
+      if (bad) form.push(plural(bad, 'row needs', 'rows need') + ' fixing first; see the message under the name.');
+      S.note = { kind: 'crit', lines: form };
+      drawPage();
+      return null;
+    }
+    if (!rows.length) { setNote('warn', ['Add at least one person.']); return null; }
+    if (rows.length > MAX.batch) { setNote('crit', ['Up to 300 people at a time. Issue the list in parts.']); return null; }
+    return rows;
+  }
+  TK.action('ct.o.ask', function () {
+    if (!S.o || S.busy) return null;
+    var rows = oCheck();
+    if (!rows) return null;
+    var label = typeDef(S.o.type)[1].toLowerCase();
+    var noMail = rows.filter(function (r) { return !oClean(r).email; }).length, toSend = rows.length - noMail;
+    var body = '<h2>Issue ' + esc(plural(rows.length, 'certificate', 'certificates')) + '?</h2>' +
+      '<p>' + esc(plural(rows.length, 'person', 'people')) + ' will get a certificate of ' + esc(label) + ' for ' + esc(oTitle()) + '.</p>';
+    if (ready()) {
+      body += (noMail ? '<p>' + esc(plural(noMail, 'person has', 'people have')) + ' no e-mail address: those certificates are issued for download only.</p>' : '') +
+        '<p>' + esc(plural(toSend, 'e-mail', 'e-mails')) + ' will be sent, one at a time, from the chapter mailbox. ' +
+        'Gmail allows about 100 e-mails a day.</p>';
+    } else {
+      body += '<p>E-mail sending is not set up yet, so the certificates are issued for download only.</p>';
+    }
+    body += '<p>Each certificate gets its own number. To correct one later, use the Register.</p>' +
+      '<div class="tk-modal-actions"><button type="button" class="tk-btn" data-action="tk.closeModal">Cancel</button>' +
+      '<button type="button" class="tk-btn tk-btn-primary" id="ct-confirm" data-action="ct.o.go">' + (ready() ? 'Issue &amp; e-mail' : 'Issue') + '</button></div>';
+    TK.modal(body, { label: 'Issue certificates' });
+    return null;
+  });
+  TK.action('ct.o.go', function () {
+    TK.closeModal();
+    if (!S.o || S.busy) return null;
+    var rows = oCheck();
+    if (!rows) return null;
+    return locked(function () {
+      return issueOthers(rows).then(function () {
+        var done = rows.filter(function (r) { return r.cert; });
+        var noMail = done.filter(function (r) { return !r.cert.recipient_email; }).length;
+        var extra = noMail ? plural(noMail, 'person has', 'people have') + ' no e-mail address; use Download all to print theirs.' : '';
+        if (!ready()) return { kind: 'good', lines: [plural(done.length, 'certificate was', 'certificates were') + ' issued. Use Download all to print them.'] };
+        var queue = done.filter(function (r) { return r.cert.recipient_email && r.cert.send_status !== 'sent'; });
+        if (!queue.length) return { kind: 'good', lines: [plural(done.length, 'certificate was', 'certificates were') + ' issued.', extra] };
+        return sendQueue(queue).then(function (n) { n.lines.push(extra); return n; });
+      });
+    });
+  });
+  TK.action('ct.o.send', function (el) { return sendRow(rowAt(el)); });
+  TK.action('ct.o.preview', function (el) {
+    var r = rowAt(el);
+    if (!r || S.busy) return null;
+    return showPreview(r);
+  });
+  TK.action('ct.o.download', function (el) {
+    var r = rowAt(el);
+    if (!r || !r.cert || S.busy) return null;
+    saveFile([r], 'Certificate-' + fileSafe(r.cert.ref) + '.pdf');
+    return null;
+  });
+  TK.action('ct.o.all', function () {
+    if (!S.o || S.busy) return null;
+    var rows = S.o.rows.filter(function (r) { return r.cert; });
+    if (!rows.length) { setNote('warn', ['No certificate is issued yet in this list. Issue them first.']); return null; }
+    if (saveFile(rows, 'Certificates-' + fileSafe(rows[0].cert.event_title || oTitle()) + '.pdf')) {
+      setNote('good', [plural(rows.length, 'certificate', 'certificates') + ' saved in one PDF.']);
+    }
+    return null;
+  });
+
+  // ------------------------------------------------------------------ the register (#register)
+  function toRegRow(c) { return { kind: 'reg', key: c.id, cert: c, sending: false }; }
+  function loadRegister(mine) {
+    return TK.rpc('cert_register', { p_type: S.regType || null, p_limit: 1000 }).then(function (list) {
+      if (mine !== S.seq) return;
+      S.rows = (Array.isArray(list) ? list : []).filter(function (c) { return c && c.id; }).map(toRegRow);
+      S.regLoaded = true; S.loadError = '';
+    }, function (err) {
+      if (mine !== S.seq) return;
+      S.rows = []; S.regLoaded = false; S.loadError = TK.friendlyError(err);
+    });
+  }
+  function roleText(c) {
+    if (c.cert_type === 'achievement') return c.detail || '';
+    if (c.cert_type === 'attendance') return '';
+    return c.recipient_role || '';
+  }
+  function nameText(c) { return (c.recipient_name || '') + (c.post_nominals ? ', ' + c.post_nominals : ''); }
+  function statusWord(c) {
+    if (c.send_status === 'sent') return 'Sent' + (c.sent_at ? ' ' + TK.when(c.sent_at) : '');
+    if (c.send_status === 'failed') return 'Failed: ' + (c.send_error || 'not sent');
+    return c.recipient_email ? 'Issued' : 'Issued (no e-mail)';
+  }
+  function csvCell(v) {
+    var s = TK.safeText(v == null ? '' : String(v));
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  /** The register as CSV text: UTF-8 BOM, CRLF, RFC 4180 quoting, safeText on every cell. No e-mail addresses. */
+  function registerCsv(rows) {
+    var lines = [['Certificate no.', 'Name', 'Letters', 'Type', 'Role', 'Award', 'Event or project', 'Date', 'Status'].map(csvCell).join(',')];
+    (rows || []).forEach(function (r) {
+      var c = r.cert || r;
+      lines.push([c.ref, c.recipient_name, c.post_nominals || '', TYPE_LABEL[c.cert_type] || c.cert_type,
+        c.cert_type === 'attendance' || c.cert_type === 'achievement' ? '' : c.recipient_role, c.cert_type === 'achievement' ? c.detail || '' : '',
+        c.event_title, c.issued_date, statusWord(c)].map(csvCell).join(','));
+    });
+    return '﻿' + lines.join('\r\n');
+  }
+  function download(name, text) {
+    if (typeof root.Blob !== 'function' || !root.URL || typeof root.URL.createObjectURL !== 'function' || !doc || !doc.createElement) return false;
+    var url = root.URL.createObjectURL(new root.Blob([text], { type: 'text/csv;charset=utf-8' }));
+    var a = doc.createElement('a');
+    a.href = url;
+    a.download = name;
+    try { if (doc.body && doc.body.appendChild) doc.body.appendChild(a); } catch (e) { /* not attached */ }
+    if (typeof a.click === 'function') a.click();
+    try { if (doc.body && doc.body.removeChild) doc.body.removeChild(a); } catch (e) { /* already gone */ }
+    if (root.setTimeout && root.URL.revokeObjectURL) root.setTimeout(function () { try { root.URL.revokeObjectURL(url); } catch (e) { /* gone */ } }, 4000);
+    return true;
+  }
+
+  function rActionsHtml() {
+    return '<div class="tk-actions">' +
+      '<button type="button" class="tk-btn" data-action="ct.r.csv"' + (S.rows.length && !S.busy ? '' : ' disabled') + '>Export CSV</button>' +
+      (S.ctx ? '<button type="button" class="tk-btn" data-action="ct.settings" aria-controls="ct-settings" aria-expanded="' +
+        (S.showSettings ? 'true' : 'false') + '"' + dis() + '>Settings</button>' : '') + '</div>';
+  }
+  function rRowHtml(r, i) {
+    var c = r.cert, d = dis();
+    var acts = '<button type="button" class="tk-btn tk-btn-small" data-action="ct.r.preview" data-k="' + i + '"' + d + '>Preview</button>' +
+      '<button type="button" class="tk-btn tk-btn-small" data-action="ct.r.download" data-k="' + i + '"' + d + '>Download</button>';
+    if (c.recipient_email && ready()) acts += '<button type="button" class="tk-btn tk-btn-small" data-action="ct.r.send" data-k="' + i + '"' + d + '>' + againLabel(c) + '</button>';
+    acts += '<button type="button" class="tk-btn tk-btn-small" data-action="ct.r.edit" data-k="' + i + '"' + d +
+      ' aria-label="' + esc('Edit the certificate of ' + (c.recipient_name || '')) + '">Edit</button>';
+    return '<tr id="ct-row-' + i + '">' +
+      '<td data-label="No." class="tk-nowrap">' + esc(c.ref) + '</td>' +
+      '<td data-label="Name">' + esc(nameText(c)) + '</td>' +
+      '<td data-label="Type">' + esc(TYPE_LABEL[c.cert_type] || c.cert_type || '') + '</td>' +
+      '<td data-label="Role or award">' + (roleText(c) ? esc(roleText(c)) : '—') + '</td>' +
+      '<td data-label="Event">' + esc(c.event_title || '') + '</td>' +
+      '<td data-label="Date" class="tk-nowrap">' + esc(dateText(c.issued_date)) + '</td>' +
+      '<td data-label="Status">' + statusHtml(r) + '</td>' +
+      '<td data-label="Actions"><div class="tk-actions">' + acts + '</div></td></tr>';
+  }
+  function rTableHtml() {
+    if (S.loadError) {
+      return '<div class="tk-note tk-note-crit" role="alert"><p>' + esc(S.loadError) + '</p>' +
+        '<p><button type="button" class="tk-btn tk-btn-primary" data-action="ct.r.reload">Try again</button></p></div>';
+    }
+    if (!S.regLoaded) return '<div class="tk-loading" role="status"><span class="tk-spin" aria-hidden="true"></span>Loading</div>';
+    if (!S.rows.length) {
+      return '<div class="tk-card tk-card-dashed"><h2>No certificates yet</h2><p>' + (S.regType ? 'No certificate of this type is issued yet.' :
+        'Certificates appear here once they are issued, from Attendance or Other certificates.') + '</p></div>';
+    }
+    return '<p class="tk-mini">' + esc(plural(S.rows.length, 'certificate', 'certificates')) + ', newest first.</p>' +
+      '<div class="tk-table-wrap"><table class="tk-grid tk-stack tk-ct-table tk-ct-reg"><thead><tr>' +
+      '<th>No.</th><th>Name</th><th>Type</th><th>Role or award</th><th>Event</th><th>Date</th><th>Status</th><th>Actions</th></tr></thead><tbody>' +
+      S.rows.map(rRowHtml).join('') + '</tbody></table></div>';
+  }
+  function registerHtml() {
+    var filter = '<div class="tk-field tk-ct-pick"><label for="ct-r-type">Show</label><select id="ct-r-type" data-change="ct.r.type"' + dis() + '>' +
+      '<option value=""' + (S.regType ? '' : ' selected') + '>All types</option>' +
+      Object.keys(TYPE_LABEL).map(function (t) {
+        return '<option value="' + t + '"' + (S.regType === t ? ' selected' : '') + '>' + TYPE_LABEL[t] + '</option>';
+      }).join('') + '</select></div>';
+    return '<div id="ct-note">' + noticeHtml(S.note) + '</div>' + noCtxHtml() + (S.ctx ? mailerWarnHtml() : '') + filter +
+      '<div id="ct-actions">' + actionsHtml() + '</div>' +
+      '<div id="ct-run">' + runHtml() + '</div>' +
+      '<div id="ct-table">' + tableHtml() + '</div>' +
+      '<div id="ct-settings">' + settingsHtml() + '</div>';
+  }
+  function openRegister() {
+    S.seq += 1;
+    var mine = S.seq;
+    S.rows = []; S.regLoaded = false; S.loadError = ''; S.note = null;
+    drawPage();
+    return loadRegister(mine).then(function () { if (mine === S.seq) drawPage(); });
+  }
+
+  TK.action('ct.r.type', function (el) {
+    var v = el && typeof el.value === 'string' ? el.value : '';
+    if (S.busy || (v && !own(TYPE_LABEL, v))) return null;
+    S.regType = v;
+    return openRegister();
+  });
+  TK.action('ct.r.reload', function () { return S.busy ? null : openRegister(); });
+  TK.action('ct.r.preview', function (el) {
+    var r = rowAt(el);
+    if (!r || S.busy) return null;
+    return showPreview(r);
+  });
+  TK.action('ct.r.download', function (el) {
+    var r = rowAt(el);
+    if (!r || S.busy) return null;
+    saveFile([r], 'Certificate-' + fileSafe(r.cert.ref) + '.pdf');
+    return null;
+  });
+  TK.action('ct.r.send', function (el) { return sendRow(rowAt(el)); });
+  TK.action('ct.r.csv', function () {
+    if (S.busy || !S.rows.length) return null;
+    var ok = false;
+    try { ok = download('Certificate-register-' + TK.localISO(new Date()) + '.csv', registerCsv(S.rows)); } catch (e) { ok = false; }
+    if (ok) setNote('good', ['The register was saved to this device as a spreadsheet file (CSV).']);
+    else setNote('crit', ['This browser can’t save a file. Try another browser.']);
+    return null;
+  });
+  TK.action('ct.r.edit', function (el) {
+    var r = rowAt(el);
+    if (!r || S.busy) return null;
+    var c = r.cert, t = c.cert_type, hasRole = t === 'participation' || t === 'appreciation' || t === 'recognition';
+    S.editing = r;
+    function field(id, name, label, value, max, type, hint) {
+      return '<div class="tk-field"><label for="' + id + '">' + label + '</label><input id="' + id + '" name="' + name + '" type="' + (type || 'text') +
+        '" maxlength="' + max + '" autocomplete="off" value="' + esc(value || '') + '">' + (hint ? '<span class="tk-hint">' + esc(hint) + '</span>' : '') + '</div>';
+    }
+    TK.modal('<form class="tk-form" id="ct-edit" data-action="ct.r.save" novalidate>' +
+      '<h2>Edit certificate ' + esc(c.ref) + '</h2>' +
+      '<p class="tk-mini">' + esc((TYPE_LABEL[t] || t) + ' · ' + (c.event_title || '')) + '. The number and the type stay the same.</p>' +
+      field('ct-e-name', 'name', 'Name', c.recipient_name, MAX.name) +
+      field('ct-e-letters', 'letters', 'Letters after the name', c.post_nominals, MAX.letters) +
+      field('ct-e-email', 'email', 'E-mail', c.recipient_email, MAX.email, 'email', 'If you change it, press Send afterwards to e-mail the new address.') +
+      (hasRole ? field('ct-e-role', 'role', 'Role', c.recipient_role, MAX.role) : '') +
+      (t === 'achievement' ? field('ct-e-award', 'award', 'Award', c.detail, MAX.award) : '') +
+      '<div class="tk-field"><label for="ct-e-lay">Design</label><select id="ct-e-lay" name="layout">' + LAYOUTS.map(function (l) {
+        return '<option value="' + l[0] + '"' + (c.layout === l[0] ? ' selected' : '') + '>' + l[1] + '</option>';
+      }).join('') + '</select></div>' +
+      '<p class="tk-ferr" id="ct-e-err" role="alert"></p>' +
+      '<div class="tk-modal-actions"><button type="button" class="tk-btn" data-action="tk.closeModal">Cancel</button>' +
+      '<button type="submit" class="tk-btn tk-btn-primary" id="ct-e-go">Save changes</button></div></form>', { label: 'Edit certificate' });
+    return null;
+  });
+  TK.action('ct.r.save', function (form) {
+    var r = S.editing;
+    if (!r || S.busy || S.rows.indexOf(r) < 0) return null;
+    var c = r.cert, t = c.cert_type, hasRole = t === 'participation' || t === 'appreciation' || t === 'recognition';
+    function val(n) {
+      var els = form && form.elements, x = els ? (els.namedItem ? els.namedItem(n) : els[n]) : null;
+      return x && x.value != null ? sq(x.value) : '';
+    }
+    var name = val('name'), letters = val('letters'), email = val('email').toLowerCase(), role = val('role'), award = val('award'), lay = val('layout');
+    var msg = !name ? 'Enter the name.' : name.length > MAX.name ? 'The name is too long (up to 120 characters).' :
+      letters.length > MAX.letters || !LETTERS_RE.test(letters) ? LETTERS_HELP :
+      email && (email.length > MAX.email || !EMAIL_RE.test(email)) ? 'Enter a valid e-mail address, or leave it empty.' :
+      hasRole && (!role || role.length > MAX.role) ? 'Enter the role (up to 80 characters).' :
+      t === 'achievement' && award.length > MAX.award ? 'The award is too long (up to 60 characters).' : '';
+    if (msg) { TK.setHTML('ct-e-err', esc(msg)); return null; }
+    TK.setHTML('ct-e-err', '');
+    var go = byId('ct-e-go');
+    if (go && go.setAttribute) go.setAttribute('disabled', 'disabled');
+    var before = c.recipient_email || '', mine = S.seq;
+    return TK.rpc('cert_update', { p_cert: c.id, p_name: name, p_letters: letters, p_email: email,
+      p_award: t === 'achievement' ? award : null, p_role: hasRole ? role : null, p_layout: lay === 'modern' ? 'modern' : 'formal' }).then(function (out) {
+      if (mine !== S.seq) return;
+      if (out && out.id) r.cert = out;
+      S.editing = null;
+      TK.closeModal();
+      var lines = ['Certificate ' + (r.cert.ref || '') + ' was updated.'];
+      if ((r.cert.recipient_email || '') !== before && r.cert.recipient_email && ready()) lines.push('It has not been e-mailed to the new address yet; press Send.');
+      S.note = { kind: 'good', lines: lines };
+      drawPage();
+    }, function (err) {
+      if (go && go.removeAttribute) go.removeAttribute('disabled');
+      TK.setHTML('ct-e-err', esc(TK.isTimeout(err) ? TK.MAYBE_SAVED : TK.friendlyError(err)));
+    });
+  });
+
   // ------------------------------------------------------------------ page
+  /** '#others' and '#register' pick those views; anything else is the attendance view. */
+  function viewOf() {
+    var h = root.location && typeof root.location.hash === 'string' ? root.location.hash : '';
+    return h === '#others' ? 'others' : h === '#register' ? 'register' : 'event';
+  }
   TK.registerPage({
     id: 'certificates',
     title: 'Certificates',
     access: 'officer',
     render: function (ctx) {
       S.seq += 1;
-      S.busy = false; S.run = null; S.note = null; S.showSettings = false;
+      S.busy = false; S.run = null; S.note = null; S.showSettings = false; S.editing = null;
       S.access = ctx.access || null;
       if (!isAdmin()) return nonAdminHtml();
-      var mine = S.seq;
+      var mine = S.seq, view = viewOf();
       return TK.rpc('cert_events').then(function (list) {
         if (mine !== S.seq) return null;
         S.events = Array.isArray(list) ? list.filter(function (e) { return e && e.id; }) : [];
+        S.view = view;
+        S.rows = []; S.loadError = '';
+        if (view === 'others') {
+          var fresh = !S.o;
+          if (fresh) newOthers();
+          S.rows = S.o.rows;
+          return loadCtx(mine).then(function () {
+            if (fresh && mine === S.seq) S.o.layout = settings().default_layout === 'modern' ? 'modern' : 'formal';
+            if (S.o.link && !evById(S.o.link)) S.o.link = '';
+          });
+        }
+        if (view === 'register') {
+          S.regLoaded = false;
+          return Promise.all([loadCtx(mine), loadRegister(mine)]);
+        }
         S.eventId = ctx.eventId || null;
-        S.data = null; S.rows = []; S.loadError = '';
+        S.data = null;
         return S.eventId ? loadData(S.eventId, mine) : null;
       }).then(function () {
         if (mine !== S.seq) return null;
@@ -2107,7 +2786,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     }
   });
 
-  TK.certificatesPage = { certData: certData, rowError: rowError, clean: clean, S: S };
+  TK.certificatesPage = { certData: certData, rowError: rowError, clean: clean, parseList: parseList, registerCsv: registerCsv, S: S };
 }(typeof window !== 'undefined' ? window : globalThis));
 </script>
 <script>TK.start();</script>

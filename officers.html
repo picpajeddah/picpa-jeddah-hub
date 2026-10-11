@@ -433,6 +433,28 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 .tk-modal:has(.tk-ct-frame) { width: min(1000px, calc(100vw - 2 * var(--s4))); }
 .tk-ct-frame { display: block; width: 100%; height: min(70vh, 640px); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
 @media (min-width: 640px) { .tk-ct-table .tk-actions { justify-content: flex-start; flex-wrap: nowrap; } }
+/* certificates phase 2: the view switch, the type choice, the list tools */
+.tk-ct-switch { display: flex; flex-wrap: wrap; gap: var(--s1); border-bottom: 1px solid var(--line); }
+.tk-ct-tab {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--s3); font-size: var(--fs-sm); font-weight: 600;
+  color: var(--navy-700); text-decoration: none; border-bottom: 3px solid transparent; margin-bottom: -1px;
+}
+.tk-ct-tab:hover { color: var(--navy-500); }
+.tk-ct-tab[aria-current="page"] { color: var(--navy-900); border-bottom-color: var(--navy-500); }
+.tk-ct-types { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: var(--s2); grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+.tk-ct-types legend { font-size: var(--fs-sm); font-weight: 600; color: var(--navy-800); padding: 0; margin-bottom: var(--s1); }
+.tk-ct-type {
+  display: flex; gap: var(--s2); align-items: flex-start; padding: var(--s2) var(--s3); min-height: 44px; cursor: pointer;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface);
+}
+.tk-ct-type:has(input:checked) { border-color: var(--navy-500); background: var(--navy-100); }
+.tk-ct-type input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; }
+.tk-ct-type > span { display: grid; gap: 2px; font-size: var(--fs-sm); }
+.tk-ct-title { flex: 1 1 18rem; }
+.tk-ct-tools { margin-top: var(--s2); }
+.tk-ct-paste { min-height: 10rem; font-family: inherit; }
+.tk-ct-table .tk-btn { white-space: nowrap; }
+@media (min-width: 640px) { .tk-ct-reg .tk-actions { flex-wrap: wrap; } table.tk-stack.tk-ct-reg td { overflow-wrap: normal; } }
 </style>
 </head>
 <body data-page="officers">
