@@ -308,5 +308,25 @@ PERFORMANCE OF THIS SOFTWARE.
 .hl-hero-art .poster-frame:not(.fallback) img{width:auto;height:auto;max-height:340px;max-width:min(520px,45vw);object-fit:contain}
 @media (max-width:760px){.hl-hero:has(.hl-hero-art img){grid-template-columns:1fr}.hl-hero-art:has(img){max-width:100%}.hl-hero-art .poster-frame:not(.fallback) img{max-width:100%;max-height:none;width:100%}}
 </style>
+<style id="hub-dashboard-side">
+/* Dashboard: the Pinned posts as a gallery (cards side by side), each card showing the first 4 lines of its text;
+   the full post stays in Programs & Events. Phones show one card per row.
+   (Upcoming programs and Latest job openings are galleries already.) */
+.content:has(> .hero) > .feed{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));align-items:stretch}
+.content:has(> .hero) > .feed .post{height:100%}
+.content:has(> .hero) > .feed .post p.desc{display:-webkit-box;-webkit-line-clamp:4;line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+
+/* Dashboard: birthday celebrants side by side (one small tile per person) instead of one long list */
+.content:has(> .hero) > .card:has(> .bday-row){display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));column-gap:var(--s5)}
+.content:has(> .hero) > .card:has(> .bday-row) > .bday-row{border-bottom:1px solid var(--line-2)}
+
+/* Dashboard on wide screens: the five numbers move to a column on the right, so the programs, job openings and
+   birthday celebrants move up. Phones, tablets and laptop-size screens keep the numbers in a row. */
+@media (min-width:1500px){
+  .content:has(> .hero):has(> .stats){max-width:1560px;display:grid;grid-template-columns:minmax(0,1fr) 250px;column-gap:var(--s6);align-items:start}
+  .content:has(> .hero):has(> .stats) > *{grid-column:1}
+  .content:has(> .hero):has(> .stats) > .stats{grid-column:2;grid-row:1 / span 60;grid-template-columns:1fr;margin-top:0;position:sticky;top:88px}
+}
+</style>
 </body>
 </html>
