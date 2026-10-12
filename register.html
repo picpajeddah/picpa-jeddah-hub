@@ -216,6 +216,10 @@ table.tk-stack td:empty { display: none; }
 
 /* ---------- register page: event cards, form, receipt */
 .tk-ev h2 { overflow-wrap: anywhere; }
+/* the event poster from the Hub post: full card width, its own shape (landscape or portrait), the whole poster shown */
+.tk-poster { margin: 0 0 var(--s3); width: 100%; border-radius: var(--r-sm); overflow: hidden; background: var(--surface-2); }
+.tk-poster[hidden] { display: none; }
+.tk-poster-img { display: block; width: 100%; height: auto; }
 .tk-ev .tk-kv { grid-template-columns: max-content minmax(0, 1fr); }
 .tk-hl { border-color: var(--navy-500); box-shadow: 0 0 0 3px var(--info-bg), var(--e2); }
 .tk-fee { display: inline-block; font-weight: 600; color: var(--navy-800); margin-right: var(--s3); }
@@ -913,6 +917,31 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (Number(file.size) > PROOF.maxBytes) return 'The file is larger than 5 MB. Select a smaller file.';
     return '';
   }
+  // ---------------------------------------------------------------- the event poster (the Hub post's announcements.poster_url)
+  /* Shown only from the project's own public 'posters' bucket (the database checks the same rule and sends null otherwise).
+   * The local preview (preview.py) may point the base at its own localhost server (TK_POSTER_BASE); nothing else can. */
+  var POSTER_BASE = 'https://cpumktocfhbnzocyztlb.supabase.co/storage/v1/object/public/posters/';
+  function posterBase() {
+    var b = root.TK_POSTER_BASE;
+    return typeof b === 'string' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/storage\/v1\/object\/public\/posters\/$/.test(b) ? b : POSTER_BASE;
+  }
+  /** The poster URL when it may be shown, else null. */
+  function posterUrl(u) {
+    if (typeof u !== 'string') return null;
+    var base = posterBase();
+    if (u.slice(0, base.length) !== base) return null;
+    var rest = u.slice(base.length);
+    return /^[A-Za-z0-9._~%\/+-]+$/.test(rest) && rest.indexOf('..') < 0 ? u : null;
+  }
+  /** The poster box: full width, the image keeps its own shape (landscape or portrait), lazy image; '' when there is no poster that may be shown.
+   *  A poster that fails to load hides its box (tk-shell.js, one capture listener; no inline handler). */
+  function posterHtml(u, title) {
+    var url = posterUrl(u);
+    if (!url) return '';
+    return '<figure class="tk-poster"><img class="tk-poster-img" src="' + esc(url) + '" alt="' + esc(title || 'Event poster') +
+      '" loading="lazy" decoding="async"></figure>';
+  }
+
   // ---------------------------------------------------------------- shrinking a photo before upload (president 2026-10-11)
   /* A JPEG / PNG / WebP photo larger than 400 KB or longer than 1600 px on its longer side is redrawn on a canvas at most 1600 px
    * long and encoded as JPEG quality 0.8 (receipt text stays readable). The smaller of the original and the result is kept, so
@@ -1055,7 +1084,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     pill: pill, PAY_LABEL: PAY_LABEL, RESULT_LABEL: RESULT_LABEL, payPill: payPill, resultPill: resultPill,
     PROOF_LABEL: PROOF_LABEL, proofPill: proofPill, METHOD_LABEL: METHOD_LABEL, PROOF: PROOF, fileSize: fileSize,
     proofFileError: proofFileError, uploadProof: uploadProof, submitProof: submitProof, proofUrl: proofUrl,
-    SHRINK: SHRINK, shrinkProof: shrinkProof, prepareProof: prepareProof,
+    SHRINK: SHRINK, shrinkProof: shrinkProof, prepareProof: prepareProof, posterUrl: posterUrl, posterHtml: posterHtml,
     ORG: 'Philippine Institute of Certified Public Accountants',
     CHAPTER: 'Western Region · Jeddah Chapter'
   };
@@ -1299,6 +1328,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       var el = closestAttr(ev.target, 'data-change');
       if (el) dispatch(el.getAttribute('data-change'), el, ev);
     });
+    // an event poster that cannot be loaded hides its box (error events do not bubble: capture phase)
+    doc.addEventListener('error', function (ev) {
+      var img = ev && ev.target;
+      if (img && img.tagName === 'IMG' && /\btk-poster-img\b/.test(String(img.className || '')) && img.parentNode) img.parentNode.hidden = true;
+    }, true);
     doc.addEventListener('input', function (ev) {      // data-input="name": fires on every keystroke (live search)
       var el = closestAttr(ev.target, 'data-input');
       if (el) dispatch(el.getAttribute('data-input'), el, ev);
@@ -1559,6 +1593,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       ? '<p class="tk-note tk-note-warn">Sorry, this event is full.</p>'
       : '<button type="button" class="tk-btn tk-btn-primary" data-action="reg.open" data-id="' + esc(id) + '" id="reg-open-' + id + '">Register</button>';
     return '<section class="tk-card tk-ev' + (hl ? ' tk-hl' : '') + '" id="ev-' + id + '" aria-labelledby="ev-h-' + id + '">' +
+      TK.posterHtml(ev.poster_url, ev.title) +                // the Hub post's poster (own storage host only)
       '<h2 id="ev-h-' + id + '">' + esc(ev.title) + '</h2>' +
       '<dl class="tk-kv">' +
       '<dt>Date</dt><dd>' + esc(TK.when(ev.event_date)) + '</dd>' +
