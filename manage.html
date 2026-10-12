@@ -1640,11 +1640,21 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       // review I-2: the officer may name the existing ledger event (for paid events); blank = match or create automatically
       input('ledger_event_code', 'Ledger event code (optional)', 'text', edit ? val(t.ledger_event_code) : '',
         ' maxlength="20" autocomplete="off" spellcheck="false"', 'For paid events. Leave blank to match or create automatically.') +
+      // the venue map link (president 2026-10-12): shown as "Open in Google Maps" on the event card, the ticket and the e-mails
+      input('venue_map_url', 'Venue map link (Google Maps)', 'url', edit ? val(t.venue_map_url) : '',
+        ' maxlength="300" inputmode="url" autocomplete="off" spellcheck="false"', 'Paste the Share link from Google Maps. Leave empty for none.') +
+      // the event programme (president 2026-10-12): registrants see it only while the box below is ticked
+      input('programme_url', 'Event programme link', 'url', edit ? val(t.programme_url) : '',
+        ' maxlength="300" inputmode="url" autocomplete="off" spellcheck="false"',
+        'A page on the chapter website, e.g. https://picpajeddah.github.io/picpa-jeddah-hub/gmm2026.html') +
       '<div class="tk-field tk-wide"><label for="mg-s-note">Payment instructions</label><textarea id="mg-s-note" name="note" maxlength="2000" rows="10">' +
       // a NEW sale starts from the chapter's default instructions (setting default_payment_note, returned only to officers by
       // ticketing_list_hub_events); editable; an existing sale keeps its own text
       esc(edit ? val(t.payment_note) : val(h.default_payment_note)) + '</textarea><span class="tk-hint">Shown on the registration page and in the e-mails. Up to 2000 characters.</span></div>' +
       '<label class="tk-check tk-wide"><input type="checkbox" name="checkin"' + (edit && t.checkin_open ? ' checked' : '') + '> Check-in open (the door can scan tickets)</label>' +
+      '<div class="tk-wide"><label class="tk-check"><input type="checkbox" name="programme_visible" aria-describedby="mg-s-progh"' +
+      (edit && t.programme_visible ? ' checked' : '') + '> Show the programme to registrants</label>' +
+      '<span class="tk-hint" id="mg-s-progh">When ticked, the programme button appears on every ticket and the programme page opens. The link in the e-mails opens the programme only while this is ticked.</span></div>' +
       '<p class="tk-ferr tk-wide" id="mg-s-err" role="alert"></p>' +
       '<div class="tk-wide"><button type="submit" class="tk-btn tk-btn-primary" id="mg-sgo">' + (edit ? 'Save changes' : 'Turn on ticket sales') + '</button></div></form>';
   }
@@ -2405,6 +2415,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function setupError(m) { TK.setHTML('mg-s-err', esc(m || '')); }
   function val(form, name) { var f = field(form, name); return String(f && f.value != null ? f.value : '').trim(); }
   var FEE = /^\d{1,7}(\.\d{1,2})?$/, WHEN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
+  // the venue map link: the same rule as the database (event_ticketing_venue_map_url_check, 01-schema.sql)
+  var MAP_URL = /^https:\/\/(maps\.app\.goo\.gl\/|goo\.gl\/maps\/|(www\.)?google\.[a-z.]{2,10}\/maps|maps\.google\.[a-z.]{2,10}\/)[^\s<>"']*$/;
+  // the event programme: a page on the chapter site (event_ticketing_programme_url_check, 01-schema.sql)
+  var PROG_URL = /^https:\/\/picpajeddah\.github\.io\/picpa-jeddah-hub\/[A-Za-z0-9._\/-]{1,120}\.html$/;
   /** The form as p_params, or a plain sentence (the Tracker's former rules; the database checks them again). */
   function readSetup(form, h) {
     var t = h.ticketing, locked = !!t && num(t.tickets_issued) > 0;
@@ -2423,9 +2437,18 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (opens && closes && closes <= opens) return 'Registration must close after it opens.';
     if (note.length > 2000) return 'Payment instructions can be up to 2000 characters.';
     if (!locked && !/^[A-Za-z0-9_-]{1,20}$/.test(ref)) return 'The ticket code must be 1 to 20 letters, digits, "-" or "_" (for example GMM26).';
+    var map = val(form, 'venue_map_url');
+    if (map && (map.length > 300 || !MAP_URL.test(map))) return 'The venue map link must be a Google Maps link.';
+    var prog = val(form, 'programme_url'), pv = field(form, 'programme_visible'), show = !!(pv && pv.checked);
+    if (prog && (prog.length > 300 || !PROG_URL.test(prog))) return 'The programme link must be a page on the chapter website.';
+    if (show && !prog) return 'Enter the programme link before showing it to registrants.';
     var p = { fee_member_sar: Number(fm), fee_officer_sar: Number(fo), fee_guest_sar: Number(fg), capacity: capN, registration_opens_at: opens || null,
       registration_closes_at: closes || null, checkin_open: !!(ck && ck.checked), payment_note: note || null };
     if (!locked) p.ticket_ref = ref;
+    // sent when given, or to clear a stored link (an event without a link never sends the key)
+    if (map || (t && t.venue_map_url)) p.venue_map_url = map || null;
+    if (prog || (t && t.programme_url)) p.programme_url = prog || null;
+    if (show || (t && t.programme_visible)) p.programme_visible = show;
     var led = val(form, 'ledger_event_code');
     if (led) {
       if (led.length > 20 || /[\u0000-\u001f]/.test(led)) return 'The ledger event code is too long (up to 20 characters).';

@@ -1435,7 +1435,27 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var head = i < 0 ? t : t.slice(0, i), rest = i < 0 ? '' : t.slice(i + 1).replace(/^\n+/, '');
     return '<span class="tk-paynote-h">' + esc(head) + '</span>' + esc(rest).replace(/\n/g, '<br>');
   }
-  function evById(id) { for (var i = 0; i < S.events.length; i++) if (S.events[i].announcement_id === id) return S.events[i]; return null; }
+  /** The venue's Google Maps link (president 2026-10-12): an https address only (the database allows Google Maps addresses
+   *  only), escaped, opened in a new tab; '' when there is none. */
+  function mapLinkHtml(url) {
+    var u = typeof url === 'string' ? url.trim() : '';
+    if (!/^https:\/\//.test(u)) return '';
+    return '<a class="tk-maplink" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">\uD83D\uDCCD Open in Google Maps</a>';
+  }
+  /** The Venue row: the venue, then the map link under it (either may be missing; nothing when both are). */
+  function venueRowHtml(venue, url) {
+    var a = mapLinkHtml(url);
+    if (!venue && !a) return '';
+    return '<dt>Venue</dt><dd>' + (venue ? esc(venue) : '') + (venue && a ? '<br>' : '') + a + '</dd>';
+  }
+  /** The event programme row, right after the Venue row: only when the server sent a programme_url (it does so only while an
+   *  officer shows the programme); https only, escaped, opened in a new tab. */
+  function programmeRowHtml(url) {
+    var u = typeof url === 'string' ? url.trim() : '';
+    if (!/^https:\/\//.test(u)) return '';
+    return '<dt>Programme</dt><dd><a class="tk-proglink" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' +
+      '\uD83D\uDCC4 View the event programme</a></dd>';
+  }  function evById(id) { for (var i = 0; i < S.events.length; i++) if (S.events[i].announcement_id === id) return S.events[i]; return null; }
   /** The price of each type (the Officer price falls back to the Member price on an older server). */
   function fees(ev) {
     var m = num(ev.fee_member_sar);
@@ -1597,7 +1617,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<h2 id="ev-h-' + id + '">' + esc(ev.title) + '</h2>' +
       '<dl class="tk-kv">' +
       '<dt>Date</dt><dd>' + esc(TK.when(ev.event_date)) + '</dd>' +
-      (ev.venue ? '<dt>Venue</dt><dd>' + esc(ev.venue) + '</dd>' : '') +
+      venueRowHtml(ev.venue, ev.venue_map_url) + programmeRowHtml(ev.programme_url) +
       '<dt>Fee</dt><dd>' + feeHtml(ev) + '</dd>' +
       '<dt>Places</dt><dd>' + placesHtml(ev) + '</dd>' +
       (ev.closes_at ? '<dt>Closes</dt><dd>' + esc(TK.when(ev.closes_at)) + '</dd>' : '') +

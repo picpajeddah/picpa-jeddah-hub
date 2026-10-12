@@ -181,6 +181,32 @@ footer .lock2{color:var(--navy-800)}
 </style>
 </head>
 <body>
+<style id="hub-prog-guard-css">
+body.hub-prog-locked > *:not(#hub-prog-lock){display:none !important}
+#hub-prog-lock{display:none}
+body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px;
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#0B1540;color:#fff;text-align:center}
+#hub-prog-lock .b{max-width:440px}
+#hub-prog-lock h1{font-size:22px;margin:0 0 10px}
+#hub-prog-lock p{color:#B9C3E6;font-size:15px;line-height:1.5;margin:0}
+</style>
+<div id="hub-prog-lock" role="status"><div class="b"><h1>Event programme</h1>
+<p>The programme will be available soon. Please check again later.</p>
+<p style="margin-top:14px">PICPA Western Region · Jeddah Chapter</p></div></div>
+<script id="hub-prog-guard">
+(function () {
+  document.body.classList.add('hub-prog-locked');
+  var page = (location.pathname.split('/').pop() || '').trim();
+  fetch('https://cpumktocfhbnzocyztlb.supabase.co/rest/v1/rpc/hub_programme_status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: 'sb_publishable_un5TqUZ6gEcFtulfGlh-Jg_D8Q6jWrC' },
+    body: JSON.stringify({ p_page: page })
+  }).then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) { if (j && j.visible === true) document.body.classList.remove('hub-prog-locked'); })
+    .catch(function () {});
+})();
+</script>
+
 <header class="top">
   <div class="in">
     <svg viewBox="0 0 200 200" class="mark" aria-hidden="true"><polygon fill="#43A705" points="43.5,66.4 1.6,133.9 43.5,200 77.5,200 36.6,132 77.8,66.4"/><polygon fill="#0B5A0C" points="83.1,66.4 41.4,133.9 83.1,200 117.1,200 76.1,134.3 117.1,66.4"/><polygon fill="#0A1560" points="83.4,0.5 124.1,67.3 83.1,133.4 116.9,133.4 158.8,65.7 117.3,0.2"/><polygon fill="#0B36C6" points="156.5,0 122.9,0.2 163.7,67.5 122.7,133.2 156.2,133.2 198.4,67.1"/></svg>
