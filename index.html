@@ -301,5 +301,12 @@ PERFORMANCE OF THIS SOFTWARE.
 </head>
 <body>
   <div id="root"></div>
+<style id="hub-poster-fit">
+/* Next up card: show the poster in its own shape (landscape or portrait), never cropped */
+.hl-hero:has(.hl-hero-art img){grid-template-columns:auto 1fr}
+.hl-hero-art .poster-frame:not(.fallback){aspect-ratio:auto!important;width:fit-content;max-width:100%;background:transparent}
+.hl-hero-art .poster-frame:not(.fallback) img{width:auto;height:auto;max-height:340px;max-width:min(520px,45vw);object-fit:contain}
+@media (max-width:760px){.hl-hero:has(.hl-hero-art img){grid-template-columns:1fr}.hl-hero-art:has(img){max-width:100%}.hl-hero-art .poster-frame:not(.fallback) img{max-width:100%;max-height:none;width:100%}}
+</style>
 </body>
 </html>
