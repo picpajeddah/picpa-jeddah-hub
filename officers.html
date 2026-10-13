@@ -482,6 +482,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 .tk-ct-file { position: relative; overflow: hidden; cursor: pointer; }
 .tk-ct-file input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .tk-ct-file:focus-within { outline: 2px solid var(--navy-500); outline-offset: 2px; }
+/* plaques and oath of office (#plaques) */
+.tk-ct-wide { flex: 1 1 100%; }
+.tk-ct-oathlist { list-style: none; margin: var(--s2) 0 0; padding: 0; display: grid; gap: 0 var(--s4); grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); }
+.tk-ct-oathlist .tk-check input { width: 20px; height: 20px; flex: none; }
 /* ---- proof of payment (11-payment-proof.sql): register Payment section, ticket Payment card, console Payments to review */
 .tk-paysec { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); padding: var(--s3) var(--s4); margin: 0; min-width: 0; display: grid; gap: var(--s3); }
 .tk-paysec > legend { font-weight: 700; padding: 0 var(--s1); }
@@ -495,6 +499,23 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 .tk-mg-pf { margin: 0; min-width: 0; max-width: 100%; }
 .tk-mg-pf select { max-width: 100%; }
 .tk-mg-pay td[data-label="Reference"] { overflow-wrap: anywhere; }
+/* Attendees: room for the names; the long ticket numbers smaller */
+@media (min-width: 640px) {
+  .tk-mg-att td[data-label="Name"] { min-width: 200px; }
+  .tk-mg-att td[data-label="Ticket"] { font-size: var(--fs-xs); color: var(--muted); }
+  .tk-mg-att td[data-label="Phone"] { white-space: nowrap; }
+}
+/* Payments to review: one card per registration */
+.tk-mg-paylist { display: grid; gap: var(--s3); }
+.tk-mg-paycard { border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s3) var(--s4); background: var(--surface); display: grid; gap: var(--s2); }
+.tk-mg-payhead { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s3); }
+.tk-mg-paywho { display: flex; flex-direction: column; min-width: 0; }
+.tk-mg-paywho b { font-size: var(--fs-md); color: var(--navy-800); overflow-wrap: anywhere; }
+.tk-mg-payamt { font-weight: 800; font-size: var(--fs-lg); color: var(--navy-800); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tk-mg-people { margin: 0; padding-left: var(--s4); font-size: var(--fs-sm); }
+.tk-mg-payfoot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.tk-mg-payfoot .tk-mini { overflow-wrap: anywhere; }
+.tk-mg-paycard .tk-mg-acts { justify-content: flex-start; border-top: 1px solid var(--line); padding-top: var(--s2); }
 .tk-mg-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s2); }
 .tk-mg-acts .tk-btn { white-space: nowrap; }
 .tk-mg-acts .tk-mg-confirm { flex-basis: 100%; }
@@ -1415,7 +1436,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       ['Certificates', 'Issue certificates of attendance and e-mail them to attendees.', './certificates.html', 'admin']]],
     ['Hub', [
       ['Chapter Hub', 'Members, programs and the directory.', './', 'all'],
-      ['Hub Admin Panel', 'Open the Hub, then choose Admin Panel under Officers in the menu. Approvals, registrations and certificates.', './', 'admin']]]
+      ['Hub Admin Panel', 'Open the Hub, then choose Admin Panel under Officers in the menu. Approvals, registrations and certificates.', './', 'admin'],
+      ['Access', 'Who may do what in the Hub, events and Ledger.', './access.html', 'admin']]]
   ];
 
   function allowed(who, a) {

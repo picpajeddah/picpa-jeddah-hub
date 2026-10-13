@@ -482,6 +482,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 .tk-ct-file { position: relative; overflow: hidden; cursor: pointer; }
 .tk-ct-file input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
 .tk-ct-file:focus-within { outline: 2px solid var(--navy-500); outline-offset: 2px; }
+/* plaques and oath of office (#plaques) */
+.tk-ct-wide { flex: 1 1 100%; }
+.tk-ct-oathlist { list-style: none; margin: var(--s2) 0 0; padding: 0; display: grid; gap: 0 var(--s4); grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); }
+.tk-ct-oathlist .tk-check input { width: 20px; height: 20px; flex: none; }
 /* ---- proof of payment (11-payment-proof.sql): register Payment section, ticket Payment card, console Payments to review */
 .tk-paysec { border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); padding: var(--s3) var(--s4); margin: 0; min-width: 0; display: grid; gap: var(--s3); }
 .tk-paysec > legend { font-weight: 700; padding: 0 var(--s1); }
@@ -1406,7 +1410,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
  * pages/manage.js — manage.html: the officers' events page. Home screen = the events list: ticketed events
  * (ticketing_event_summary) merged with the published Hub events (ticketing_list_hub_events), newest first; a ticketed
  * card shows the registration link (Copy link, Share on WhatsApp). Ticket sales are set up HERE (president's decision
- * 2026-10-11; the Tracker no longer does it): Hub admins and ledger Approvers get Sell tickets / Edit sales (one form,
+ * 2026-10-11; the Tracker no longer does it): Hub admins, ledger Approvers and people with the Hub permission manage_events
+ * (Access page, 2026-10-13) get Sell tickets / Edit sales (one form,
  * ticketing_setup_event), Stop sales now and Cancel event (ticketing_cancel_event_by_id); everyone else sees the list.
  * "Open tickets" opens one event with four tabs: Payments to review (11-payment-proof.sql: one line per registration, its
  * proof of payment and status; View proof / Approve / Reject; Export for reconciliation), Attendees, Walk-in, Export CSV.
@@ -1450,9 +1455,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 
   // ------------------------------------------------------------------ roles (from ticketing_my_access; the database re-checks)
   function canWrite() { return !!S.access && (S.access.ledger_role === 'encoder' || S.access.ledger_role === 'approver'); }
-  function canCancel() { return !!S.access && (!!S.access.hub_admin || canWrite()); }
-  /** Sell tickets / Edit sales / Stop sales / Cancel event: Hub admins and ledger Approvers (the database re-checks). */
-  function canManage() { return !!S.access && (!!S.access.hub_admin || S.access.ledger_role === 'approver'); }
+  /** The Hub permission manage_events (Access page, sql/patches/hub-access.sql; true for every Hub admin). */
+  function managesEvents() { return !!S.access && S.access.manage_events === true; }
+  function canCancel() { return !!S.access && (!!S.access.hub_admin || canWrite() || managesEvents()); }
+  /** Sell tickets / Edit sales / Stop sales / Cancel event: Hub admins, ledger Approvers and manage_events (the database re-checks). */
+  function canManage() { return !!S.access && (!!S.access.hub_admin || S.access.ledger_role === 'approver' || managesEvents()); }
+  /** Proofs of payment are read by Hub admins and Ledger users only (ticketing_proof_reader), not by manage_events alone. */
+  function canReadProof() { return !!S.access && (!!S.access.hub_admin || !!S.access.ledger_role); }
   function hubRow(id) { var l = S.hub || []; for (var i = 0; i < l.length; i++) if (l[i] && l[i].announcement_id === id) return l[i]; return null; }
   /** Only an https link is shown, copied or shared. */
   function httpsLink(l) { l = String(l == null ? '' : l).trim(); return /^https:\/\/[^\s"'<>\\]+$/i.test(l) ? l : ''; }
@@ -1828,7 +1837,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         if (write && S.confirming !== t.id && (e.status === 'awaiting' || e.status === 'pending_review') && !needsReconfirm(t)) {
           acts += ' <button type="button" class="tk-btn tk-btn-danger tk-btn-small" data-action="cn.reject" data-id="' + esc(lead.id) + '"' + dis + '>Reject</button>';
         }
-        if (lead.proof_path && S.confirming !== t.id) {
+        if (lead.proof_path && S.confirming !== t.id && canReadProof()) {
           acts += ' ' + (proofLinkHtml(lead.id) || '<button type="button" class="tk-btn tk-btn-small" data-action="cn.proof" data-id="' + esc(lead.id) + '">View proof</button>');
         }
         var ref = refOf(t, lead), sub = lead.proof_submitted_at ? TK.when(lead.proof_submitted_at) : '';
