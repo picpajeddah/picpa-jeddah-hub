@@ -2542,8 +2542,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   });
 
   // ------------------------------------------------------------------ actions: Copy list for WhatsApp (president 2026-10-13)
-  /** The registered people of the open event as a WhatsApp message: "n. Name – Designation", a group's attendees right
-   *  after their registrant, cancelled tickets left out, then the total and the registration link. Plain text only. */
+  /** The registered people of the open event as a WhatsApp message in the president's wording: intro line,
+   *  "n. Name" (a group's attendees right after their registrant, cancelled tickets left out), the registration link,
+   *  closing line. Plain text only. */
   function waListText() {
     var ev = curEvent() || {}, h = hubRow(S.eventId) || {};
     var live = (S.tickets || []).filter(function (t) {
@@ -2557,15 +2558,15 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       if (al !== bl) return al ? -1 : 1;
       return String(a.ticket_no) < String(b.ticket_no) ? -1 : 1;
     });
-    var when = '';
-    try {
-      if (ev.event_date) when = ' (' + new Date(ev.event_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Riyadh' }) + ')';
-    } catch (e) { when = ''; }
-    var lines = ['✅ Registered so far – ' + String(ev.title || 'Event') + when];
-    live.forEach(function (t, i) { lines.push((i + 1) + '. ' + String(t.holder_name || '').trim() + ' – ' + typeLabel(t)); });
+    // the president's group-chat wording (2026-10-13)
+    var lines = ['Below are the confirmed registrants so far for our upcoming PICPA Western Region ' +
+      String(ev.title || 'event').trim() + ':', ''];
+    live.forEach(function (t, i) { lines.push((i + 1) + '. ' + String(t.holder_name || '').trim()); });
     var link = httpsLink(h.registration_link);
-    lines.push('');
-    lines.push('Total: ' + live.length + (link ? ' · Register here: ' + link : ''));
+    if (link) {
+      lines.push('', 'Haven’t registered yet?', '', 'Register here:', link);
+    }
+    lines.push('', 'We look forward to seeing more of our fellow PICPAns join us! 😊');
     return lines.join('\n');
   }
   TK.action('cn.walist', function () {
