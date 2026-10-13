@@ -495,6 +495,23 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 .tk-mg-pf { margin: 0; min-width: 0; max-width: 100%; }
 .tk-mg-pf select { max-width: 100%; }
 .tk-mg-pay td[data-label="Reference"] { overflow-wrap: anywhere; }
+/* Attendees: room for the names; the long ticket numbers smaller */
+@media (min-width: 640px) {
+  .tk-mg-att td[data-label="Name"] { min-width: 200px; }
+  .tk-mg-att td[data-label="Ticket"] { font-size: var(--fs-xs); color: var(--muted); }
+  .tk-mg-att td[data-label="Phone"] { white-space: nowrap; }
+}
+/* Payments to review: one card per registration */
+.tk-mg-paylist { display: grid; gap: var(--s3); }
+.tk-mg-paycard { border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s3) var(--s4); background: var(--surface); display: grid; gap: var(--s2); }
+.tk-mg-payhead { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s3); }
+.tk-mg-paywho { display: flex; flex-direction: column; min-width: 0; }
+.tk-mg-paywho b { font-size: var(--fs-md); color: var(--navy-800); overflow-wrap: anywhere; }
+.tk-mg-payamt { font-weight: 800; font-size: var(--fs-lg); color: var(--navy-800); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tk-mg-people { margin: 0; padding-left: var(--s4); font-size: var(--fs-sm); }
+.tk-mg-payfoot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.tk-mg-payfoot .tk-mini { overflow-wrap: anywhere; }
+.tk-mg-paycard .tk-mg-acts { justify-content: flex-start; border-top: 1px solid var(--line); padding-top: var(--s2); }
 .tk-mg-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s2); }
 .tk-mg-acts .tk-btn { white-space: nowrap; }
 .tk-mg-acts .tk-mg-confirm { flex-basis: 100%; }
@@ -1792,17 +1809,16 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         : (S.pfilter || 'open') === 'open' ? 'No payments are waiting.' : 'No payments match this filter.') + '</p>';
     }
     var write = canWrite() && !eventCancelled(), dis = S.busy ? ' disabled' : '';
-    return '<div class="tk-table-wrap"><table class="tk-grid tk-stack tk-mg-pay"><thead><tr><th>Ticket</th><th>Name</th><th>Designation</th><th>Amount</th>' +
-      '<th>Method</th><th>Reference</th><th>Submitted</th><th>Status</th><th></th></tr></thead><tbody>' + rows.map(function (e) {
+    // one card per registration (president 2026-10-13: the nine-column table squeezed the names and hid the buttons)
+    return '<div class="tk-mg-paylist">' + rows.map(function (e) {
         var t = e.t, g = e.g, lead = e.lead;
         var others = g ? groupActive(lead.id).length - 1 : 0;
         var no = g ? lead.ticket_no + (others > 0 ? ' (+' + others + ')' : '') : t.ticket_no;
         // equal prices are never itemised; the price per attendee only when the group's prices differ
         var same = !g || g.rows.every(function (x) { return num(x.fee_sar) === num(g.rows[0].fee_sar); });
-        var name = g ? esc(g.name) + '<div class="tk-mini">' + g.rows.map(function (x) {
-          return esc(x.holder_name) + ' (' + typeLabel(x) + (same ? '' : ', ' + esc(money(x.fee_sar))) + ')';
-        }).join(', ') + '</div>'
-          : esc(t.holder_name);
+        var people = g ? '<ul class="tk-mg-people">' + g.rows.map(function (x) {
+          return '<li>' + esc(x.holder_name) + ' <span class="tk-muted">· ' + typeLabel(x) + (same ? '' : ' · ' + esc(money(x.fee_sar))) + '</span></li>';
+        }).join('') + '</ul>' : '';
         var acts = '';
         if (write && confirmable(t)) {
           acts += S.confirming === t.id ? confirmStepHtml(t, g)
@@ -1815,16 +1831,20 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         if (lead.proof_path && S.confirming !== t.id) {
           acts += ' ' + (proofLinkHtml(lead.id) || '<button type="button" class="tk-btn tk-btn-small" data-action="cn.proof" data-id="' + esc(lead.id) + '">View proof</button>');
         }
-        return '<tr><td data-label="Ticket" class="tk-nowrap">' + esc(no) + '</td><td data-label="Name">' + name + '</td>' +
-          '<td data-label="Designation">' + (g ? g.size + (g.size === 1 ? ' attendee' : ' attendees') : typeLabel(t)) + '</td>' +
-          '<td data-label="Amount" class="tk-num">' + esc(money(e.total)) + '</td>' +
-          '<td data-label="Method">' + esc(methodLabel(t.payment_mode)) + '</td>' +
-          '<td data-label="Reference">' + esc(refOf(t, lead)) + '</td>' +
-          '<td data-label="Submitted">' + esc(lead.proof_submitted_at ? TK.when(lead.proof_submitted_at) : '') + '</td>' +
-          '<td data-label="Status"><div class="tk-pills">' + TK.proofPill(e.status, statusDetail(e)) +
-          (needsReconfirm(t) ? TK.pill('warn', 'Receipt ' + t.receipt_status + ': counts as unpaid') : '') + '</div></td>' +
-          '<td data-label="">' + (acts ? '<div class="tk-mg-acts">' + acts + '</div>' : '') + '</td></tr>';
-      }).join('') + '</tbody></table></div>';
+        var ref = refOf(t, lead), sub = lead.proof_submitted_at ? TK.when(lead.proof_submitted_at) : '';
+        var facts = [esc(methodLabel(t.payment_mode))];
+        if (ref) facts.push('Ref. ' + esc(ref));
+        if (sub) facts.push('Proof submitted ' + esc(sub));
+        return '<div class="tk-mg-paycard">' +
+          '<div class="tk-mg-payhead"><div class="tk-mg-paywho"><b>' + esc(g ? g.name : t.holder_name) + '</b>' +
+          '<span class="tk-mini">' + esc(no) + ' · ' + (g ? g.size + (g.size === 1 ? ' attendee' : ' attendees') : typeLabel(t)) + '</span></div>' +
+          '<div class="tk-mg-payamt">' + esc(money(e.total)) + '</div></div>' +
+          people +
+          '<div class="tk-mg-payfoot"><div class="tk-pills">' + TK.proofPill(e.status, statusDetail(e)) +
+          (needsReconfirm(t) ? TK.pill('warn', 'Receipt ' + t.receipt_status + ': counts as unpaid') : '') + '</div>' +
+          '<span class="tk-mini">' + facts.join(' · ') + '</span></div>' +
+          (acts ? '<div class="tk-mg-acts">' + acts + '</div>' : '') + '</div>';
+      }).join('') + '</div>';
   }
 
   function matches(t, q) {
@@ -1860,7 +1880,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       return t.status === 'active' && !t.checked_in_at ? '<button type="button" class="tk-btn tk-btn-danger tk-btn-small" data-action="cn.cancel" data-id="' +
         esc(t.id) + '"' + dis + '>Cancel ticket</button>' : '';
     }
-    return '<div class="tk-table-wrap"><table class="tk-grid tk-stack"><thead><tr><th>Ticket</th><th>Name</th><th>Designation</th><th>Phone</th><th>Fee</th>' +
+    return '<div class="tk-table-wrap"><table class="tk-grid tk-stack tk-mg-att"><thead><tr><th>Ticket</th><th>Name</th><th>Designation</th><th>Phone</th><th>Fee</th>' +
       '<th>Status</th>' + (showCancel ? '<th></th>' : '') + '</tr></thead><tbody>' + rows.map(function (t) {
         return '<tr><td data-label="Ticket" class="tk-nowrap">' + esc(t.ticket_no) + '</td><td data-label="Name">' + esc(t.holder_name) + groupLine(t) + '</td>' +
           '<td data-label="Designation">' + typeLabel(t) + '</td><td data-label="Phone">' + esc(t.phone || '') + '</td>' +
