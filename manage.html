@@ -1881,12 +1881,16 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var showCancel = canCancel();
     function cancelBtn(t) {
       var dis = S.busy ? ' disabled' : '';
-      if (t.group_id) {
-        // a group is cancelled as a whole (from the registrant's row); one person of a group: a later step
+      if (t.group_id && t.group_id === t.id) {
+        // the registrant (president 2026-10-13): "Cancel group" while others are active; once alone, "Cancel ticket"
+        var others = groupMembers(t.group_id).some(function (x) { return x.id !== t.id && x.status === 'active'; });
         var open = groupMembers(t.group_id).some(function (x) { return x.status === 'active' && !x.checked_in_at; });
-        return t.group_id === t.id && open ? '<button type="button" class="tk-btn tk-btn-danger tk-btn-small" data-action="cn.gcancel" data-id="' +
-          esc(t.id) + '"' + dis + '>Cancel group</button>' : '';
+        if (others) {
+          return open ? '<button type="button" class="tk-btn tk-btn-danger tk-btn-small" data-action="cn.gcancel" data-id="' +
+            esc(t.id) + '"' + dis + '>Cancel group</button>' : '';
+        }
       }
+      // a single ticket, one companion of a group, or a registrant left alone: this ticket only
       return t.status === 'active' && !t.checked_in_at ? '<button type="button" class="tk-btn tk-btn-danger tk-btn-small" data-action="cn.cancel" data-id="' +
         esc(t.id) + '"' + dis + '>Cancel ticket</button>' : '';
     }
@@ -2289,7 +2293,12 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
   function cancelNotice(out, t) {
     var lines = [out.message || 'Ticket cancelled.'], kind = 'good';
-    if (out.payment_status === 'refund_due') {
+    if (out.payment_status === 'refund_due' && t.group_id && t.group_id !== t.id) {
+      // one person of a group: the group's receipt stays for the others
+      kind = 'warn';
+      lines.push('Refund ' + t.holder_name + '\'s share and record the refund in the Ledger' +
+        (out.receipt_doc ? '; receipt ' + out.receipt_doc + ' stays for the rest of the group.' : '.'));
+    } else if (out.payment_status === 'refund_due') {
       kind = 'warn';
       lines.push(out.receipt_doc ? 'Reverse the receipt ' + out.receipt_doc + ' in the Ledger after refunding ' + t.holder_name + '.'
         : 'This ticket was paid. Refund ' + t.holder_name + ' and check the Ledger for its receipt.');
