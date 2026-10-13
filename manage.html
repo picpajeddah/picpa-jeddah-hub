@@ -327,6 +327,13 @@ a.tk-tcard:hover { border-color: var(--navy-500); }
   border-radius: var(--r-sm) var(--r-sm) 0 0; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer;
 }
 .tk-mg-tab[aria-selected="true"] { background: var(--surface); color: var(--navy-800); border-color: var(--line-strong); box-shadow: 0 2px 0 var(--surface); }
+/* phones: the four tabs as a 2 x 2 grid of buttons (a sideways-scrolling row hid Walk-in and Export CSV) */
+@media (max-width: 639px) {
+  .tk-mg-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); overflow: visible; border-bottom: 0; margin-bottom: var(--s3); }
+  .tk-mg-tab { border: 1px solid var(--line-strong); border-radius: var(--r-sm); text-align: center; justify-content: center;
+    padding: var(--s2) var(--s1); font-size: var(--fs-sm); white-space: nowrap; }
+  .tk-mg-tab[aria-selected="true"] { box-shadow: none; border-color: var(--navy-500); }
+}
 .tk-mg-panel { display: grid; gap: var(--s3); align-content: start; }
 .tk-mg-panel h2, .tk-mg-panel p { margin: 0; }
 .tk-mg-search { max-width: 28rem; }
@@ -499,12 +506,6 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 .tk-mg-pf { margin: 0; min-width: 0; max-width: 100%; }
 .tk-mg-pf select { max-width: 100%; }
 .tk-mg-pay td[data-label="Reference"] { overflow-wrap: anywhere; }
-/* Attendees: room for the names; the long ticket numbers smaller */
-@media (min-width: 640px) {
-  .tk-mg-att td[data-label="Name"] { min-width: 200px; }
-  .tk-mg-att td[data-label="Ticket"] { font-size: var(--fs-xs); color: var(--muted); }
-  .tk-mg-att td[data-label="Phone"] { white-space: nowrap; }
-}
 /* Payments to review: one card per registration */
 .tk-mg-paylist { display: grid; gap: var(--s3); }
 .tk-mg-paycard { border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s3) var(--s4); background: var(--surface); display: grid; gap: var(--s2); }
@@ -1889,13 +1890,18 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       return t.status === 'active' && !t.checked_in_at ? '<button type="button" class="tk-btn tk-btn-danger tk-btn-small" data-action="cn.cancel" data-id="' +
         esc(t.id) + '"' + dis + '>Cancel ticket</button>' : '';
     }
-    return '<div class="tk-table-wrap"><table class="tk-grid tk-stack tk-mg-att"><thead><tr><th>Ticket</th><th>Name</th><th>Designation</th><th>Phone</th><th>Fee</th>' +
-      '<th>Status</th>' + (showCancel ? '<th></th>' : '') + '</tr></thead><tbody>' + rows.map(function (t) {
-        return '<tr><td data-label="Ticket" class="tk-nowrap">' + esc(t.ticket_no) + '</td><td data-label="Name">' + esc(t.holder_name) + groupLine(t) + '</td>' +
-          '<td data-label="Designation">' + typeLabel(t) + '</td><td data-label="Phone">' + esc(t.phone || '') + '</td>' +
-          '<td data-label="Fee" class="tk-num">' + esc(money(t.fee_sar)) + '</td><td data-label="Status">' + attendeeStatus(t) + '</td>' +
-          (showCancel ? '<td data-label="">' + cancelBtn(t) + '</td>' : '') + '</tr>';
-      }).join('') + '</tbody></table></div>';
+    // one card per ticket (president 2026-10-13: the table squeezed the Cancel buttons into a one-letter column)
+    return '<div class="tk-mg-paylist tk-mg-attlist">' + rows.map(function (t) {
+      var btn = showCancel ? cancelBtn(t) : '';
+      var facts = [esc(t.ticket_no)];
+      if (t.phone) facts.push(esc(t.phone));
+      return '<div class="tk-mg-paycard">' +
+        '<div class="tk-mg-payhead"><div class="tk-mg-paywho"><b>' + esc(t.holder_name) + '</b>' +
+        '<span class="tk-mini">' + typeLabel(t) + ' · ' + facts.join(' · ') + '</span>' + groupLine(t) + '</div>' +
+        '<div class="tk-mg-payamt">' + esc(money(t.fee_sar)) + '</div></div>' +
+        '<div class="tk-mg-payfoot">' + attendeeStatus(t) + '</div>' +
+        (btn ? '<div class="tk-mg-acts">' + btn + '</div>' : '') + '</div>';
+    }).join('') + '</div>';
   }
   function countsLine() {
     var l = S.tickets || [], c = { paid: 0, pending: 0, free: 0, checked: 0, cancelled: 0 };
