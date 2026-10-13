@@ -1951,6 +1951,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         '<div id="mg-list" aria-live="polite"></div>';
     }
     return '<h2>Attendees</h2><p class="tk-muted" id="mg-counts">' + esc(S.tickets ? countsLine() : '') + '</p>' +
+      '<div class="tk-actions" style="margin-bottom:var(--s3)"><button type="button" class="tk-btn tk-btn-small" data-action="cn.walist">' +
+      'Copy list for WhatsApp</button></div><div id="mg-walist"></div>' +
       '<div class="tk-field tk-mg-search"><label for="mg-q">Search by name, ticket number or phone</label>' +
       '<input id="mg-q" type="search" autocomplete="off" value="' + esc(S.search) + '" data-input="cn.search"></div>' +
       '<div id="mg-list" aria-live="polite"></div>';
@@ -2531,6 +2533,48 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var p;
     try { p = Promise.resolve(clip.writeText(link)); } catch (e) { p = Promise.reject(e); }
     return p.then(function () { TK.toast('Link copied.', 'good'); }, function () { TK.toast(manual, 'info'); });
+  });
+
+  // ------------------------------------------------------------------ actions: Copy list for WhatsApp (president 2026-10-13)
+  /** The registered people of the open event as a WhatsApp message: "n. Name – Designation", a group's attendees right
+   *  after their registrant, cancelled tickets left out, then the total and the registration link. Plain text only. */
+  function waListText() {
+    var ev = curEvent() || {}, h = hubRow(S.eventId) || {};
+    var live = (S.tickets || []).filter(function (t) {
+      return t.status === 'active' && t.payment_status !== 'cancelled' && t.payment_status !== 'refund_due';
+    });
+    function leadNo(t) { var l = t.group_id ? ticketOf(t.group_id) : null; return String((l || t).ticket_no || ''); }
+    live.sort(function (a, b) {
+      var x = leadNo(a), y = leadNo(b);
+      if (x !== y) return x < y ? -1 : 1;
+      var al = !a.group_id || a.group_id === a.id, bl = !b.group_id || b.group_id === b.id;
+      if (al !== bl) return al ? -1 : 1;
+      return String(a.ticket_no) < String(b.ticket_no) ? -1 : 1;
+    });
+    var when = '';
+    try {
+      if (ev.event_date) when = ' (' + new Date(ev.event_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Riyadh' }) + ')';
+    } catch (e) { when = ''; }
+    var lines = ['✅ Registered so far – ' + String(ev.title || 'Event') + when];
+    live.forEach(function (t, i) { lines.push((i + 1) + '. ' + String(t.holder_name || '').trim() + ' – ' + typeLabel(t)); });
+    var link = httpsLink(h.registration_link);
+    lines.push('');
+    lines.push('Total: ' + live.length + (link ? ' · Register here: ' + link : ''));
+    return lines.join('\n');
+  }
+  TK.action('cn.walist', function () {
+    if (!S.tickets) return null;
+    var text = waListText();
+    function manual() {
+      TK.setHTML('mg-walist', '<div class="tk-field"><label for="mg-walist-t">Copy this message by hand</label>' +
+        '<textarea id="mg-walist-t" rows="10" readonly>' + esc(text) + '</textarea></div>');
+      TK.toast('Select the message and copy it by hand.', 'info');
+    }
+    var clip = root.navigator && root.navigator.clipboard;
+    if (!clip || typeof clip.writeText !== 'function') { manual(); return null; }
+    var p;
+    try { p = Promise.resolve(clip.writeText(text)); } catch (e) { p = Promise.reject(e); }
+    return p.then(function () { TK.toast('List copied. Paste it in the group chat.', 'good'); }, manual);
   });
 
   // ------------------------------------------------------------------ actions: Stop sales now
