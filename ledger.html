@@ -104,7 +104,18 @@ p { margin: 0 0 var(--s3); }
 .nav-head {
   font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--on-dark-muted);
   padding: var(--s1) var(--s2);
+  cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between;
+  border-radius: var(--r-sm); user-select: none;
 }
+.nav-head::-webkit-details-marker { display: none; }
+.nav-head::after {
+  content: ''; width: 6px; height: 6px; margin-right: var(--s1);
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg); transition: transform var(--t-fast) var(--ease);
+}
+.nav-group[open] > .nav-head::after { transform: rotate(45deg); }
+.nav-head:hover { color: var(--on-dark); }
+.nav-head:focus-visible { outline: 2px solid var(--on-dark); outline-offset: 1px; }
 .nav-group ul { list-style: none; margin: 0; padding: 0; }
 .nav-item {
   display: block; color: var(--on-dark); text-decoration: none; padding: var(--s2) var(--s3);
@@ -5913,7 +5924,12 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   var ROLE_LABEL = { viewer: 'Viewer', encoder: 'Encoder', approver: 'Approver' };
   var ALL = ['viewer', 'encoder', 'approver'], WRITE = ['encoder', 'approver'], APPR = ['approver'];
 
-  /* Sidebar groups (spec section 6). Items inherit the group's roles; nav:false = routable, not listed. */
+  /*
+   * Sidebar groups. Items inherit the group's roles; nav:false = routable, not listed. An item with `covers` (a route
+   * prefix) stands for a family of screens that switch with their own tabs (the statements, the activity reports):
+   * it is the one sidebar link for them and is highlighted on any of them. Groups fold (<details>); `closed` groups
+   * start folded unless the current screen is in them.
+   */
   var NAV = [
     { group: 'Home', items: [{ id: 'home', title: 'Dashboard', view: 'dashboard' }] },
     { group: 'Record', roles: WRITE, items: [
@@ -5926,31 +5942,29 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       { id: 'admin/pledges', title: 'Pledges', view: 'admin.pledges' }] },
     { group: 'Approve', roles: APPR, items: [
       { id: 'approve', title: 'Approval queue', view: 'approve.queue' }] },
-    { group: 'Books', items: [
+    { group: 'Reports', items: [
+      { id: 'st/tb', title: 'Financial statements', view: 'statements.render', args: ['tb'], covers: 'st/' },
+      { id: 'st/bs', title: 'Balance sheet', view: 'statements.render', args: ['bs'], nav: false },
+      { id: 'st/is', title: 'Income statement', view: 'statements.render', args: ['is'], nav: false },
+      { id: 'st/cf', title: 'Cash flow', view: 'statements.render', args: ['cf'], nav: false },
+      { id: 'st/cashrecon', title: 'Cash & fund recon', view: 'statements.render', args: ['cashrecon'], nav: false },
+      { id: 'st/sfund', title: 'Scholarship fund', view: 'statements.render', args: ['sfund'], nav: false },
+      { id: 'st/pledge', title: 'Pledge schedule', view: 'statements.render', args: ['pledge'], nav: false },
+      { id: 'st/officers', title: 'Officers subledger', view: 'statements.render', args: ['officers'], nav: false },
+      { id: 'activity/summary', title: 'Activity reports', view: 'activity.summary', covers: 'activity/' },
+      { id: 'activity/report/:code?', title: 'Activity report', view: 'activity.report', href: 'activity/report', nav: false },
+      { id: 'activity/matrix', title: 'Event matrix', view: 'activity.matrix', nav: false },
+      { id: 'gate', title: 'Control gate', view: 'gate' },
       { id: 'books/cash/:fund?', title: 'Cash books', view: 'books.cash', href: 'books/cash' },
-      { id: 'books/audit', title: 'Audit log', view: 'books.audit' }] },
-    { group: 'Statements', items: [
-      { id: 'st/tb', title: 'Trial balance', view: 'statements.render', args: ['tb'] },
-      { id: 'st/bs', title: 'Balance sheet', view: 'statements.render', args: ['bs'] },
-      { id: 'st/is', title: 'Income statement', view: 'statements.render', args: ['is'] },
-      { id: 'st/cf', title: 'Cash flow', view: 'statements.render', args: ['cf'] },
-      { id: 'st/cashrecon', title: 'Cash & fund recon', view: 'statements.render', args: ['cashrecon'] },
-      { id: 'st/sfund', title: 'Scholarship fund', view: 'statements.render', args: ['sfund'] },
-      { id: 'st/pledge', title: 'Pledge schedule', view: 'statements.render', args: ['pledge'] },
-      { id: 'st/officers', title: 'Officers subledger', view: 'statements.render', args: ['officers'] }] },
-    { group: 'Activity', items: [
-      { id: 'activity/summary', title: 'Event summary', view: 'activity.summary' },
-      { id: 'activity/report/:code?', title: 'Activity report', view: 'activity.report', href: 'activity/report' },
-      { id: 'activity/matrix', title: 'Event matrix', view: 'activity.matrix' }] },
-    { group: 'Control gate', items: [{ id: 'gate', title: 'Control gate', view: 'gate' }] },
-    { group: 'Admin', roles: APPR, items: [
+      { id: 'books/audit', title: 'Audit log', view: 'books.audit' },
+      { id: 'export', title: 'Excel & print', view: 'export.page' }] },
+    { group: 'Admin', roles: APPR, closed: true, items: [
       { id: 'admin/settings', title: 'Organisation settings', view: 'admin.settings' },
       { id: 'admin/people', title: 'People & roles', view: 'admin.people' },
       { id: 'admin/openings', title: 'Opening balances', view: 'admin.openings' },
       { id: 'admin/officers', title: 'Officers', view: 'admin.officers' },
       { id: 'admin/accounts', title: 'Chart of accounts', view: 'admin.accounts' },
-      { id: 'admin/first-run', title: 'First-run checklist', view: 'admin.firstRun', nav: false }] },
-    { group: 'Export', items: [{ id: 'export', title: 'Excel & print', view: 'export.page' }] }
+      { id: 'admin/first-run', title: 'First-run checklist', view: 'admin.firstRun', nav: false }] }
   ];
   var ROUTES = [];
   NAV.forEach(function (g) {
@@ -6003,16 +6017,24 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     return { id: HOME.id, title: HOME.title, item: HOME, args: [], path: 'home', fallback: path !== 'home' };
   }
 
+  /* Groups the person folded or unfolded this session (group name -> open?). */
+  var navOpen = {};
+  function isCurrent(it, currentId) {
+    return it.id === currentId || (!!it.covers && String(currentId || '').indexOf(it.covers) === 0);
+  }
   function navHtml(r, currentId) {
     return NAV.filter(function (g) {
       return g.items.some(function (it) { return it.nav !== false && allowed(it, r); });
     }).map(function (g) {
+      var here = g.items.some(function (it) { return it.id === currentId; });
       var items = g.items.filter(function (it) { return it.nav !== false && allowed(it, r); }).map(function (it) {
-        var cur = it.id === currentId;
+        var cur = isCurrent(it, currentId);
         return '<li><a class="nav-item' + (cur ? ' is-current' : '') + '" href="#/' + esc(it.href || it.id) + '"' +
           (cur ? ' aria-current="page"' : '') + '>' + esc(it.title) + '</a></li>';
       }).join('');
-      return '<div class="nav-group"><div class="nav-head">' + esc(g.group) + '</div><ul>' + items + '</ul></div>';
+      var open = here || (g.group in navOpen ? navOpen[g.group] : !g.closed);
+      return '<details class="nav-group" data-group="' + esc(g.group) + '"' + (open ? ' open' : '') + '>' +
+        '<summary class="nav-head">' + esc(g.group) + '</summary><ul>' + items + '</ul></details>';
     }).join('');
   }
 
@@ -6246,6 +6268,11 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       var t = find(e, 'data-action'), fn = t && LD.actions[t.getAttribute('data-action')];
       if (fn) { e.preventDefault(); fn(t, e); }
     });
+    // remember sidebar groups folded / unfolded by hand ('toggle' does not bubble: listen in the capture phase)
+    doc.addEventListener('toggle', function (e) {
+      var t = e.target;
+      if (t && t.classList && t.classList.contains('nav-group')) navOpen[t.getAttribute('data-group')] = !!t.open;
+    }, true);
     doc.addEventListener('change', function (e) {
       var t = find(e, 'data-change'), fn = t && LD.actions[t.getAttribute('data-change')];
       if (fn) fn(t, e);
