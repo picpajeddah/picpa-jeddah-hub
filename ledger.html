@@ -440,7 +440,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       return a.name && String(cell(a.active)).toUpperCase() !== 'N';
     }).map(function (a) {
       return { code: cell(a.code), name: a.name, fs: cell(a.fs), sub: cell(a.sub),
-               category: cell(a.category), normal: cell(a.normal), active: cell(a.active) };
+               category: cell(a.category), normal: cell(a.normal), active: cell(a.active),
+               subledger: cell(a.subledger) };
     });
     var byName = {};
     accounts.forEach(function (a) { byName[a.name] = a; });
@@ -472,9 +473,20 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
                desc: cell(t.description), amount: Number(t.amount) || 0,
                status: cell(t.status), by: cell(t.entered_by), on: cell(t.entered_at),
                appBy: cell(t.approved_by), appOn: cell(t.approved_at), file: cell(t.file_url),
+               officer: cell(t.officer),
                /* Only +1 and -1 are valid signs; anything else is coerced to +1. */
                note: cell(t.note), sign: Number(t.sign) === -1 ? -1 : 1 };
     });
+
+    /* Officer subledger: the officers (name-keyed, like accounts) and the control accounts' openings by officer. */
+    var officers = (input.officers || []).filter(function (o) { return o && o.name; }).map(function (o) {
+      return { name: String(o.name), active: cell(o.active) };
+    });
+    var offOpen = (input.officerOpenings || []).filter(function (o) { return o && o.officer && o.account; })
+      .map(function (o) {
+        return { officer: String(o.officer), account: String(o.account), open: Number(o.opening) || 0,
+                 ppa: Number(o.ppa) || 0, prior: Number(o.prior_year) || 0 };
+      });
 
     var pledges = (input.pledges || []).map(function (p, i) {
       var o = {}; Object.keys(p).forEach(function (k) { o[k] = p[k]; });
@@ -487,7 +499,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       funds: accounts.filter(function (a) { return a.category === 'Cash'; })
                      .map(function (a) { return a.name; }),
       openings: openings, ppa: ppa, prior: prior,
-      events: events, txns: txns, pledges: pledges,
+      events: events, txns: txns, pledges: pledges, officers: officers, offOpen: offOpen,
       approved: txns.filter(function (t) { return t.status === TXN_STATUS.APPROVED; })
     };
   }
@@ -514,6 +526,12 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     if (!s.byName[t.account]) return 'ACCOUNT NOT IN CHART';
     if (!s.events.some(function (e) { return e.code === t.event; })) return 'INVALID EVENT CODE';
     if (s.funds.indexOf(t.fund) < 0) return 'NOT A CASH FUND';
+    if (s.byName[t.account].subledger === 'officer') {
+      if (!t.officer) return 'NO OFFICER';
+      if (!s.officers.some(function (o) { return o.name === t.officer; })) return 'OFFICER NOT LISTED';
+    } else if (t.officer) {
+      return 'OFFICER NOT ALLOWED';
+    }
     if (Number(t.amount) <= 0) return 'CHECK AMOUNT';
     if (t.date < s.st.fy_start || t.date > s.st.fy_end) return 'DATE OUTSIDE FY';
     if (!t.status) return 'NO STATUS';
@@ -610,7 +628,10 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     var defs = [['Scholarship Pledge', 'Decrease / (Increase) in Scholarship Pledge', -1],
                 ['Advances to Officers', 'Decrease / (Increase) in Advances to Officers', -1],
                 ['Other Receivables', 'Decrease / (Increase) in Other Receivables', -1],
-                ['Advances from Officers', 'Increase / (Decrease) in Advances from Officers', 1]];
+                /* -1 too: the TB is debit-positive, so a liability that grows moves NEGATIVE, and that growth is cash
+                   coming in. (v2 had +1 here, which turned the cash flow control RED as soon as an officer paid for
+                   the chapter; the FY 22-23 book never moved this category, so its golden figures are unaffected.) */
+                ['Advances from Officers', 'Increase / (Decrease) in Advances from Officers', -1]];
     var adj = defs.map(function (d) {
       var per = []; for (var p = 0; p < 12; p++) per.push(d[2] * catMove(tb, d[0], p));
       return { cat: d[0], label: d[1], per: per, total: sumArr(per) };
@@ -695,6 +716,74 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     return { rows: rows, tot: tot, bs: bs, glColl: glColl, glWo: glWo, noDoc: noDoc,
              ctrl: r2(Math.abs(tot.close - bs) + Math.abs(tot.coll - glColl) +
                       Math.abs(tot.wo - glWo) + noDoc) };
+  }
+
+  /**
+   * OFFICER SUBLEDGER — each officer's balance on every officer control account (subledger 'officer'),
+   * proved against the control accounts in the trial balance. Debits positive, credits negative, as the TB.
+   * A receipt credits the control account (the officer repays an advance, or the chapter receives money from
+   * the officer); a payment debits it.
+   */
+  function officerLedger(s, tb) {
+    var ctl = s.accounts.filter(function (a) { return a.subledger === 'officer'; })
+                        .sort(function (a, b) { return String(a.code).localeCompare(String(b.code)); });
+    var ctlNames = ctl.map(function (a) { return a.name; });
+    var listed = {};
+    s.officers.forEach(function (o) { listed[o.name] = o; });
+    var names = s.officers.map(function (o) { return o.name; });
+    var addName = function (n) { if (n && names.indexOf(n) < 0) names.push(n); };
+    var blank = function () { return { open: 0, ppa: 0, prior: 0, dr: 0, cr: 0, move: 0, close: 0 }; };
+    var cells = {};
+    var at = function (officer, account) {
+      addName(officer);
+      cells[officer] = cells[officer] || ctl.map(blank);
+      return cells[officer][ctlNames.indexOf(account)];
+    };
+
+    s.offOpen.forEach(function (o) {
+      if (ctlNames.indexOf(o.account) < 0) return;
+      var c = at(o.officer, o.account);
+      c.open += o.open; c.ppa += o.ppa; c.prior += o.prior;
+    });
+    var unassigned = 0;
+    s.approved.forEach(function (t) {
+      if (ctlNames.indexOf(t.account) < 0) return;
+      var p = periodOf(s, t.date) - 1;
+      if (p < 0 || p > 11) return;       // the TB leaves it out too
+      if (!t.officer) { unassigned++; return; }
+      var c = at(t.officer, t.account), amt = post(t);
+      if (t.type === TXN_TYPE.PAYMENT) { c.dr += amt; c.move += amt; } else { c.cr -= amt; c.move -= amt; }
+    });
+
+    var rows = names.map(function (n) {
+      var cs = (cells[n] || ctl.map(blank)).map(function (c) {
+        c.close = c.open + c.ppa + c.move; return c;
+      });
+      var o = listed[n];
+      return { officer: n, listed: !!o, active: o ? String(o.active).toUpperCase() !== 'N' : false,
+               cells: cs, net: cs.reduce(function (a, c) { return a + c.close; }, 0) };
+    }).filter(function (r) {
+      return r.active || !r.listed || r.cells.some(function (c) {
+        return c.open || c.ppa || c.prior || c.dr || c.cr || c.close; });
+    }).sort(function (a, b) { return a.officer.localeCompare(b.officer); });
+
+    var accounts = ctl.map(function (a, i) {
+      var tot = blank();
+      rows.forEach(function (r) {
+        Object.keys(tot).forEach(function (k) { tot[k] += r.cells[i][k]; });
+      });
+      var row = tb.filter(function (r) { return r.name === a.name; })[0] ||
+                { open: 0, ppa: 0, prior: 0, move: 0, close: 0 };
+      var perTB = { open: row.open, ppa: row.ppa, prior: row.prior, move: row.move, close: row.close };
+      var diff = { open: r2(tot.open - perTB.open), ppa: r2(tot.ppa - perTB.ppa), prior: r2(tot.prior - perTB.prior),
+                   close: r2(tot.close - perTB.close) };
+      return { code: a.code, name: a.name, cat: a.category, normal: a.normal, tot: tot, perTB: perTB, diff: diff };
+    });
+    var unlisted = rows.filter(function (r) { return !r.listed; }).length;
+    var ctrl = r2(accounts.reduce(function (a, x) {
+      return a + Math.abs(x.diff.open) + Math.abs(x.diff.ppa) + Math.abs(x.diff.prior) + Math.abs(x.diff.close);
+    }, 0) + unassigned + unlisted);
+    return { accounts: accounts, rows: rows, unassigned: unassigned, unlisted: unlisted, ctrl: ctrl };
   }
 
   function eventStats(s) {
@@ -782,14 +871,14 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   }
 
   // =====================================================================
-  // THE FIFTEEN CONTROLS
+  // THE SIXTEEN CONTROLS
   // Every check is a sum of ABSOLUTE differences, so two errors of opposite
   // sign can never cancel out and read PASS.
   // =====================================================================
   function controls(s, tb, selectedEvent) {
     var IS = incomeStatement(tb), BS = balanceSheet(tb, IS), CF = cashFlow(tb, IS, BS);
     var CR = cashRecon(s, tb), SF = scholarshipFund(s, tb), PS = pledgeSchedule(s, tb);
-    var ES = eventStats(s), MX = eventMatrix(s, IS);
+    var ES = eventStats(s), MX = eventMatrix(s, IS), OL = officerLedger(s, tb);
     var AR = activityReport(s, selectedEvent || (s.events[0] && s.events[0].code) || 'GEN', ES);
 
     var abs = function (v) { return Math.abs(r2(v)); };
@@ -854,7 +943,10 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       ['Nothing awaiting approval',
        'No entry is still in Draft or Submitted. Unapproved entries are not in the statements.', pending],
       ['Chart of accounts integrity',
-       'No transaction refers to an account that is not in the chart of accounts.', unmapped]
+       'No transaction refers to an account that is not in the chart of accounts.', unmapped],
+      ['Officer subledger ties to the control accounts',
+       'The officers\' balances add up to Due from / Due to Officers at the opening and the close, and every entry to those accounts names a listed officer.',
+       OL.ctrl]
     ];
     var list = defs.map(function (d, i) {
       return { n: i + 1, name: d[0], proves: d[1], value: r2(d[2]), pass: r2(d[2]) === 0 };
@@ -934,6 +1026,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       cashRecon: function () { return cashRecon(s, tb()); },
       scholarshipFund: function () { return scholarshipFund(s, tb()); },
       pledgeSchedule: function () { return pledgeSchedule(s, tb()); },
+      officerLedger: function () { return officerLedger(s, tb()); },
       /* v2 api_report('events') shape: the rows plus the income-statement totals. */
       eventStats: function () {
         var is = IS();
@@ -1131,6 +1224,15 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     },
     LEDGER_IN_USE: function (c) {
       return detail(c) || 'This is used by existing entries, so it cannot be deleted. Deactivate it instead.';
+    },
+    LEDGER_OFFICER_REQUIRED: function () {
+      return 'Choose the officer. An entry to Due from Officers or Due to Officers must name the officer.';
+    },
+    LEDGER_INACTIVE_OFFICER: function () {
+      return 'That officer is inactive. Pick an active officer, or ask an approver to reactivate them under Officers.';
+    },
+    LEDGER_OFFICER_NOT_ALLOWED: function (c) {
+      return detail(c) || 'Only an entry to Due from Officers or Due to Officers names an officer.';
     },
     // ---- client-only
     LEDGER_CONFLICT: function (c) {
@@ -1393,10 +1495,14 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         select('ledger_openings', function (q) { return q.eq('fy_label', fy); }),
         select('ledger_pledges', function (q) { return q.eq('fy_label', fy).order('doc'); }),
         select('ledger_transactions', txnQuery(settings)),
-        soft(select('ledger_users'), [])
+        soft(select('ledger_users'), []),
+        // officer subledger (05-officer-subledger.sql); empty lists if the database does not have it yet
+        soft(select('ledger_officers', function (q) { return q.order('name'); }), []),
+        soft(select('ledger_officer_openings', function (q) { return q.eq('fy_label', fy); }), [])
       ]).then(function (rest) {
         var st = { user: user, role: role, settings: settings, settingRows: ref[0], accounts: ref[1], events: ref[2],
-                   openings: rest[0], pledges: rest[1], txns: rest[2], users: rest[3], names: {} };
+                   openings: rest[0], pledges: rest[1], txns: rest[2], users: rest[3], officers: rest[4],
+                   officerOpenings: rest[5], names: {} };
         var ids = [user.id];
         st.txns.forEach(function (t) { ids.push(t.entered_by, t.approved_by); });
         st.users.forEach(function (u) { ids.push(u.user_id); });
@@ -1438,19 +1544,27 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
    * never drop those postings from the statements (the engine leaves out inactive rows, as v2 did).
    */
   function engineInput(st) {
-    var accName = {}, evCode = {};
+    var accName = {}, evCode = {}, offName = {};
     st.accounts.forEach(function (a) { accName[a.id] = a.name; });
     st.events.forEach(function (e) { evCode[e.id] = e.code; });
+    (st.officers || []).forEach(function (o) { offName[o.id] = o.name; });
     var fy = st.settings.fy_label;
     return {
       settings: st.settings,
       accounts: st.accounts.map(function (a) {
         return { code: a.code, name: a.name, fs: a.fs, sub: a.sub, category: a.category, normal: a.normal,
-                 active: 'Y' };
+                 active: 'Y', subledger: a.subledger || '' };
       }),
       openings: st.openings.filter(function (o) { return !fy || o.fy_label === fy; }).map(function (o) {
         return { account: accName[o.account_id], opening: Number(o.opening) || 0, ppa: Number(o.ppa) || 0,
                  prior_year: Number(o.prior_year) || 0 };
+      }),
+      /* Officers go to the engine with their real active flag: it only decides whether an officer with nothing on
+         their account still gets a line in the Officers schedule. Postings never depend on it. */
+      officers: (st.officers || []).map(function (o) { return { name: o.name, active: o.active === false ? 'N' : 'Y' }; }),
+      officerOpenings: (st.officerOpenings || []).filter(function (o) { return !fy || o.fy_label === fy; }).map(function (o) {
+        return { officer: offName[o.officer_id] || '', account: accName[o.account_id] || '',
+                 opening: Number(o.opening) || 0, ppa: Number(o.ppa) || 0, prior_year: Number(o.prior_year) || 0 };
       }),
       events: st.events.map(function (e) {
         return { code: e.code, name: e.name, date: e.date || '', type: e.type, status: e.status, lead: e.lead || '',
@@ -1467,6 +1581,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
                  event: evCode[t.event_id] || '', fund: accName[t.fund_id] || '', description: t.description,
                  amount: Number(t.amount) || 0, status: t.status, entered_by: t.entered_by, entered_at: t.entered_at,
                  approved_by: t.approved_by, approved_at: t.approved_at, file_url: t.attachment_path || '',
+                 officer: t.officer_id ? (offName[t.officer_id] || '(unknown officer)') : '',
                  note: t.note || '', sign: t.reverses_id ? -1 : 1 };
       })
     };
@@ -1487,9 +1602,9 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   }
 
   // ===================================================================== writes
-  var INSERT_COLS = ['id', 'type', 'date', 'account_id', 'event_id', 'fund_id', 'description', 'amount', 'status',
-                     'note', 'attachment_path'];
-  var UPDATE_COLS = ['date', 'account_id', 'event_id', 'fund_id', 'description', 'amount', 'status', 'note',
+  var INSERT_COLS = ['id', 'type', 'date', 'account_id', 'event_id', 'fund_id', 'officer_id', 'description', 'amount',
+                     'status', 'note', 'attachment_path'];
+  var UPDATE_COLS = ['date', 'account_id', 'event_id', 'fund_id', 'officer_id', 'description', 'amount', 'status', 'note',
                      'attachment_path'];
   function pick(o, cols) {
     var out = {};
@@ -1500,7 +1615,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   function changed(before, after) {
     var out = { id: before.id };
     UPDATE_COLS.forEach(function (k) {
-      if (k in after && String(after[k] === null ? '' : after[k]) !== String(before[k] === null ? '' : before[k])) {
+      if (k in after && String(after[k] == null ? '' : after[k]) !== String(before[k] == null ? '' : before[k])) {
         out[k] = after[k];
       }
     });
@@ -1679,6 +1794,10 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     ledger_events: { list: 'events', keys: ['id'], cols: EVENT_COLS,
       sort: function (a, b) { return a.code < b.code ? -1 : a.code > b.code ? 1 : 0; } },
     ledger_openings: { list: 'openings', keys: ['account_id', 'fy_label'], cols: ['opening', 'ppa', 'prior_year'] },
+    ledger_officers: { list: 'officers', keys: ['id'], cols: ['name', 'active'],
+      sort: function (a, b) { return String(a.name).localeCompare(String(b.name)); } },
+    ledger_officer_openings: { list: 'officerOpenings', keys: ['officer_id', 'account_id', 'fy_label'],
+      cols: ['opening', 'ppa', 'prior_year'] },
     ledger_pledges: { list: 'pledges', keys: ['id'], cols: ['pledgor', 'description', 'opening', 'additions', 'collections',
       'writeoffs', 'doc_ref', 'remarks', 'fy_label'], sort: function (a, b) { return a.doc < b.doc ? -1 : a.doc > b.doc ? 1 : 0; } }
   };
@@ -1760,6 +1879,38 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       return r.account_id === accountId && r.fy_label === fy;
     });
   }
+  /** An officer of the subledger: {id?, name, active}. Approvers only; the database keeps names unique. */
+  function saveOfficer(row) {
+    var r = { id: row.id, name: row.name === undefined ? undefined : String(row.name).trim(), active: row.active };
+    var known = r.id && findBy(S.state.officers || [], ['id'], r);
+    return writeRow('ledger_officers', r, 'The officer ' + ((known && known.name) || r.name || ''));
+  }
+  /** Delete an officer nobody has used (the database refuses one named by an entry or an opening balance). */
+  function deleteOfficer(id) {
+    return deleteRows('ledger_officers', { id: id }, function (r) { return r.id === id; });
+  }
+  /** One officer's opening on one officer control account: {officer_id, account_id, fy_label, opening, ppa, prior_year}. */
+  function saveOfficerOpening(row) { return writeRow('ledger_officer_openings', row, 'This officer opening balance'); }
+  function deleteOfficerOpening(officerId, accountId, fy) {
+    return deleteRows('ledger_officer_openings', { officer_id: officerId, account_id: accountId, fy_label: fy }, function (r) {
+      return r.officer_id === officerId && r.account_id === accountId && r.fy_label === fy;
+    });
+  }
+  /** Officer control accounts (the database marks them subledger 'officer'), in code order. */
+  function officerAccounts() {
+    return ((S.state && S.state.accounts) || []).filter(function (a) { return a.subledger === 'officer'; });
+  }
+  function isOfficerAccount(id) {
+    return officerAccounts().some(function (a) { return a.id === id; });
+  }
+  /** Officer name for an id ('' when none). */
+  function officerName(id) {
+    if (!id) return '';
+    var list = (S.state && S.state.officers) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i].name;
+    return 'an officer';
+  }
+
   /** A pledge: the database assigns doc (PL-NNN) on insert and it never changes, so it is never sent. */
   function savePledge(row) {
     var r = {};
@@ -1796,6 +1947,9 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     saveEvent: saveEvent, deleteEvent: deleteEvent, parseSigned: parseSigned,
     saveSetting: saveSetting, saveUser: saveUser, saveAccount: saveAccount, deleteAccount: deleteAccount,
     saveOpening: saveOpening, deleteOpening: deleteOpening, savePledge: savePledge, deletePledge: deletePledge,
+    saveOfficer: saveOfficer, deleteOfficer: deleteOfficer, saveOfficerOpening: saveOfficerOpening,
+    deleteOfficerOpening: deleteOfficerOpening, officerAccounts: officerAccounts, isOfficerAccount: isOfficerAccount,
+    officerName: officerName,
     touch: touch, views: {}, actions: actions, action: action,
     client: function () { return S.client; },
     get expired() { return S.expired; }
@@ -2190,7 +2344,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         '<button type="button" class="btn btn-small" data-action="admin.accountToggle" data-id="' + id + '">' + (act ? 'Deactivate' : 'Activate') + '</button>' +
         (unused(a.id) ? ' <button type="button" class="btn btn-small btn-danger" data-action="admin.accountDeleteAsk" data-id="' + id + '">Delete</button>' : '');
       return '<tr data-code="' + esc(a.code) + '"' + (act ? '' : ' class="is-inactive"') + '>' +
-        '<td data-label="Code"><b>' + esc(a.code) + '</b></td><td data-label="Account">' + esc(a.name) + '</td>' +
+        '<td data-label="Code"><b>' + esc(a.code) + '</b></td><td data-label="Account">' + esc(a.name) +
+          (a.subledger === 'officer' ? ' <a class="pill pill-info" href="#/st/officers">Kept by officer</a>' : '') + '</td>' +
         '<td data-label="Statement">' + esc(a.fs) + '</td><td data-label="Group">' + esc(a.sub || '') + '</td>' +
         '<td data-label="Category">' + esc(a.category || '') + '</td><td data-label="Dr/Cr">' + esc(a.normal) + '</td>' +
         '<td class="num" data-label="Entries">' + n + '</td>' +
@@ -2221,7 +2376,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         '<span class="hint">For example Assets or Expenses.</span></div>' +
       '<div class="field"><label for="acct-cat">Category</label><input id="acct-cat" name="category" type="text" list="acct-cats" maxlength="60" value="' + esc(v.category || '') + '">' +
         '<datalist id="acct-cats">' + Object.keys(cats).map(function (g) { return '<option value="' + esc(g) + '">'; }).join('') + '</datalist>' +
-        '<span class="hint">Cash accounts (category Cash) can be used as a fund.</span></div>' +
+        '<span class="hint">Cash accounts (category Cash) can be used as a fund. Accounts in Advances to Officers or Advances from Officers ' +
+          'are kept by officer: every entry to them names the officer.</span></div>' +
       '</div><div id="acct-err" aria-live="assertive"></div>' +
       '<div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Close</button>' +
       '<button type="submit" id="acct-save" class="btn btn-primary">Save account</button></div></form>', { label: a ? 'Edit account' : 'New account' });
@@ -2323,6 +2479,153 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   });
 }(typeof self !== 'undefined' ? self : this));
 
+// ---- views/admin-officers.js
+/**
+ * views/admin-officers.js — Admin: Officers, the subledger of Due from Officers / Due to Officers.
+ * Adds LD.views.admin.officers().
+ *
+ * Add, rename and deactivate officers; delete only one that no entry and no opening balance names (the database
+ * refuses otherwise: LEDGER_IN_USE). A deactivated officer keeps their history but cannot be chosen for a new entry.
+ * Names are unique whatever the capitals (the database enforces it too).
+ */
+(function (root) {
+  'use strict';
+  var LD = root.LD, esc = LD.esc, X = LD.adm;
+  var A = LD.views.admin = LD.views.admin || {};
+  var editing = null;                      // officer id being renamed, or null for a new one
+
+  function list() { return LD.state.officers || []; }
+  function isActive(o) { return o.active !== false; }
+  function find(id) {
+    var l = list();
+    for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i];
+    return null;
+  }
+  function entries(id) { return LD.state.txns.filter(function (t) { return t.officer_id === id; }).length; }
+  function openings(id) { return (LD.state.officerOpenings || []).filter(function (o) { return o.officer_id === id; }); }
+  function unused(id) { return entries(id) === 0 && openings(id).length === 0; }
+  /** Closing balance per officer account, from the Officers schedule. */
+  function balances() {
+    var out = {};
+    try {
+      LD.book().officerLedger().rows.forEach(function (r) { out[r.officer] = r; });
+    } catch (e) { /* no book yet */ }
+    return out;
+  }
+
+  A.officers = function () {
+    if (!X.can()) return X.refuse('Officers');
+    var accts = LD.officerAccounts(), bal = balances();
+    var rows = list().map(function (o) {
+      var id = esc(o.id), act = isActive(o), b = bal[o.name];
+      var buttons = '<button type="button" class="btn btn-small" data-action="admin.officerEdit" data-id="' + id + '">Rename</button> ' +
+        '<button type="button" class="btn btn-small" data-action="admin.officerToggle" data-id="' + id + '">' + (act ? 'Deactivate' : 'Activate') + '</button>' +
+        (unused(o.id) ? ' <button type="button" class="btn btn-small btn-danger" data-action="admin.officerDeleteAsk" data-id="' + id + '">Delete</button>' : '');
+      return '<tr data-officer="' + esc(o.name) + '"' + (act ? '' : ' class="is-inactive"') + '>' +
+        '<td data-label="Officer"><b>' + esc(o.name) + '</b></td>' +
+        accts.map(function (a, i) {
+          return '<td class="num" data-label="' + esc(a.name) + '">' + LD.fmt(b ? b.cells[i] ? b.cells[i].close : 0 : 0) + '</td>';
+        }).join('') +
+        '<td class="num" data-label="Entries">' + entries(o.id) + '</td>' +
+        '<td data-label="Status">' + X.pill(act ? 'Active' : 'Inactive', act ? 'pill pill-good' : 'pill pill-warn') + '</td>' +
+        '<td data-label="Actions"><div class="btn-row">' + buttons + '</div></td></tr>';
+    }).join('') || '<tr><td colspan="' + (accts.length + 4) + '" class="muted">No officers yet. Add the officers who receive advances from, or pay on behalf of, the chapter.</td></tr>';
+    return '<section class="card"><div class="rec-toolbar"><button type="button" class="btn btn-primary" data-action="admin.officerNew">New officer</button>' +
+      ' <a class="btn" href="#/st/officers">Officers subledger</a></div>' +
+      '<p class="muted">Due from Officers and Due to Officers appear once each in the trial balance. Who owes what is kept here, by officer: ' +
+      'every entry to those accounts names the officer, and the control gate proves the officers add up to the two accounts. ' +
+      'A deactivated officer keeps their history but cannot be chosen for a new entry.</p>' +
+      (accts.length ? '' : '<p class="note note-warn">There is no officer account in the chart of accounts yet.</p>') +
+      '<div class="table-wrap"><table class="grid stack"><thead><tr><th scope="col">Officer</th>' +
+      accts.map(function (a) { return '<th scope="col" class="num">' + esc(a.name) + '</th>'; }).join('') +
+      '<th scope="col" class="num">Entries</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="muted">Balances: debits positive, credits negative. Opening balances by officer are entered under <a href="#/admin/openings">Opening balances</a>.</p></section>';
+  };
+
+  function form(o) {
+    X.app().modal('<h2>' + (o ? 'Rename ' + esc(o.name) : 'New officer') + '</h2>' +
+      '<form class="rec-form" data-submit="admin.officerSave" novalidate autocomplete="off"><div class="rec-grid">' +
+      '<div class="field rec-wide"><label for="off-name">Name</label><input id="off-name" name="name" type="text" maxlength="80" value="' + esc(o ? o.name : '') + '">' +
+      '<span class="hint">As it should appear in the schedule, for example Mr. Juan Dela Cruz. Must be unique.</span></div>' +
+      '</div><div id="off-err" aria-live="assertive"></div>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Close</button>' +
+      '<button type="submit" id="off-save" class="btn btn-primary">Save officer</button></div></form>', { label: o ? 'Rename officer' : 'New officer' });
+  }
+  LD.action('admin.officerNew', function () { if (X.deny()) return; editing = null; form(null); });
+  LD.action('admin.officerEdit', function (el) {
+    if (X.deny()) return;
+    var o = find(X.idOf(el));
+    if (!o) return;
+    editing = o.id;
+    form(o);
+  });
+
+  LD.action('admin.officerSave', function (f) {
+    if (X.deny()) return Promise.resolve(false);
+    return LD.guard('admin.officerSave', function () {
+      var before = editing ? find(editing) : null, errs = [];
+      var name = X.val(f, 'name').replace(/\s+/g, ' ').trim();
+      if (name.length < 2) errs.push('Give the officer a name of at least 2 characters.');
+      else if (list().some(function (o) { return (!before || o.id !== before.id) && o.name.toLowerCase() === name.toLowerCase(); })) {
+        errs.push('There is already an officer called ' + name + '.');
+      }
+      X.errBox('off-err', errs);
+      if (errs.length) return false;
+      X.setBusy('off-save', true);
+      var row = before ? { id: before.id, name: name } : { name: name, active: true };
+      return LD.saveOfficer(row).then(function (saved) {
+        X.app().closeModal();
+        X.app().toast((before ? 'Renamed to ' : 'Added ') + saved.name + '.', 'good');
+        X.app().render();
+        return true;
+      }, function (e) {
+        X.errBox('off-err', LD.friendlyError(e));
+        X.setBusy('off-save', false);
+        return false;
+      });
+    });
+  });
+
+  LD.action('admin.officerToggle', function (el) {
+    if (X.deny()) return Promise.resolve(false);
+    var o = find(X.idOf(el));
+    if (!o) return Promise.resolve(false);
+    return LD.guard('admin.officerToggle:' + o.id, function () {
+      return LD.saveOfficer({ id: o.id, active: !isActive(o) }).then(function (s) {
+        X.app().toast(s.name + (isActive(s) ? ' is active again.' : ' is deactivated.'), 'good');
+        X.app().render();
+        return true;
+      }, function (e) { X.app().toast(LD.friendlyError(e), 'crit'); return false; });
+    });
+  });
+
+  LD.action('admin.officerDeleteAsk', function (el) {
+    if (X.deny()) return;
+    var o = find(X.idOf(el));
+    if (!o) return;
+    X.app().modal('<h2>Delete ' + esc(o.name) + '?</h2><p>Only an officer with no entries and no opening balances can be deleted. ' +
+      'Otherwise deactivate them. This cannot be undone.</p><div class="modal-actions">' +
+      '<button type="button" class="btn" data-action="app.closeModal">Keep</button>' +
+      '<button type="button" class="btn btn-danger" data-action="admin.officerDeleteDo" data-id="' + esc(o.id) + '">Delete officer</button></div>',
+      { label: 'Delete ' + o.name });
+  });
+  LD.action('admin.officerDeleteDo', function (el) {
+    if (X.deny()) return Promise.resolve(false);
+    var id = X.idOf(el), o = find(id);
+    if (!o) return Promise.resolve(false);
+    return LD.guard('admin.officerDelete:' + id, function () {
+      function stop(msg) { X.app().closeModal(); X.app().toast(msg, 'crit'); return false; }
+      if (!unused(id)) return stop(o.name + ' has entries or opening balances, so they cannot be deleted. Deactivate them instead.');
+      return LD.deleteOfficer(id).then(function () {
+        X.app().closeModal();
+        X.app().toast('Deleted ' + o.name + '.', 'good');
+        X.app().render();
+        return true;
+      }, function (e) { return stop(LD.friendlyError(e)); });
+    });
+  });
+}(typeof self !== 'undefined' ? self : this));
+
 // ---- views/admin-openings.js
 /**
  * views/admin-openings.js — Admin: Opening balances. Adds LD.views.admin.openings().
@@ -2332,6 +2635,10 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
  * the sum of Opening + PPA over every account must be exactly 0.00. The running sum is shown and Save is
  * blocked (button disabled and the action refuses) until it is. Only rows that changed are written.
  * Amounts are read with LD.parseSigned; a blank cell is 0. Arithmetic is in whole cents.
+ *
+ * Officer accounts (Due from / Due to Officers, subledger 'officer') are entered BY OFFICER in their own tables
+ * below the grid. Their row in the grid is not typed: it shows the sum of the officers' rows, and that sum is what
+ * is saved as the account's own opening, so the account and its officers always agree (control 16 proves it).
  */
 (function (root) {
   'use strict';
@@ -2345,10 +2652,25 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     for (var i = 0; i < l.length; i++) if (l[i].account_id === accountId) return l[i];
     return null;
   }
+  function officerOpeningOf(officerId, accountId) {
+    var l = LD.state.officerOpenings || [], fy = LD.state.settings.fy_label;
+    for (var i = 0; i < l.length; i++) {
+      if (l[i].officer_id === officerId && l[i].account_id === accountId && (!fy || l[i].fy_label === fy)) return l[i];
+    }
+    return null;
+  }
+  function isOff(a) { return a.subledger === 'officer'; }
+  /** Officers shown in the by-officer tables: active ones, plus any inactive one that still has an opening there. */
+  function officersFor(accId) {
+    return (LD.state.officers || []).filter(function (o) {
+      return o.active !== false || !!officerOpeningOf(o.id, accId);
+    });
+  }
   function cell(prefix, accId, n, label) {
     return '<input type="text" aria-label="' + esc(label) + '" inputmode="decimal" autocomplete="off" name="' + prefix + '_' + esc(accId) + '" value="' +
       (Number(n) ? esc(LD.fmt(n)) : '') + '" placeholder="0.00" data-input="admin.openingsInput" class="num-input">';
   }
+  function offName(c, offId, accId) { return 'oo' + c + '_' + offId + '_' + accId; }
 
   /** The balance line: {text for open-sum, html for open-diff, balanced}. */
   function summary(sumCents) {
@@ -2360,32 +2682,84 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         (sumCents > 0 ? 'debits exceed credits' : 'credits exceed debits') + '. Save is blocked until it is 0.00.' };
   }
 
-  /** Read the grid. Returns {rows: [{account, vals:{opening,ppa,prior_year}}], errs, sum (cents)}. */
+  function amount(form, name, label, errs) {
+    var raw = X.val(form, name).trim(), n = raw === '' ? 0 : LD.parseSigned(raw);
+    if (n === null) { errs.push(label + ': "' + raw + '" is not an amount. Use digits with at most 2 decimals; credits are negative.'); n = 0; }
+    return n;
+  }
+
+  /**
+   * Read the grid. Returns {rows: [{account, vals}], offRows: [{officer, account, vals}], errs, sum (cents)}.
+   * An officer account's vals are the sum of its officers' rows.
+   */
   function readGrid(form) {
-    var rows = [], errs = [], sum = 0;
+    var rows = [], offRows = [], errs = [], sum = 0;
     LD.state.accounts.forEach(function (a) {
-      var vals = {};
-      COLS.forEach(function (c) {
-        var raw = X.val(form, c[0] + '_' + a.id).trim(), n = raw === '' ? 0 : LD.parseSigned(raw);
-        if (n === null) { errs.push(a.name + ' (' + c[2] + '): "' + raw + '" is not an amount. Use digits with at most 2 decimals; credits are negative.'); n = 0; }
-        vals[c[1]] = n;
-      });
+      var vals = { opening: 0, ppa: 0, prior_year: 0 };
+      if (isOff(a)) {
+        var c = { opening: 0, ppa: 0, prior_year: 0 };
+        officersFor(a.id).forEach(function (o) {
+          var v = {};
+          COLS.forEach(function (k) {
+            v[k[1]] = amount(form, offName(k[0], o.id, a.id), o.name + ', ' + a.name + ' (' + k[2] + ')', errs);
+            c[k[1]] += cents(v[k[1]]);
+          });
+          offRows.push({ officer: o, account: a, vals: v });
+        });
+        COLS.forEach(function (k) { vals[k[1]] = c[k[1]] / 100; });
+      } else {
+        COLS.forEach(function (k) { vals[k[1]] = amount(form, k[0] + '_' + a.id, a.name + ' (' + k[2] + ')', errs); });
+      }
       sum += cents(vals.opening) + cents(vals.ppa);
       rows.push({ account: a, vals: vals });
     });
-    return { rows: rows, errs: errs, sum: sum };
+    return { rows: rows, offRows: offRows, errs: errs, sum: sum };
   }
   function viewForm() { return X.byId('view'); }
+
+  function officerTables(fy) {
+    return LD.state.accounts.filter(isOff).map(function (a) {
+      var list = officersFor(a.id), credit = a.normal === 'Cr';
+      var body = list.length ? list.map(function (o) {
+        var oo = officerOpeningOf(o.id, a.id) || {};
+        return '<tr' + (o.active === false ? ' class="is-inactive"' : '') + '><td>' + esc(o.name) + (o.active === false ? ' <span class="pill">Inactive</span>' : '') + '</td>' +
+          COLS.map(function (k) {
+            var nm = offName(k[0], o.id, a.id);
+            return '<td class="num"><input type="text" aria-label="' + esc(k[2] + ' for ' + o.name + ', ' + a.name) + '" inputmode="decimal" autocomplete="off" name="' +
+              esc(nm) + '" value="' + (Number(oo[k[1]]) ? esc(LD.fmt(oo[k[1]])) : '') + '" placeholder="0.00" data-input="admin.openingsInput" class="num-input"></td>';
+          }).join('') + '</tr>';
+      }).join('') : '<tr><td colspan="4" class="muted">No officers yet. <a href="#/admin/officers">Add them under Officers</a>, then enter their balances here.</td></tr>';
+      return '<h3 class="stmt-h3">' + esc(a.name) + ' by officer</h3>' +
+        '<p class="muted">' + (credit ? 'A credit balance: what the chapter owes each officer, entered as a negative number.'
+          : 'A debit balance: what each officer owes the chapter, entered as a positive number.') + ' The total becomes the ' + esc(a.name) + ' line above.</p>' +
+        '<div class="table-wrap"><table class="grid open-grid" data-officer-account="' + esc(a.code) + '"><thead><tr><th scope="col">Officer</th>' +
+        '<th scope="col" class="num">Opening</th><th scope="col" class="num">PPA</th><th scope="col" class="num">Prior-year</th></tr></thead>' +
+        '<tbody>' + body + '</tbody></table></div>';
+    }).join('');
+  }
 
   A.openings = function () {
     if (!X.can()) return X.refuse('Opening balances');
     var s = LD.state, fy = s.settings.fy_label || 'the financial year', tot = { opening: 0, ppa: 0, prior_year: 0 };
     var body = s.accounts.map(function (a) {
-      var o = openingOf(a.id) || {};
-      COLS.forEach(function (c) { tot[c[1]] += cents(o[c[1]]); });
+      var o = openingOf(a.id) || {}, cellsHtml;
+      if (isOff(a)) {
+        var sums = { opening: 0, ppa: 0, prior_year: 0 };
+        officersFor(a.id).forEach(function (of) {
+          var oo = officerOpeningOf(of.id, a.id) || {};
+          COLS.forEach(function (k) { sums[k[1]] += cents(oo[k[1]]); });
+        });
+        COLS.forEach(function (k) { tot[k[1]] += sums[k[1]]; });
+        cellsHtml = COLS.map(function (k) {
+          return '<td class="num"><span id="oc' + k[0] + '_' + esc(a.id) + '" class="open-calc">' + esc(LD.fmt(sums[k[1]] / 100)) + '</span></td>';
+        }).join('');
+      } else {
+        COLS.forEach(function (c) { tot[c[1]] += cents(o[c[1]]); });
+        cellsHtml = COLS.map(function (c) { return '<td class="num">' + cell(c[0], a.id, o[c[1]], c[2] + ' for ' + a.name) + '</td>'; }).join('');
+      }
       return '<tr' + (a.active === false || a.active === 'N' ? ' class="is-inactive"' : '') + '><td><span class="mini">' + esc(a.code) + '</span></td>' +
-        '<td>' + esc(a.name) + '</td><td>' + esc(a.normal) + '</td>' +
-        COLS.map(function (c) { return '<td class="num">' + cell(c[0], a.id, o[c[1]], c[2] + ' for ' + a.name) + '</td>'; }).join('') + '</tr>';
+        '<td>' + esc(a.name) + (isOff(a) ? '<br><span class="mini muted">Total of the officers below</span>' : '') + '</td><td>' + esc(a.normal) + '</td>' +
+        cellsHtml + '</tr>';
     }).join('');
     var sm = summary(tot.opening + tot.ppa);
     return '<section class="card"><form class="rec-form" data-submit="admin.openingsSave" novalidate>' +
@@ -2397,29 +2771,41 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       '<div class="table-wrap"><table class="grid open-grid"><thead><tr><th scope="col">Code</th><th scope="col">Account</th><th scope="col">Dr/Cr</th>' +
       '<th scope="col" class="num">Opening</th><th scope="col" class="num">PPA</th><th scope="col" class="num">Prior-year</th></tr></thead>' +
       '<tbody>' + body + '</tbody></table></div>' +
+      officerTables(fy) +
       '<div id="open-err" aria-live="assertive"></div>' +
       '<div class="rec-toolbar"><button type="submit" id="open-save" class="btn btn-primary"' + (sm.balanced ? '' : ' disabled') + '>Save opening balances</button></div>' +
       '</form></section>';
   };
 
-  function showSummary(sum) {
-    var sm = summary(sum), a = X.byId('open-sum'), b = X.byId('open-diff'), s = X.byId('open-save');
+  function showSummary(g) {
+    var sm = summary(g.sum), a = X.byId('open-sum'), b = X.byId('open-diff'), s = X.byId('open-save');
     if (a) a.innerHTML = esc(sm.sum);
     if (b) b.innerHTML = sm.diff;
     if (s) s.disabled = !sm.balanced;
+    g.rows.forEach(function (r) {
+      if (!isOff(r.account)) return;
+      COLS.forEach(function (k) {
+        var el = X.byId('oc' + k[0] + '_' + r.account.id);
+        if (el) el.innerHTML = esc(LD.fmt(r.vals[k[1]]));
+      });
+    });
     return sm;
   }
   LD.action('admin.openingsInput', function () {
     if (!X.can()) return;
-    var g = readGrid(viewForm());
-    showSummary(g.sum);
+    showSummary(readGrid(viewForm()));
   });
+
+  function differs(cur, v) {
+    if (!cur) return cents(v.opening) || cents(v.ppa) || cents(v.prior_year);
+    return cents(cur.opening) !== cents(v.opening) || cents(cur.ppa) !== cents(v.ppa) || cents(cur.prior_year) !== cents(v.prior_year);
+  }
 
   LD.action('admin.openingsSave', function (form) {
     if (X.deny()) return Promise.resolve(false);
     return LD.guard('admin.openingsSave', function () {
       var g = readGrid(form && form.querySelector ? form : viewForm()), fy = LD.state.settings.fy_label;
-      showSummary(g.sum);
+      showSummary(g);
       if (g.errs.length) { X.errBox('open-err', g.errs); return false; }
       if (g.sum !== 0) {
         X.errBox('open-err', 'The opening balances are out of balance by ' + LD.fmt(Math.abs(g.sum) / 100) + ' (' +
@@ -2427,25 +2813,29 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         return false;
       }
       X.errBox('open-err', []);
-      var todo = g.rows.filter(function (r) {
-        var cur = openingOf(r.account.id), v = r.vals;
-        if (!cur) return cents(v.opening) || cents(v.ppa) || cents(v.prior_year);
-        return cents(cur.opening) !== cents(v.opening) || cents(cur.ppa) !== cents(v.ppa) || cents(cur.prior_year) !== cents(v.prior_year);
-      });
+      // officers first, then the accounts (an officer account's own row is the officers' total)
+      var todo = g.offRows.filter(function (r) { return differs(officerOpeningOf(r.officer.id, r.account.id), r.vals); }).map(function (r) {
+        return function () {
+          return LD.saveOfficerOpening({ officer_id: r.officer.id, account_id: r.account.id, fy_label: fy, opening: r.vals.opening,
+            ppa: r.vals.ppa, prior_year: r.vals.prior_year });
+        };
+      }).concat(g.rows.filter(function (r) { return differs(openingOf(r.account.id), r.vals); }).map(function (r) {
+        return function () {
+          return LD.saveOpening({ account_id: r.account.id, fy_label: fy, opening: r.vals.opening, ppa: r.vals.ppa,
+            prior_year: r.vals.prior_year });
+        };
+      }));
       if (!todo.length) { X.app().toast('No changes to save.', 'info'); return false; }
       X.setBusy('open-save', true);
       var saved = 0;
-      return todo.reduce(function (p, r) {
-        return p.then(function () {
-          return LD.saveOpening({ account_id: r.account.id, fy_label: fy, opening: r.vals.opening, ppa: r.vals.ppa,
-            prior_year: r.vals.prior_year }).then(function () { saved++; });
-        });
+      return todo.reduce(function (p, step) {
+        return p.then(function () { return step().then(function () { saved++; }); });
       }, Promise.resolve()).then(function () {
-        X.app().toast('Opening balances saved (' + saved + ' account' + (saved === 1 ? '' : 's') + ' changed).', 'good');
+        X.app().toast('Opening balances saved (' + saved + ' line' + (saved === 1 ? '' : 's') + ' changed).', 'good');
         X.app().render();
         return true;
       }, function (e) {
-        X.errBox('open-err', (saved ? saved + ' account(s) were saved before this problem. ' : '') + LD.friendlyError(e));
+        X.errBox('open-err', (saved ? saved + ' line(s) were saved before this problem; save again to finish. ' : '') + LD.friendlyError(e));
         X.setBusy('open-save', false);
         return false;
       });
@@ -3106,6 +3496,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         result + '</div></td>' +
       '<td data-label="Date">' + esc(t.date) + '</td>' +
       '<td data-label="Entry"><div>' + esc(t.description) + '<br><span class="muted">' + esc(nameOf(s.accounts, t.account_id, 'name')) +
+        (t.officer_id ? ' (' + esc(LD.officerName(t.officer_id)) + ')' : '') +
         ' · ' + esc(nameOf(s.events, t.event_id, 'code')) + ' · ' + esc(nameOf(s.accounts, t.fund_id, 'name')) + '</span></div></td>' +
       '<td class="num" data-label="Amount">' + LD.fmt(t.amount) + '</td>' +
       '<td data-label="Status"><div class="pills">' + badges + '</div></td>' +
@@ -3345,7 +3736,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   var NOISE = { updated_at: 1, id: 1, entered_at: 1, approved_at: 1, source: 1, source_ref: 1 };
   var MONEY = { amount: 1, opening: 1, ppa: 1, prior_year: 1, budget_income: 1, budget_expense: 1,
                 additions: 1, collections: 1, writeoffs: 1 };
-  var SHOW_FIRST = ['doc', 'type', 'date', 'account_id', 'event_id', 'fund_id', 'amount', 'description', 'status', 'note'];
+  var SHOW_FIRST = ['doc', 'type', 'date', 'account_id', 'officer_id', 'event_id', 'fund_id', 'amount', 'description', 'status', 'note'];
 
   var S = { audit: [], loaded: false, error: '' };
   var B = {};                              // the public object: LD.views.books
@@ -3422,6 +3813,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         '<td data-label="Date">' + esc(t.date) + '</td>' +
         '<td data-label="Document"><b>' + esc(t.doc) + '</b></td>' +
         '<td data-label="Entry"><div>' + esc(t.description) + '<br><span class="muted">' + esc(nameOf(s.accounts, t.account_id, 'name')) +
+          (t.officer_id ? ' (' + esc(LD.officerName(t.officer_id)) + ')' : '') +
           ' · ' + esc(nameOf(s.events, t.event_id, 'code')) + '</span>' + tags + '</div></td>' +
         '<td class="num" data-label="Receipts">' + money(l.rcv) + '</td>' +
         '<td class="num" data-label="Payments">' + money(l.pay) + '</td>' +
@@ -3481,6 +3873,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     if (MONEY[key] && isFinite(Number(v))) return LD.fmt(Number(v));
     if (key === 'account_id' || key === 'fund_id') return nameOf(s.accounts, v, 'name') || String(v);
     if (key === 'event_id') return nameOf(s.events, v, 'code') || String(v);
+    if (key === 'officer_id') return nameOf(s.officers || [], v, 'name') || String(v);
     if (key === 'entered_by' || key === 'approved_by' || key === 'user_id') return LD.who(v);
     if (typeof v === 'object') v = JSON.stringify(v);
     v = String(v);
@@ -3693,7 +4086,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   var LD = root.LD, esc = LD.esc;
 
   function org() { return LD.rpt.ORG; }    // the one display-name constant (views/_rpt.js)
-  var SHEETS = ['TB', 'BS', 'IS', 'CF', 'Cash recon', 'Scholarship fund', 'Pledges', 'Events', 'Event matrix', 'Transactions'];
+  var SHEETS = ['TB', 'BS', 'IS', 'CF', 'Cash recon', 'Scholarship fund', 'Pledges', 'Officers', 'Events', 'Event matrix', 'Transactions'];
 
   function num(v) { v = Number(v); return isFinite(v) ? v : 0; }
   /** A numeric cell: a JS number rounded to 2 dp (never a formatted string). */
@@ -3820,6 +4213,31 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     return frame('Schedule of Scholarship Pledges Receivable', 'As at ' + t(settings().fy_end),
       ['Pledgor', 'Description', 'Opening', 'Additions', 'Collections', 'Write-offs', 'Closing', 'Supporting document', 'Remarks'], rows);
   }
+  /** Officer subledger: per officer, per officer control account, opening / debits / credits / closing. */
+  function officers(book) {
+    var d = book.officerLedger(), head = ['Officer'], rows = [];
+    d.accounts.forEach(function (a) {
+      var nm = t(a.name);
+      head.push(nm + ' opening', nm + ' debits', nm + ' credits', nm + ' closing');
+    });
+    head.push('Net (debit + / credit -)');
+    d.rows.forEach(function (r) {
+      var line = [t(r.officer) + (r.listed ? (r.active ? '' : ' (inactive)') : ' (NOT IN THE OFFICERS LIST)')];
+      r.cells.forEach(function (c) { line.push(n(c.open + c.ppa), n(c.dr), n(c.cr), n(c.close)); });
+      line.push(n(r.net));
+      rows.push(line);
+    });
+    var tot = ['TOTAL'], ledger = ['Per trial balance'], diff = ['Difference (must be nil)'];
+    d.accounts.forEach(function (a) {
+      tot.push(n(a.tot.open + a.tot.ppa), n(a.tot.dr), n(a.tot.cr), n(a.tot.close));
+      ledger.push(n(a.perTB.open + a.perTB.ppa), '', '', n(a.perTB.close));
+      diff.push(n(a.diff.open + a.diff.ppa), '', '', n(a.diff.close));
+    });
+    rows.push(tot.concat([sum(d.rows, function (r) { return r.net; })]), ledger, diff);
+    rows.push(['Entries to these accounts with no officer (must be nil)', num(d.unassigned)]);
+    rows.push(['CONTROL (must be nil)', n(d.ctrl)]);
+    return frame('Officers Subledger', 'As at ' + t(settings().fy_end) + ' · Debits positive, credits negative', head, rows);
+  }
   function events(book) {
     var d = book.eventStats(), rows = d.rows.map(function (e, i) {
       return [i + 1, t(e.code), t(e.name), t(e.date), n(e.budInc), n(e.budExp), n(e.budNet), n(e.inc), n(e.exp), n(e.net),
@@ -3866,15 +4284,16 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       return [t(x.doc), t(x.type), t(x.date), t(a.name), t(a.code), t(e.code), t(fund), t(x.description), n(x.amount),
         n(num(x.amount) * (x.reverses_id ? -1 : 1)), t(x.status),
         name(x.entered_by, 'system'), t(x.entered_at), name(x.approved_by, ''), t(x.approved_at), t(x.note),
-        t(x.reverses_id ? docOf[x.reverses_id] || '' : ''), x.is_reversed ? 'Yes' : 'No', t(x.source), t(x.source_ref)];
+        t(x.reverses_id ? docOf[x.reverses_id] || '' : ''), x.is_reversed ? 'Yes' : 'No', t(x.source), t(x.source_ref),
+        t(x.officer_id ? LD.officerName(x.officer_id) : '')];
     });
     return top('Transactions', 'All statuses, includes personal names').concat([[
       'Doc', 'Type', 'Date', 'Account', 'Account code', 'Event', 'Fund', 'Description', 'Amount', 'Signed amount', 'Status', 'Entered by',
-      'Entered at', 'Approved by', 'Approved at', 'Note', 'Reversal of', 'Reversed', 'Source', 'Source ref']], rows);
+      'Entered at', 'Approved by', 'Approved at', 'Note', 'Reversal of', 'Reversed', 'Source', 'Source ref', 'Officer']], rows);
   }
 
   // ---------------------------------------------------------------- build + write
-  var BUILD = [tb, bs, is, cf, cashrecon, sfund, pledges, events, eventMatrix];
+  var BUILD = [tb, bs, is, cf, cashrecon, sfund, pledges, officers, events, eventMatrix];
 
   function prepare() {
     var X = root.XLSX;
@@ -3925,7 +4344,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     stale = false;
     var html = '<section class="card"><h2>Excel &amp; print</h2>' +
       '<p>Download the whole ledger for ' + esc(st.fy_label || 'this year') + ' as one Excel workbook: the trial balance, balance sheet, ' +
-      'income statement, cash flow, reconciliations, scholarship fund, pledges, events, the event matrix, and every transaction. ' +
+      'income statement, cash flow, reconciliations, scholarship fund, pledges, the officers subledger, events, the event matrix, and every transaction. ' +
       'Figures are plain numbers, not formulas.</p>' +
       '<p><button type="button" class="btn btn-primary" id="ex-btn" data-action="export.download" disabled>Download Excel workbook</button></p>' +
       '<div id="ex-result" aria-live="polite"></div>' +
@@ -3935,7 +4354,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       '<p>Open a statement and use its <b>Print</b> button: ' +
       '<a href="#/st/tb">Trial balance</a>, <a href="#/st/bs">Balance sheet</a>, <a href="#/st/is">Income statement</a>, ' +
       '<a href="#/st/cf">Cash flow</a>, <a href="#/st/cashrecon">Cash &amp; fund recon</a>, <a href="#/st/sfund">Scholarship fund</a>, ' +
-      '<a href="#/st/pledge">Pledge schedule</a>.</p></section>';
+      '<a href="#/st/pledge">Pledge schedule</a>, <a href="#/st/officers">Officers subledger</a>.</p></section>';
     return {
       html: html,
       mount: function () {
@@ -3969,7 +4388,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
 
 // ---- views/gate.js
 /**
- * views/gate.js — the control gate: the 15 controls with a PASS/FAIL pill (text, never colour alone),
+ * views/gate.js — the control gate: the 16 controls with a PASS/FAIL pill (text, never colour alone),
  * the difference each one computed, and a "what it proves" drill-down. LD.views.gate() is the router's view.
  * An empty ledger and a ledger with no opening balances each get an explicit warning.
  */
@@ -4195,10 +4614,30 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     var isA = act.filter(function (a) { return a.fs === 'Income Statement'; });
     var bsA = act.filter(function (a) { return a.fs === 'Balance Sheet'; });
     var lab = function (a) { return a.name; };
-    return '<select id="rec-account" name="account_id"><option value="">Choose an account</option>' +
+    return '<select id="rec-account" name="account_id" data-change="record.accountChanged"><option value="">Choose an account</option>' +
       '<optgroup label="Income statement">' + options(isA, selected, lab) + '</optgroup>' +
       '<optgroup label="Balance sheet">' + options(bsA, selected, lab) + '</optgroup></select>';
   }
+  /* Officer subledger: shown only for Due from / Due to Officers, where it is required. */
+  function officerField(accountId, selected) {
+    var show = LD.isOfficerAccount(accountId);
+    var list = (state().officers || []).filter(usable(selected));
+    var none = !list.length;
+    return '<div class="field" id="rec-officer-field"' + (show ? '' : ' hidden') + '><label for="rec-officer">Officer</label>' +
+      '<select id="rec-officer" name="officer_id"><option value="">Choose the officer</option>' +
+      options(list, selected, function (o) { return o.name; }) + '</select>' +
+      '<span class="hint">' + (none
+        ? (state().role === 'approver' ? 'No officers yet. <a href="#/admin/officers">Add them under Officers</a>.'
+                                        : 'No officers yet. Ask an approver to add them under Officers.')
+        : 'Officer balances are kept by officer in the Officers schedule.') + '</span></div>';
+  }
+  LD.action('record.accountChanged', function (el) {
+    var field = byId('rec-officer-field'), sel = byId('rec-officer');
+    if (!field) return;
+    var show = LD.isOfficerAccount(el.value);
+    field.hidden = !show;
+    if (!show && sel) sel.value = '';
+  });
 
   function entry(id) {
     var s = state(), st = s.settings, before = null;
@@ -4216,7 +4655,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     }
     var gen = s.events.filter(function (e) { return e.code === 'GEN'; })[0];
     var v = before || { type: 'RECEIPT', date: today(), account_id: '', event_id: gen ? gen.id : '', fund_id: '',
-      description: '', amount: '' };
+      officer_id: '', description: '', amount: '' };
     var fundOk = usable(v.fund_id);
     var funds = s.accounts.filter(function (a) { return fundOk(a) && a.category === 'Cash'; });
     if (!before && !v.fund_id && funds.length) v.fund_id = funds[0].id;
@@ -4240,6 +4679,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
           (before ? esc(before.doc) : 'assigned on save') + '</div>' +
           '<span class="hint">' + (before ? 'The number stays the same when you edit.' : 'The database numbers it when you save.') + '</span></div>' +
         '<div class="field"><label for="rec-account">Account</label>' + accountSelect(v.account_id) + '</div>' +
+        officerField(v.account_id, v.officer_id || '') +
         '<div class="field"><label for="rec-event">Event</label><select id="rec-event" name="event_id">' +
           options(events, v.event_id, function (e) { return e.code + ' · ' + e.name; }) + '</select></div>' +
         '<div class="field"><label for="rec-fund">Fund (cash account)</label><select id="rec-fund" name="fund_id">' +
@@ -4264,6 +4704,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     var st = state().settings, errs = [];
     if (!v.account_id || !v.event_id || !v.fund_id) errs.push('Choose an account, an event and a fund.');
     else if (v.account_id === v.fund_id) errs.push(LD.ERRORS.LEDGER_ACCOUNT_IS_FUND());
+    if (v.account_id && LD.isOfficerAccount(v.account_id) && !v.officer_id) errs.push(LD.ERRORS.LEDGER_OFFICER_REQUIRED());
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v.date)) errs.push('Pick a date.');
     else if ((st.fy_start && v.date < st.fy_start) || (st.fy_end && v.date > st.fy_end)) {
       errs.push(LD.ERRORS.LEDGER_OUT_OF_FY({ fyStart: st.fy_start, fyEnd: st.fy_end }));
@@ -4281,6 +4722,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       fund_id: val(form, 'fund_id'), description: val(form, 'description').trim(),
       amount: LD.parseAmount(val(form, 'amount'))
     };
+    // only an officer account takes an officer; anything else saves without one (clears it on an edit)
+    v.officer_id = LD.isOfficerAccount(v.account_id) ? (val(form, 'officer_id') || null) : null;
     var file = fileOf(form);
     app().banner('');
     errBox('rec-err', []);
@@ -4291,12 +4734,14 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     var saving;
     if (ed) {
       var after = { date: v.date, account_id: v.account_id, event_id: v.event_id, fund_id: v.fund_id,
-                    description: v.description, amount: v.amount };
+                    officer_id: v.officer_id, description: v.description, amount: v.amount };
       if (ed.before.status === 'Rejected') after.status = 'Draft';
       saving = LD.saveTxn(LD.changed(ed.before, after), ed.seen);
     } else {
-      saving = LD.saveTxn({ id: S.newId, type: v.type, date: v.date, account_id: v.account_id, event_id: v.event_id,
-        fund_id: v.fund_id, description: v.description, amount: v.amount, status: 'Draft' });
+      var ins = { id: S.newId, type: v.type, date: v.date, account_id: v.account_id, event_id: v.event_id,
+        fund_id: v.fund_id, description: v.description, amount: v.amount, status: 'Draft' };
+      if (v.officer_id) ins.officer_id = v.officer_id;
+      saving = LD.saveTxn(ins);
     }
     return saving.then(function (row) {
       S.newId = null;
@@ -4332,7 +4777,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     if (f.status && t.status !== f.status) return false;
     if (f.mine && t.entered_by !== mineId()) return false;
     if (f.q) {
-      var s = state(), hay = [t.doc, t.description, nameOf(s.accounts, t.account_id, 'name'),
+      var s = state(), hay = [t.doc, t.description, nameOf(s.accounts, t.account_id, 'name'), LD.officerName(t.officer_id),
         nameOf(s.events, t.event_id, 'code'), LD.who(t.entered_by)].join(' ').toLowerCase();
       if (hay.indexOf(f.q.toLowerCase()) < 0) return false;
     }
@@ -4362,7 +4807,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       '<td data-label="Date">' + esc(t.date) + '</td>' +
       '<td data-label="Document"><div><b>' + esc(t.doc) + '</b><br><span class="muted">' + (t.type === 'RECEIPT' ? 'Receipt' : 'Payment') + '</span></div></td>' +
       '<td data-label="Entry"><div>' + esc(t.description) +
-        '<br><span class="muted">' + esc(nameOf(s.accounts, t.account_id, 'name')) + ' · ' + esc(nameOf(s.events, t.event_id, 'code')) +
+        '<br><span class="muted">' + esc(nameOf(s.accounts, t.account_id, 'name')) +
+        (t.officer_id ? ' (' + esc(LD.officerName(t.officer_id)) + ')' : '') + ' · ' + esc(nameOf(s.events, t.event_id, 'code')) +
         ' · ' + esc(nameOf(s.accounts, t.fund_id, 'name')) + '</span>' +
         (t.status === 'Rejected' && t.note ? '<br><span class="rec-reason">Rejected: ' + esc(t.note) + '</span>' : '') + '</div></td>' +
       '<td class="num" data-label="Amount">' + LD.fmt(t.amount) + '</td>' +
@@ -4680,7 +5126,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   var R = function () { return LD.rpt; };
 
   var LIST = [['tb', 'Trial balance'], ['bs', 'Balance sheet'], ['is', 'Income statement'], ['cf', 'Cash flow'],
-    ['cashrecon', 'Cash & fund recon'], ['sfund', 'Scholarship fund'], ['pledge', 'Pledge schedule']];
+    ['cashrecon', 'Cash & fund recon'], ['sfund', 'Scholarship fund'], ['pledge', 'Pledge schedule'],
+    ['officers', 'Officers subledger']];
   var NARROW = { sfund: 1 };                 // everything else prints landscape
 
   function tabs(cur) {
@@ -4843,9 +5290,53 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       r.sig();
   }
 
-  var BUILD = { tb: tb, bs: bs, is: is, cf: cf, cashrecon: cashrecon, sfund: sfund, pledge: pledge };
+  // ------------------------------------------------------------------ officers subledger
+  function officers(book) {
+    var r = R(), d = book.officerLedger(), A = d.accounts;
+    if (!A.length) {
+      return r.head('Officers Subledger', 'As at ' + r.fyEnd()) +
+        note('There is no officer account in the chart of accounts (Due from Officers / Due to Officers).') + r.sig();
+    }
+    var span = 1 + A.length * 4 + 1;
+    var head = '<thead><tr><th scope="col" rowspan="2">Officer</th>' + A.map(function (a) {
+      return '<th scope="colgroup" colspan="4" class="num">' + esc(a.name) + '</th>';
+    }).join('') + '<th scope="col" rowspan="2" class="num">Net</th></tr><tr>' + A.map(function () {
+      return r.th('Opening') + r.th('Debits') + r.th('Credits') + r.th('Closing');
+    }).join('') + '</tr></thead>';
+    var body = d.rows.length ? d.rows.map(function (x) {
+      var tag = x.listed ? (x.active ? '' : ' <span class="pill">Inactive</span>')
+        : ' <span class="pill pill-crit">Not in the officers list</span>';
+      return '<tr><td><b>' + esc(x.officer) + '</b>' + tag + '</td>' + x.cells.map(function (c) {
+        return r.cell(c.open + c.ppa) + r.cell(c.dr) + r.cell(c.cr) + '<td class="num"><b>' + r.money(c.close) + '</b></td>';
+      }).join('') + '<td class="num"><b>' + r.money(x.net) + '</b></td></tr>';
+    }).join('') : '<tr><td colspan="' + span + '" class="muted">No officers yet. An approver adds them under Admin, Officers.</td></tr>';
+    var tot = '<tr class="grand"><td>TOTAL</td>' + A.map(function (a) {
+      return r.cell(a.tot.open + a.tot.ppa) + r.cell(a.tot.dr) + r.cell(a.tot.cr) + r.cell(a.tot.close);
+    }).join('') + r.cell(r.sum(d.rows, function (x) { return x.net; })) + '</tr>';
+    function tie(label, a, b) {
+      return '<tr><td>' + label + '</td><td class="num">' + r.plain(a) + '</td><td class="num">' + r.plain(b) + '</td><td class="num"><b>' + r.plain(a - b) + '</b></td></tr>';
+    }
+    var ties = A.map(function (a) {
+      return tie(esc(a.name) + ': opening', a.tot.open + a.tot.ppa, a.perTB.open + a.perTB.ppa) +
+        tie(esc(a.name) + ': prior-year closing', a.tot.prior, a.perTB.prior) +
+        tie(esc(a.name) + ': closing', a.tot.close, a.perTB.close);
+    }).join('');
+    return r.head('Officers Subledger', 'Balances by officer as at ' + r.fyEnd()) +
+      note('Debits positive, credits negative, as in the trial balance. <b>Due from Officers</b> is money the chapter advanced to an officer ' +
+        '(a payment debits it; the officer settling it is a receipt). <b>Due to Officers</b> is money the chapter owes an officer ' +
+        '(the officer paying for the chapter is a receipt; the chapter repaying is a payment).') +
+      wrap('<table class="grid stmt">' + head + '<tbody>' + body + tot + '</tbody></table>') +
+      '<h3 class="stmt-h3">Ties to the trial balance</h3>' +
+      wrap('<table class="grid stmt stmt-small"><thead><tr><th scope="col">&nbsp;</th>' + r.th('Per subledger') + r.th('Per ledger') + r.th('Difference') + '</tr></thead><tbody>' +
+        ties +
+        '<tr><td>Approved entries to these accounts with no officer</td><td colspan="2"></td><td class="num"><b>' + esc(String(d.unassigned)) + '</b></td></tr>' +
+        '<tr class="ctrl"><td>COMBINED CONTROL (feeds the gate; must be nil)</td><td colspan="2"></td><td class="num">' + r.plain(d.ctrl) + '</td></tr></tbody></table>') +
+      r.sig();
+  }
 
-  /** render(name): name is one of tb|bs|is|cf|cashrecon|sfund|pledge. */
+  var BUILD = { tb: tb, bs: bs, is: is, cf: cf, cashrecon: cashrecon, sfund: sfund, pledge: pledge, officers: officers };
+
+  /** render(name): name is one of tb|bs|is|cf|cashrecon|sfund|pledge|officers. */
   function render(name) {
     name = BUILD[name] ? name : 'tb';
     return R().live(function () {
@@ -4925,7 +5416,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       { id: 'st/cf', title: 'Cash flow', view: 'statements.render', args: ['cf'] },
       { id: 'st/cashrecon', title: 'Cash & fund recon', view: 'statements.render', args: ['cashrecon'] },
       { id: 'st/sfund', title: 'Scholarship fund', view: 'statements.render', args: ['sfund'] },
-      { id: 'st/pledge', title: 'Pledge schedule', view: 'statements.render', args: ['pledge'] }] },
+      { id: 'st/pledge', title: 'Pledge schedule', view: 'statements.render', args: ['pledge'] },
+      { id: 'st/officers', title: 'Officers subledger', view: 'statements.render', args: ['officers'] }] },
     { group: 'Activity', items: [
       { id: 'activity/summary', title: 'Event summary', view: 'activity.summary' },
       { id: 'activity/report/:code?', title: 'Activity report', view: 'activity.report', href: 'activity/report' },
@@ -4935,6 +5427,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       { id: 'admin/settings', title: 'Organisation settings', view: 'admin.settings' },
       { id: 'admin/people', title: 'People & roles', view: 'admin.people' },
       { id: 'admin/openings', title: 'Opening balances', view: 'admin.openings' },
+      { id: 'admin/officers', title: 'Officers', view: 'admin.officers' },
       { id: 'admin/accounts', title: 'Chart of accounts', view: 'admin.accounts' },
       { id: 'admin/first-run', title: 'First-run checklist', view: 'admin.firstRun', nav: false }] },
     { group: 'Export', items: [{ id: 'export', title: 'Excel & print', view: 'export.page' }] }
