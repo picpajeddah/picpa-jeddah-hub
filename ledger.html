@@ -478,6 +478,11 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
                note: cell(t.note), sign: Number(t.sign) === -1 ? -1 : 1 };
     });
 
+    /* Itemized event budgets: {event code, account name, amount, note}. */
+    var budgetLines = (input.budgetLines || []).filter(function (b) { return b && b.event && b.account; }).map(function (b) {
+      return { event: String(b.event).toUpperCase(), account: String(b.account), amount: Number(b.amount) || 0, note: cell(b.note) };
+    });
+
     /* Officer subledger: the officers (name-keyed, like accounts) and the control accounts' openings by officer. */
     var officers = (input.officers || []).filter(function (o) { return o && o.name; }).map(function (o) {
       return { name: String(o.name), active: cell(o.active) };
@@ -499,7 +504,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       funds: accounts.filter(function (a) { return a.category === 'Cash'; })
                      .map(function (a) { return a.name; }),
       openings: openings, ppa: ppa, prior: prior,
-      events: events, txns: txns, pledges: pledges, officers: officers, offOpen: offOpen,
+      events: events, txns: txns, pledges: pledges, officers: officers, offOpen: offOpen, budgetLines: budgetLines,
       approved: txns.filter(function (t) { return t.status === TXN_STATUS.APPROVED; })
     };
   }
@@ -870,6 +875,43 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
              receipts: list(TXN_TYPE.RECEIPT), payments: list(TXN_TYPE.PAYMENT) };
   }
 
+  /**
+   * ITEMIZED BUDGET of one event: every budget line against the actual on the same account, plus a line for every
+   * account with actuals but no budget ("unbudgeted"). Income side = credit-normal accounts' budget lines and the
+   * event's receipts by account; expenditure side = debit-normal accounts' lines and its payments by account (the
+   * same split as the activity report, so the actual totals equal the event's income and expenditure).
+   * Variance: income actual - budget; expenditure budget - actual (a plus sign is good news on both).
+   */
+  function eventBudget(s, code, ES) {
+    code = String(code || '').toUpperCase();
+    var e = (ES || eventStats(s)).filter(function (x) { return x.code === code; })[0] || null;
+    var AR = activityReport(s, code, ES);
+    var lines = s.budgetLines.filter(function (b) { return b.event === code; });
+    var side = function (isIncome, actuals) {
+      var rows = [], byAcc = {};
+      lines.forEach(function (b) {
+        var a = s.byName[b.account];
+        var inc = a ? a.normal === 'Cr' : false;
+        if (inc !== isIncome) return;
+        byAcc[b.account] = { account: b.account, budget: b.amount, actual: 0, note: b.note, budgeted: true };
+        rows.push(byAcc[b.account]);
+      });
+      actuals.forEach(function (x) {
+        if (byAcc[x.account]) byAcc[x.account].actual += x.amt;
+        else { byAcc[x.account] = { account: x.account, budget: 0, actual: x.amt, note: '', budgeted: false }; rows.push(byAcc[x.account]); }
+      });
+      rows.forEach(function (r) { r.variance = isIncome ? r.actual - r.budget : r.budget - r.actual; });
+      var tot = { budget: sumArr(rows.map(function (r) { return r.budget; })),
+                  actual: sumArr(rows.map(function (r) { return r.actual; })) };
+      tot.variance = isIncome ? tot.actual - tot.budget : tot.budget - tot.actual;
+      return { rows: rows, tot: tot };
+    };
+    var inc = side(true, AR.incBy), exp = side(false, AR.expBy);
+    return { event: e, itemized: lines.length > 0, income: inc, expense: exp,
+             net: { budget: inc.tot.budget - exp.tot.budget, actual: inc.tot.actual - exp.tot.actual,
+                    variance: (inc.tot.actual - exp.tot.actual) - (inc.tot.budget - exp.tot.budget) } };
+  }
+
   // =====================================================================
   // THE SIXTEEN CONTROLS
   // Every check is a sum of ABSOLUTE differences, so two errors of opposite
@@ -1035,6 +1077,12 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       },
       eventMatrix: function () { return eventMatrix(s, IS()); },
       activityReport: function (eventCode) { return activityReport(s, eventCode); },
+      eventBudget: function (eventCode) { return eventBudget(s, eventCode); },
+      /* every event's itemized budget, in event order (for the export) */
+      eventBudgets: function () {
+        var ES = eventStats(s);
+        return s.events.map(function (e) { return eventBudget(s, e.code, ES); });
+      },
       controls: function (selectedEvent) { return controls(s, tb(), selectedEvent); },
       /* Internal: test hooks only. */
       _snap: s,
@@ -1224,6 +1272,12 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     },
     LEDGER_IN_USE: function (c) {
       return detail(c) || 'This is used by existing entries, so it cannot be deleted. Deactivate it instead.';
+    },
+    LEDGER_BUDGET_ACCOUNT: function (c) {
+      return detail(c) || 'A budget line must be for an income or expense account.';
+    },
+    LEDGER_BUDGET_FROM_LINES: function () {
+      return 'This event\'s budget is the total of its budget lines. Change the lines instead.';
     },
     LEDGER_OFFICER_REQUIRED: function () {
       return 'Choose the officer. An entry to Due from Officers or Due to Officers must name the officer.';
@@ -1498,11 +1552,13 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         soft(select('ledger_users'), []),
         // officer subledger (05-officer-subledger.sql); empty lists if the database does not have it yet
         soft(select('ledger_officers', function (q) { return q.order('name'); }), []),
-        soft(select('ledger_officer_openings', function (q) { return q.eq('fy_label', fy); }), [])
+        soft(select('ledger_officer_openings', function (q) { return q.eq('fy_label', fy); }), []),
+        // itemized event budgets (06-event-budget-lines.sql); empty if the database does not have them yet
+        soft(select('ledger_budget_lines'), [])
       ]).then(function (rest) {
         var st = { user: user, role: role, settings: settings, settingRows: ref[0], accounts: ref[1], events: ref[2],
                    openings: rest[0], pledges: rest[1], txns: rest[2], users: rest[3], officers: rest[4],
-                   officerOpenings: rest[5], names: {} };
+                   officerOpenings: rest[5], budgetLines: rest[6], names: {} };
         var ids = [user.id];
         st.txns.forEach(function (t) { ids.push(t.entered_by, t.approved_by); });
         st.users.forEach(function (u) { ids.push(u.user_id); });
@@ -1565,6 +1621,10 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       officerOpenings: (st.officerOpenings || []).filter(function (o) { return !fy || o.fy_label === fy; }).map(function (o) {
         return { officer: offName[o.officer_id] || '', account: accName[o.account_id] || '',
                  opening: Number(o.opening) || 0, ppa: Number(o.ppa) || 0, prior_year: Number(o.prior_year) || 0 };
+      }),
+      budgetLines: (st.budgetLines || []).map(function (b) {
+        return { event: evCode[b.event_id] || '', account: accName[b.account_id] || '', amount: Number(b.amount) || 0,
+                 note: b.note || '' };
       }),
       events: st.events.map(function (e) {
         return { code: e.code, name: e.name, date: e.date || '', type: e.type, status: e.status, lead: e.lead || '',
@@ -1798,6 +1858,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       sort: function (a, b) { return String(a.name).localeCompare(String(b.name)); } },
     ledger_officer_openings: { list: 'officerOpenings', keys: ['officer_id', 'account_id', 'fy_label'],
       cols: ['opening', 'ppa', 'prior_year'] },
+    ledger_budget_lines: { list: 'budgetLines', keys: ['id'], cols: ['event_id', 'account_id', 'amount', 'note'] },
     ledger_pledges: { list: 'pledges', keys: ['id'], cols: ['pledgor', 'description', 'opening', 'additions', 'collections',
       'writeoffs', 'doc_ref', 'remarks', 'fy_label'], sort: function (a, b) { return a.doc < b.doc ? -1 : a.doc > b.doc ? 1 : 0; } }
   };
@@ -1911,6 +1972,48 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     return 'an officer';
   }
 
+  // ===================================================================== itemized event budgets
+  /** The budget lines of one event (by event id). */
+  function budgetLinesOf(eventId) {
+    return ((S.state && S.state.budgetLines) || []).filter(function (b) { return b.event_id === eventId; });
+  }
+  /** Re-read one event: the database rewrites its budget totals whenever its lines change. */
+  function refreshEvent(eventId) {
+    return fetchKeyed('ledger_events', ['id'], { id: eventId }).then(function (ev) {
+      if (ev) putRow('ledger_events', ev);
+      return ev;
+    });
+  }
+  /**
+   * Apply a set of budget-line changes for one event, then re-read the event (its totals follow the lines).
+   * changes: {add: [{account_id, amount, note}], update: [{id, amount?, note?}], remove: [id]}. Removals first, so a
+   * line can be removed and re-added for the same account in one save. Resolves {saved: n}; on a failure, rejects with
+   * the error and err.saved = how many changes had been applied (the event is re-read either way).
+   */
+  function saveBudgetLines(eventId, changes) {
+    changes = changes || {};
+    var steps = [], saved = 0;
+    (changes.remove || []).forEach(function (id) {
+      steps.push(function () { return deleteRows('ledger_budget_lines', { id: id }, function (r) { return r.id === id; }); });
+    });
+    (changes.update || []).forEach(function (u) {
+      steps.push(function () { return writeRow('ledger_budget_lines', u, 'This budget line'); });
+    });
+    (changes.add || []).forEach(function (a) {
+      steps.push(function () {
+        return writeRow('ledger_budget_lines', { event_id: eventId, account_id: a.account_id, amount: a.amount,
+          note: a.note || null }, 'This budget line');
+      });
+    });
+    return steps.reduce(function (p, step) {
+      return p.then(function () { return step().then(function () { saved++; }); });
+    }, Promise.resolve()).then(function () {
+      return refreshEvent(eventId).then(function () { return { saved: saved }; });
+    }, function (e) {
+      return soft(refreshEvent(eventId), null).then(function () { e.saved = saved; throw e; });
+    });
+  }
+
   /** A pledge: the database assigns doc (PL-NNN) on insert and it never changes, so it is never sent. */
   function savePledge(row) {
     var r = {};
@@ -1949,7 +2052,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     saveOpening: saveOpening, deleteOpening: deleteOpening, savePledge: savePledge, deletePledge: deletePledge,
     saveOfficer: saveOfficer, deleteOfficer: deleteOfficer, saveOfficerOpening: saveOfficerOpening,
     deleteOfficerOpening: deleteOfficerOpening, officerAccounts: officerAccounts, isOfficerAccount: isOfficerAccount,
-    officerName: officerName,
+    officerName: officerName, budgetLinesOf: budgetLinesOf, saveBudgetLines: saveBudgetLines, refreshEvent: refreshEvent,
     touch: touch, views: {}, actions: actions, action: action,
     client: function () { return S.client; },
     get expired() { return S.expired; }
@@ -2249,6 +2352,11 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         vrow('Income', e.budInc, e.inc, e.varInc) + vrow('Expenditure', e.budExp, e.exp, e.varExp) +
         '<tr class="grand"><td>Net income / (loss)</td>' + r.cell(e.budNet) + r.cell(e.net) + varCell(e.varNet) + '</tr>' +
         (e.other ? '<tr><td>Other cash movements (balance sheet)</td><td class="num">–</td>' + r.cell(e.other) + '<td class="num">–</td></tr>' : '') + '</tbody></table>') +
+      '<h3 class="stmt-h3">Itemized budget against actual</h3>' +
+      (LD.book().eventBudget(e.code).itemized ? '' : '<p class="muted">This event\'s budget is not itemized yet' +
+        (LD.state.role === 'viewer' ? '' : ' (<a href="#/events/budget/' + esc((LD.state.events.filter(function (x) { return x.code === e.code; })[0] || {}).id || '') + '">add budget lines</a>)') +
+        '; the table shows the actuals by account.</p>') +
+      LD.views.budget.table(e.code) +
       byTable(d.incBy || [], e.inc, 'Income') + byTable(d.expBy || [], e.exp, 'Expenditure') +
       detail(d.receipts || [], 'Collections: entry detail', 'OR No.') + detail(d.payments || [], 'Payments: entry detail', 'PV No.') + r.sig() + '</section>';
   }
@@ -4004,6 +4112,190 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   LD.views.books = B;
 }(typeof self !== 'undefined' ? self : this));
 
+// ---- views/budget.js
+/**
+ * views/budget.js — itemized budget of one event (route #/events/budget/:id). Registers LD.views.budget =
+ * {page(id), table(code)} and the 'budget.*' handlers.
+ *
+ * One budget line per income-statement account: credit-normal accounts are income, debit-normal accounts are
+ * expenditure. While an event has lines, the database keeps its income and expense budget equal to their totals.
+ * Encoders and approvers edit the lines; viewers see the same page read-only. Beside each line: the actual on that
+ * account (approved entries of the event) and the variance; accounts with actuals but no line show as unbudgeted.
+ */
+(function (root) {
+  'use strict';
+  var LD = root.LD, esc = LD.esc;
+  var BLANKS = 5;                           // empty rows offered for new lines
+
+  function app() { return root.LedgerApp; }
+  function byId(id) { return root.document.getElementById(id); }
+  function state() { return LD.state; }
+  function canWrite() { var r = state().role; return r === 'encoder' || r === 'approver'; }
+  function findEvent(id) {
+    var l = state().events;
+    for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i];
+    return null;
+  }
+  function account(id) {
+    var l = state().accounts;
+    for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i];
+    return null;
+  }
+  function field(form, name) { return form && form.querySelector ? form.querySelector('[name="' + name + '"]') : null; }
+  function val(form, name) { var f = field(form, name); return f && f.value != null ? String(f.value) : ''; }
+  function checked(form, name) { var f = field(form, name); return !!(f && f.checked); }
+  function amountOf(s) {
+    s = String(s || '').trim();
+    if (!s || /^[0\s.,٠٫٬]*$/.test(s)) return 0;
+    return LD.parseAmount(s);
+  }
+  function errBox(msgs) {
+    var el = byId('bud-err');
+    if (!el) return;
+    msgs = [].concat(msgs);
+    el.innerHTML = msgs.length ? '<div class="note note-crit" role="alert">' + (msgs.length === 1 ? esc(msgs[0])
+      : '<ul class="note-list">' + msgs.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>') + '</div>' : '';
+  }
+  function varCell(v) {
+    var x = Math.round(v * 100) / 100;
+    return '<td class="num ' + (x < 0 ? 'var-bad' : x > 0 ? 'var-good' : 'var-flat') + '">' + (x > 0 ? '+' : '') + LD.fmt(x) + '</td>';
+  }
+  function sideOf(a) { return a && a.normal === 'Cr' ? 'Income' : 'Expenditure'; }
+
+  /** Budget against actual, from the engine: two tables (income, expenditure) and the net. Shared with the activity report. */
+  function table(code) {
+    var d = LD.book().eventBudget(code);
+    function block(label, part) {
+      var rows = part.rows.length ? part.rows.map(function (r) {
+        return '<tr><td>' + esc(r.account) + (r.budgeted ? '' : ' <span class="pill pill-warn">Unbudgeted</span>') +
+          (r.note ? '<br><span class="mini muted">' + esc(r.note) + '</span>' : '') + '</td>' +
+          '<td class="num">' + LD.fmt(r.budget) + '</td><td class="num">' + LD.fmt(r.actual) + '</td>' + varCell(r.variance) + '</tr>';
+      }).join('') : '<tr><td colspan="4" class="muted">No ' + label.toLowerCase() + ' budgeted or recorded.</td></tr>';
+      return '<tr class="sect"><td colspan="4">' + esc(label) + '</td></tr>' + rows +
+        '<tr class="tot"><td>Total ' + esc(label.toLowerCase()) + '</td><td class="num">' + LD.fmt(part.tot.budget) + '</td><td class="num">' +
+        LD.fmt(part.tot.actual) + '</td>' + varCell(part.tot.variance) + '</tr>';
+    }
+    return '<div class="table-wrap"><table class="grid stmt stmt-small bud-table" data-event="' + esc(code) + '"><thead><tr><th scope="col">Account</th>' +
+      '<th scope="col" class="num">Budget</th><th scope="col" class="num">Actual</th><th scope="col" class="num">Variance</th></tr></thead><tbody>' +
+      block('Income', d.income) + block('Expenditure', d.expense) +
+      '<tr class="grand"><td>Net income / (loss)</td><td class="num">' + LD.fmt(d.net.budget) + '</td><td class="num">' + LD.fmt(d.net.actual) + '</td>' +
+      varCell(d.net.variance) + '</tr></tbody></table></div>';
+  }
+
+  function options(list, label) {
+    return list.map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(label(a)) + '</option>'; }).join('');
+  }
+
+  function page(id) {
+    var ev = findEvent(id);
+    if (!ev) {
+      return '<section class="card"><p class="note note-warn" role="alert">That event was not found. <a href="#/events">Back to Events &amp; budgets</a></p></section>';
+    }
+    var lines = LD.budgetLinesOf(ev.id).slice().sort(function (a, b) {
+      var x = account(a.account_id) || {}, y = account(b.account_id) || {};
+      return String(x.code).localeCompare(String(y.code));
+    });
+    var used = {};
+    lines.forEach(function (l) { used[l.account_id] = 1; });
+    var isAcc = state().accounts.filter(function (a) { return a.fs === 'Income Statement' && a.active !== false && !used[a.id]; });
+    var inc = isAcc.filter(function (a) { return a.normal === 'Cr'; }), exp = isAcc.filter(function (a) { return a.normal !== 'Cr'; });
+    var w = canWrite();
+
+    var existing = lines.map(function (l) {
+      var a = account(l.account_id) || { name: '(unknown account)' }, i = esc(l.id);
+      return '<tr data-line="' + i + '"><td>' + esc(a.name) + '<br><span class="mini muted">' + sideOf(a) + '</span></td>' +
+        (w ? '<td class="num"><input type="text" class="num-input" inputmode="decimal" name="amt_' + i + '" aria-label="Budget for ' + esc(a.name) +
+          '" value="' + esc(LD.fmt(l.amount)) + '"></td><td><input type="text" name="note_' + i + '" maxlength="200" aria-label="Note for ' + esc(a.name) +
+          '" value="' + esc(l.note || '') + '"></td><td><label class="chk"><input type="checkbox" name="del_' + i + '"> Remove</label></td>'
+          : '<td class="num">' + LD.fmt(l.amount) + '</td><td>' + esc(l.note || '') + '</td><td></td>') + '</tr>';
+    }).join('');
+    var blanks = '';
+    if (w) {
+      for (var k = 0; k < BLANKS; k++) {
+        blanks += '<tr class="bud-new"><td><select name="new_acc_' + k + '" aria-label="Account for new line ' + (k + 1) + '"><option value="">Add a line: choose an account</option>' +
+          '<optgroup label="Income">' + options(inc, function (a) { return a.name; }) + '</optgroup>' +
+          '<optgroup label="Expenditure">' + options(exp, function (a) { return a.name; }) + '</optgroup></select></td>' +
+          '<td class="num"><input type="text" class="num-input" inputmode="decimal" name="new_amt_' + k + '" aria-label="Budget for new line ' + (k + 1) + '" placeholder="0.00"></td>' +
+          '<td><input type="text" name="new_note_' + k + '" maxlength="200" aria-label="Note for new line ' + (k + 1) + '" placeholder="Optional note"></td><td></td></tr>';
+      }
+    }
+    var editor = '<form class="rec-form" data-submit="budget.save" data-id="' + esc(ev.id) + '" novalidate autocomplete="off">' +
+      '<div class="table-wrap"><table class="grid bud-edit"><thead><tr><th scope="col">Account</th><th scope="col" class="num">Budget</th>' +
+      '<th scope="col">Note</th><th scope="col">' + (w ? 'Remove' : '') + '</th></tr></thead><tbody>' +
+      (existing || (w ? '' : '<tr><td colspan="4" class="muted">No budget lines yet.</td></tr>')) + blanks + '</tbody></table></div>' +
+      '<div id="bud-err" aria-live="assertive"></div>' +
+      (w ? '<div class="btn-row"><button type="submit" id="bud-save" class="btn btn-primary">Save budget lines</button>' +
+        '<a class="btn" href="#/events">Back to Events &amp; budgets</a></div>' : '<div class="btn-row"><a class="btn" href="#/events">Back to Events &amp; budgets</a></div>') +
+      '</form>';
+
+    return '<section class="card"><h2>' + esc(ev.code) + ' · ' + esc(ev.name) + '</h2>' +
+      '<p class="muted">Itemize the budget: one line per income or expense account. ' +
+      (lines.length ? 'The event\'s budget is now the total of these lines: income <b>' + LD.fmt(ev.budget_income) + '</b>, expenditure <b>' +
+        LD.fmt(ev.budget_expense) + '</b>.' : 'While there are no lines, the event keeps the two totals typed on the event itself.') +
+      ' Amounts are positive; the account decides whether a line is income or expenditure.</p>' + editor + '</section>' +
+      '<section class="card"><h3 class="stmt-h3">Budget against actual</h3>' +
+      '<p class="muted">Actual counts Approved entries for ' + esc(ev.code) + ' only. Income variance is actual minus budget; expenditure variance is budget minus actual, so a plus sign is good news in both.</p>' +
+      table(ev.code) + '</section>';
+  }
+
+  LD.action('budget.save', function (form) {
+    if (!canWrite()) {
+      app().toast("You don't have permission to do that in the ledger. If your role was just changed, reload the page.", 'crit');
+      return Promise.resolve(false);
+    }
+    var id = form && form.getAttribute ? form.getAttribute('data-id') : null;
+    id = id || (root.location.hash.split('/').pop());
+    var ev = findEvent(id);
+    if (!ev) return Promise.resolve(false);
+    return LD.guard('budget.save:' + id, function () {
+      var errs = [], change = { add: [], update: [], remove: [] }, seen = {};
+      LD.budgetLinesOf(id).forEach(function (l) {
+        var a = account(l.account_id) || { name: 'a line' };
+        seen[l.account_id] = 1;
+        if (checked(form, 'del_' + l.id)) { change.remove.push(l.id); delete seen[l.account_id]; return; }
+        var amt = amountOf(val(form, 'amt_' + l.id)), note = val(form, 'note_' + l.id).trim();
+        if (amt === null) { errs.push(a.name + ': the budget must be an amount with at most 2 decimal places.'); return; }
+        var u = { id: l.id };
+        if (Math.round(amt * 100) !== Math.round((Number(l.amount) || 0) * 100)) u.amount = amt;
+        if (note !== String(l.note || '')) u.note = note || null;
+        if (Object.keys(u).length > 1) change.update.push(u);
+      });
+      for (var k = 0; k < BLANKS; k++) {
+        var acc = val(form, 'new_acc_' + k), raw = val(form, 'new_amt_' + k), note = val(form, 'new_note_' + k).trim();
+        if (!acc) {
+          if (raw.trim() || note) errs.push('New line ' + (k + 1) + ': choose the account.');
+          continue;
+        }
+        var a = account(acc) || { name: 'The account' };
+        var amt = amountOf(raw);
+        if (amt === null) { errs.push(a.name + ': the budget must be an amount with at most 2 decimal places.'); continue; }
+        if (seen[acc]) { errs.push(a.name + ' already has a budget line for this event. Change that line instead.'); continue; }
+        seen[acc] = 1;
+        change.add.push({ account_id: acc, amount: amt, note: note });
+      }
+      errBox(errs);
+      if (errs.length) return false;
+      var n = change.add.length + change.update.length + change.remove.length;
+      if (!n) { app().toast('No changes to save.', 'info'); return false; }
+      var btn = byId('bud-save');
+      if (btn) btn.disabled = true;
+      return LD.saveBudgetLines(id, change).then(function () {
+        var e2 = findEvent(id) || ev;
+        app().toast('Saved the budget of ' + e2.code + ': income ' + LD.fmt(e2.budget_income) + ', expenditure ' + LD.fmt(e2.budget_expense) + '.', 'good');
+        app().render();
+        return true;
+      }, function (e) {
+        errBox((e && e.saved ? e.saved + ' change(s) were saved before this problem. ' : '') + LD.friendlyError(e));
+        if (btn) btn.disabled = false;
+        if (e && e.saved) app().render();
+        return false;
+      });
+    });
+  });
+
+  LD.views.budget = { page: page, table: table };
+}(typeof self !== 'undefined' ? self : this));
+
 // ---- views/dashboard.js
 /**
  * views/dashboard.js — Home: control-gate banner, six KPI tiles, entries waiting, budget against actual per event.
@@ -4086,7 +4378,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   var LD = root.LD, esc = LD.esc;
 
   function org() { return LD.rpt.ORG; }    // the one display-name constant (views/_rpt.js)
-  var SHEETS = ['TB', 'BS', 'IS', 'CF', 'Cash recon', 'Scholarship fund', 'Pledges', 'Officers', 'Events', 'Event matrix', 'Transactions'];
+  var SHEETS = ['TB', 'BS', 'IS', 'CF', 'Cash recon', 'Scholarship fund', 'Pledges', 'Officers', 'Events', 'Event budgets', 'Event matrix', 'Transactions'];
 
   function num(v) { v = Number(v); return isFinite(v) ? v : 0; }
   /** A numeric cell: a JS number rounded to 2 dp (never a formatted string). */
@@ -4249,6 +4541,24 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     return frame('Summary of Events and Projects', '', ['#', 'Code', 'Event / project', 'Date', 'Budget in', 'Budget out',
       'Budget net', 'Actual in', 'Actual out', 'Actual net', 'Variance', 'Other cash', 'Txns'], rows);
   }
+  /** Itemized budgets: every event's budget lines (and unbudgeted actuals) against actual. */
+  function eventBudgets(book) {
+    var rows = [];
+    book.eventBudgets().forEach(function (d) {
+      if (!d.event) return;
+      var e = d.event;
+      [['Income', d.income], ['Expenditure', d.expense]].forEach(function (p) {
+        p[1].rows.forEach(function (r) {
+          rows.push([t(e.code), t(e.name), p[0], t(r.account) + (r.budgeted ? '' : ' (unbudgeted)'), n(r.budget), n(r.actual), n(r.variance), t(r.note)]);
+        });
+      });
+      if (d.income.rows.length || d.expense.rows.length) {
+        rows.push([t(e.code), 'NET for ' + t(e.code), '', '', n(d.net.budget), n(d.net.actual), n(d.net.variance), d.itemized ? 'itemized' : 'not itemized']);
+      }
+    });
+    return frame('Event Budgets: itemized budget against actual', 'Approved entries only',
+      ['Code', 'Event / project', 'Side', 'Account', 'Budget', 'Actual', 'Variance', 'Note'], rows);
+  }
   function eventMatrix(book) {
     var d = book.eventMatrix(), rows = [];
     function colTot(list) { return d.codes.map(function (_, j) { return sum(list, function (x) { return x.cells[j]; }); }); }
@@ -4293,7 +4603,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   }
 
   // ---------------------------------------------------------------- build + write
-  var BUILD = [tb, bs, is, cf, cashrecon, sfund, pledges, officers, events, eventMatrix];
+  var BUILD = [tb, bs, is, cf, cashrecon, sfund, pledges, officers, events, eventBudgets, eventMatrix];
 
   function prepare() {
     var X = root.XLSX;
@@ -4344,7 +4654,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     stale = false;
     var html = '<section class="card"><h2>Excel &amp; print</h2>' +
       '<p>Download the whole ledger for ' + esc(st.fy_label || 'this year') + ' as one Excel workbook: the trial balance, balance sheet, ' +
-      'income statement, cash flow, reconciliations, scholarship fund, pledges, the officers subledger, events, the event matrix, and every transaction. ' +
+      'income statement, cash flow, reconciliations, scholarship fund, pledges, the officers subledger, events, itemized event budgets, the event matrix, and every transaction. ' +
       'Figures are plain numbers, not formulas.</p>' +
       '<p><button type="button" class="btn btn-primary" id="ex-btn" data-action="export.download" disabled>Download Excel workbook</button></p>' +
       '<div id="ex-result" aria-live="polite"></div>' +
@@ -4975,7 +5285,9 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     var rows = s.events.map(function (e) {
       var x = by[e.code] || { inc: 0, exp: 0, varInc: 0, varExp: 0, txns: 0 };
       var isGen = e.code === 'GEN', uses = eventUses(e.id);
-      var actions = '<button type="button" class="btn btn-small" data-action="record.eventEdit" data-id="' + esc(e.id) + '">Edit</button>';
+      var nLines = LD.budgetLinesOf(e.id).length;
+      var actions = '<button type="button" class="btn btn-small" data-action="record.eventEdit" data-id="' + esc(e.id) + '">Edit</button>' +
+        ' <a class="btn btn-small" href="#/events/budget/' + esc(e.id) + '">Budget lines' + (nLines ? ' (' + nLines + ')' : '') + '</a>';
       if (!isGen) {
         actions += ' <button type="button" class="btn btn-small" data-action="record.eventToggle" data-id="' + esc(e.id) + '">' +
           (isActive(e) ? 'Deactivate' : 'Activate') + '</button>';
@@ -4988,7 +5300,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         '<td data-label="Event"><div>' + esc(e.name) + '<br><span class="muted">' + esc(e.type) + (e.date ? ' · ' + esc(e.date) : '') + '</span></div></td>' +
         '<td data-label="Status"><div class="pills">' + pill(e.status, e.status === 'Completed' ? 'pill pill-good' : e.status === 'Cancelled' ? 'pill' : 'pill pill-info') +
           (isActive(e) ? '' : ' ' + pill('Inactive', 'pill pill-warn')) + '</div></td>' +
-        '<td class="num" data-label="Income budget">' + LD.fmt(e.budget_income) + '</td>' +
+        '<td class="num" data-label="Income budget">' + LD.fmt(e.budget_income) +
+          (nLines ? '<br><span class="mini muted">itemized</span>' : '') + '</td>' +
         '<td class="num" data-label="Income actual">' + LD.fmt(x.inc) + '</td>' +
         '<td class="num" data-label="Income variance">' + variance(x.varInc) + '</td>' +
         '<td class="num" data-label="Expense budget">' + LD.fmt(e.budget_expense) + '</td>' +
@@ -4998,7 +5311,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         '<td data-label="Actions"><div class="btn-row">' + actions + '</div></td></tr>';
     }).join('');
     return '<section class="card"><div class="rec-toolbar"><button type="button" class="btn btn-primary" data-action="record.eventNew">New event</button></div>' +
-      '<p class="muted">Actual figures count Approved entries only. Income variance is actual minus budget; expense variance is budget minus actual, so a plus sign is good news in both.</p>' +
+      '<p class="muted">Actual figures count Approved entries only. Income variance is actual minus budget; expense variance is budget minus actual, so a plus sign is good news in both. ' +
+      'Use <b>Budget lines</b> to itemize an event\'s budget by account; its totals then follow the lines.</p>' +
       '<div class="table-wrap"><table class="grid stack"><thead><tr><th>Code</th><th>Event</th><th>Status</th>' +
       '<th class="num">Income budget</th><th class="num">Income actual</th><th class="num">Variance</th>' +
       '<th class="num">Expense budget</th><th class="num">Expense actual</th><th class="num">Variance</th>' +
@@ -5012,6 +5326,11 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     };
     var v = ev || { code: '', name: '', type: 'Fundraising', status: 'Planned', date: '', lead: '', budget_income: 0, budget_expense: 0 };
     var money = function (n) { return Number(n) ? esc(LD.fmt(n)) : ''; };
+    /* an itemized event: the totals come from its budget lines and are not typed here */
+    var lines = ev ? LD.budgetLinesOf(ev.id).length : 0;
+    var lock = lines ? ' readonly aria-readonly="true"' : '';
+    var lockHint = lines ? '<span class="hint">The total of ' + lines + ' budget line' + (lines === 1 ? '' : 's') + '. ' +
+      '<a href="#/events/budget/' + esc(ev.id) + '" data-action="record.eventBudget" data-id="' + esc(ev.id) + '">Change the lines</a>.</span>' : '';
     app().modal('<h2>' + (ev ? 'Edit ' + esc(ev.code) : 'New event') + '</h2>' +
       '<form class="rec-form" data-submit="record.eventSave" novalidate autocomplete="off"><div class="rec-grid">' +
       '<div class="field"><label for="ev-code">Code</label><input id="ev-code" name="code" type="text" maxlength="10" value="' + esc(v.code) + '"' + (isGen ? ' readonly' : '') + '>' +
@@ -5021,13 +5340,19 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       '<div class="field"><label for="ev-status">Status</label><select id="ev-status" name="status">' + sel(EVENT_STATUSES, v.status) + '</select></div>' +
       '<div class="field"><label for="ev-date">Event date (optional)</label><input id="ev-date" name="date" type="date" value="' + esc(v.date || '') + '"></div>' +
       '<div class="field"><label for="ev-lead">Lead (optional)</label><input id="ev-lead" name="lead" type="text" maxlength="80" value="' + esc(v.lead || '') + '"></div>' +
-      '<div class="field"><label for="ev-bi">Income budget</label><input id="ev-bi" name="budget_income" type="text" inputmode="decimal" placeholder="0.00" value="' + money(v.budget_income) + '"></div>' +
-      '<div class="field"><label for="ev-be">Expense budget</label><input id="ev-be" name="budget_expense" type="text" inputmode="decimal" placeholder="0.00" value="' + money(v.budget_expense) + '"></div>' +
+      '<div class="field"><label for="ev-bi">Income budget</label><input id="ev-bi" name="budget_income" type="text" inputmode="decimal" placeholder="0.00" value="' + money(v.budget_income) + '"' + lock + '>' + lockHint + '</div>' +
+      '<div class="field"><label for="ev-be">Expense budget</label><input id="ev-be" name="budget_expense" type="text" inputmode="decimal" placeholder="0.00" value="' + money(v.budget_expense) + '"' + lock + '>' + lockHint + '</div>' +
       '</div><div id="ev-err" aria-live="assertive"></div>' +
       '<div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Close</button>' +
       '<button type="submit" id="ev-save" class="btn btn-primary">Save event</button></div></form>', { label: ev ? 'Edit event' : 'New event' });
   }
   LD.action('record.eventNew', function () { S.eventEdit = null; eventForm(null); });
+  LD.action('record.eventBudget', function (el) {
+    var id = idOf(el);
+    app().closeModal();
+    root.location.hash = '#/events/budget/' + id;
+    app().render();
+  });
   LD.action('record.eventEdit', function (el) {
     var ev = findEvent(idOf(el));
     if (!ev) return;
@@ -5402,6 +5727,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       { id: 'record/new', title: 'New entry', view: 'record.entry' },
       { id: 'record/edit/:id', title: 'Edit entry', view: 'record.entry', nav: false },
       { id: 'events', title: 'Events & budgets', view: 'record.events' },
+      { id: 'events/budget/:id', title: 'Event budget', view: 'budget.page', nav: false },
       /* Spec 4.1: encoders and approvers add and edit pledges (only approvers delete), so it sits with Record. */
       { id: 'admin/pledges', title: 'Pledges', view: 'admin.pledges' }] },
     { group: 'Approve', roles: APPR, items: [
