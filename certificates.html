@@ -2900,16 +2900,23 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return '<fieldset class="tk-ct-signers"><legend>Signed by</legend><div class="tk-ct-optrow">' + signSelects('ct-sg', S.sign || ['', ''], 'ct.sign', dis()) +
       '</div><p class="tk-err" id="ct-sg-err" role="alert">' + esc(err) + '</p></fieldset>';
   }
-  /** Design (Formal · Modern) and the date; t = S (attendance) or S.o (other certificates). */
+  /** A choice as a dropdown: list = [[value, label], ...]; action = the data-change action; d = ' disabled' or ''. */
+  function choiceSelect(id, label, list, cur, action, d, hint) {
+    return '<div class="tk-field tk-ct-choice"><label for="' + id + '">' + label + '</label><select id="' + id + '" data-change="' + action + '"' +
+      (hint ? ' aria-describedby="' + id + 'h"' : '') + (d || '') + '>' + list.map(function (l) {
+        return '<option value="' + esc(l[0]) + '"' + (cur === l[0] ? ' selected' : '') + '>' + esc(l[1]) + '</option>';
+      }).join('') + '</select>' + (hint ? '<span class="tk-hint" id="' + id + 'h">' + esc(hint) + '</span>' : '') + '</div>';
+  }
+  /** The value of a choice: a dropdown's value, or a button's data-v. */
+  function choiceVal(el) {
+    var v = el && el.getAttribute ? el.getAttribute('data-v') : null;
+    if (v == null && el && typeof el.value === 'string') v = el.value;
+    return v || '';
+  }
+  /** Logo, Design and the date; t = S (attendance) or S.o (other certificates). */
   function layoutDateHtml(t) {
-    return '<fieldset class="tk-ct-seg"><legend>Logo</legend><div class="tk-ct-segbtns">' + THEMES.map(function (l) {
-        return '<button type="button" class="tk-btn tk-btn-small" data-action="ct.theme" data-v="' + l[0] + '" aria-pressed="' +
-          (themeOf(t.layout) === l[0] ? 'true' : 'false') + '"' + dis() + '>' + l[1] + '</button>';
-      }).join('') + '</div></fieldset>' +
-      '<fieldset class="tk-ct-seg"><legend>Design</legend><div class="tk-ct-segbtns">' + LAYOUTS.map(function (l) {
-        return '<button type="button" class="tk-btn tk-btn-small" data-action="ct.layout" data-v="' + l[0] + '" aria-pressed="' +
-          (baseOf(t.layout) === l[0] ? 'true' : 'false') + '"' + dis() + '>' + l[1] + '</button>';
-      }).join('') + '</div></fieldset>' +
+    return choiceSelect('ct-theme', 'Logo', THEMES, themeOf(t.layout), 'ct.theme', dis()) +
+      choiceSelect('ct-layout', 'Design', LAYOUTS, baseOf(t.layout), 'ct.layout', dis()) +
       '<div class="tk-field"><label for="ct-date">Date on the certificate</label><input id="ct-date" type="date" value="' + esc(t.date) +
       '" data-change="ct.date" aria-describedby="ct-date-err"' + dis() + '><span class="tk-err" id="ct-date-err" role="alert"></span></div>';
   }
@@ -3144,7 +3151,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   });
   TK.action('ct.reload', function () { return S.eventId ? openEvent(S.eventId) : null; });
   TK.action('ct.layout', function (el) {
-    var v = el && el.getAttribute ? el.getAttribute('data-v') : '';
+    var v = choiceVal(el);
     if (S.busy || (v !== 'formal' && v !== 'modern')) return null;
     var tg = S.view === 'others' && S.o ? S.o : S;
     tg.layout = joinLayout(themeOf(tg.layout), v);
@@ -3152,7 +3159,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return null;
   });
   TK.action('ct.theme', function (el) {
-    var v = el && el.getAttribute ? el.getAttribute('data-v') : '';
+    var v = choiceVal(el);
     if (S.busy || (v !== 'empower' && v !== 'action')) return null;
     var tg = S.view === 'others' && S.o ? S.o : S;
     tg.layout = joinLayout(v, baseOf(tg.layout));
@@ -3593,18 +3600,15 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
   function oFormHtml() {
     var o = S.o, d = dis(), lk = o.rows.some(function (r) { return r.cert; }) ? ' disabled' : d;
-    var types = TYPES.map(function (t) {
-      return '<label class="tk-ct-type"><input type="radio" name="ct-o-type" value="' + t[0] + '" data-change="ct.o.type"' +
-        (o.type === t[0] ? ' checked' : '') + lk + '><span><b>' + t[1] + '</b><span class="tk-mini">' + esc(t[2]) + '</span></span></label>';
-    }).join('');
+    var types = choiceSelect('ct-o-type', 'Type of certificate', TYPES.map(function (t) { return [t[0], t[1]]; }), o.type, 'ct.o.type', lk,
+      typeDef(o.type)[2] + '.');
     var linked = false;
     var evs = S.events.map(function (e) {
       if (e.id === o.link) linked = true;
       return '<option value="' + esc(e.id) + '"' + (e.id === o.link ? ' selected' : '') + '>' + esc(e.title + ' · ' + dayText(e.event_date)) + '</option>';
     }).join('');
     return '<section class="tk-card tk-ct-opts" aria-label="What to issue">' +
-      '<fieldset class="tk-ct-types"><legend>Type of certificate</legend>' + types + '</fieldset>' +
-      '<div class="tk-ct-optrow">' +
+      '<div class="tk-ct-optrow">' + types +
       (o.type === 'achievement' ? '' : '<div class="tk-field"><label for="ct-o-role">Role</label><input id="ct-o-role" type="text" maxlength="' +
         MAX.role + '" autocomplete="off" value="' + esc(o.role) + '" data-change="ct.o.field" data-f="role" aria-describedby="ct-o-roleh"' + lk +
         '><span class="tk-hint" id="ct-o-roleh">Printed in the sentence, for example “as ' + esc(typeDef(o.type)[3]) + '”.</span></div>') +
@@ -4203,10 +4207,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return '<div class="tk-field' + (opts.wide ? ' tk-ct-wide' : ' tk-ct-title') + '"><label for="' + id + '">' + label + '</label>' + input + hint + '</div>';
   }
   function pqSeg(legend, list, cur, action) {
-    return '<fieldset class="tk-ct-seg"><legend>' + legend + '</legend><div class="tk-ct-segbtns">' + list.map(function (l) {
-      return '<button type="button" class="tk-btn tk-btn-small" data-action="' + action + '" data-v="' + l[0] + '" aria-pressed="' +
-        (cur === l[0] ? 'true' : 'false') + '"' + dis() + '>' + l[1] + '</button>';
-    }).join('') + '</div></fieldset>';
+    return choiceSelect(action.replace(/\./g, '-'), legend, list, cur, action, dis());
   }
   function pqSignHtml() {
     if (!officers().length) return '<div class="tk-note tk-note-warn"><p>No officers are listed on the Hub yet, so nobody can sign the plaque.</p></div>';
@@ -4268,22 +4269,22 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
   function pqRedraw() { if (S.view === 'plaques') drawPage(); }
   TK.action('ct.p.doc', function (el) {
-    var v = el && el.getAttribute ? el.getAttribute('data-v') : '';
+    var v = choiceVal(el);
     if (!S.p || S.busy || (v !== 'plaque' && v !== 'oath')) return null;
     S.p.doc = v; pqRedraw(); return null;
   });
   TK.action('ct.p.kind', function (el) {
-    var v = el && el.getAttribute ? el.getAttribute('data-v') : '';
+    var v = choiceVal(el);
     if (!S.p || S.busy || (v !== 'appreciation' && v !== 'award')) return null;
     S.p.kind = v; pqRedraw(); return null;
   });
   TK.action('ct.p.finish', function (el) {
-    var v = el && el.getAttribute ? el.getAttribute('data-v') : '';
+    var v = choiceVal(el);
     if (!S.p || S.busy || !pqFinishes().some(function (x) { return x[0] === v; })) return null;
     S.p.finish = v; pqRedraw(); return null;
   });
   TK.action('ct.p.theme', function (el) {
-    var v = el && el.getAttribute ? el.getAttribute('data-v') : '';
+    var v = choiceVal(el);
     if (!S.p || S.busy || (v !== 'empower' && v !== 'action')) return null;
     S.p.theme = v;
     if (v === 'empower' && S.p.finish === 'panel') S.p.finish = 'dark';
@@ -4634,26 +4635,36 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
           (x.saved_by_name ? ' · ' + x.saved_by_name : '')) + '</option>';
       }).join('');
     var status = cur ? 'Working on the draft “' + (cur.title || 'Untitled') + '”, saved ' + draftWhen(cur.updated_at) +
-      (cur.saved_by_name ? ' by ' + cur.saved_by_name : '') + '. Save draft updates it.' :
+      (cur.saved_by_name ? ' by ' + cur.saved_by_name : '') + '. Save draft updates it; Save as new draft keeps it and saves a copy.' :
       'Not saved as a draft. Save draft keeps this work in the Hub, so a refresh or another device can open it.';
     return '<section class="tk-card tk-ct-opts tk-ct-drafts" aria-label="Drafts"><div class="tk-ct-optrow">' +
       '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-primary" data-action="ct.d.save" data-k="' + kind + '"' + d + '>Save draft</button>' +
-      (cur ? '<button type="button" class="tk-btn" data-action="ct.d.new" data-k="' + kind + '"' + d + '>Start new</button>' +
-        '<button type="button" class="tk-btn" data-action="ct.d.delete" data-k="' + kind + '"' + d + '>Delete this draft</button>' : '') + '</div>' +
+      '</div>' + (cur ? '<div class="tk-field tk-ct-choice"><label for="ct-d-more">More</label><select id="ct-d-more" data-change="ct.d.more" data-k="' + kind + '"' + d + '>' +
+        '<option value="" selected>Choose an action</option><option value="saveNew">Save as new draft</option>' +
+        '<option value="new">Start new</option><option value="delete">Delete this draft</option></select></div>' : '') +
       '<div class="tk-field tk-ct-title"><label for="ct-d-pick">Open a draft</label><select id="ct-d-pick" data-change="ct.d.open" data-k="' + kind + '"' +
         (dr.list && dr.list.length ? '' : ' disabled') + d + '>' + opts + '</select></div></div>' +
       '<p class="tk-mini" id="ct-d-status" role="status">' + esc(dr.error || status) + '</p></section>';
   }
   function draftKind(el) { var k = el && el.getAttribute ? el.getAttribute('data-k') : ''; return k === 'others' || k === 'plaque' || k === 'letter' ? k : ''; }
   function draftReady(kind) { return kind === 'others' ? !!S.o : kind === 'plaque' ? !!S.p : !!S.l; }
-  TK.action('ct.d.save', function (el) {
-    var kind = draftKind(el), dr = drafts(kind);
+  /** Save the form as a draft: the draft being worked on is updated, unless asNew (then a new draft is made and the original
+   *  is left as it was). The new or updated draft becomes the one being worked on. */
+  function saveDraft(kind, asNew) {
+    var dr = drafts(kind);
     if (!kind || S.busy || !draftReady(kind)) return null;
     S.busy = true; drawPage();
-    return TK.rpc('cert_draft_save', { p_id: dr.current ? dr.current.id : null, p_kind: kind, p_title: draftTitle(kind), p_data: draftData(kind) })
+    return TK.rpc('cert_draft_save', { p_id: dr.current && !asNew ? dr.current.id : null, p_kind: kind, p_title: draftTitle(kind), p_data: draftData(kind) })
       .then(function (out) { dr.current = out && out.id ? out : null; dr.error = ''; return loadDrafts(kind); },
             function (err) { dr.error = TK.friendlyError(err); })
-      .then(function () { S.busy = false; drawPage(); if (!dr.error) TK.toast('Draft saved.', 'good'); return null; });
+      .then(function () { S.busy = false; drawPage(); if (!dr.error) TK.toast(asNew ? 'Saved as a new draft.' : 'Draft saved.', 'good'); return null; });
+  }
+  TK.action('ct.d.save', function (el) { return saveDraft(draftKind(el), false); });
+  TK.action('ct.d.saveNew', function (el) { return saveDraft(draftKind(el), true); });
+  TK.action('ct.d.more', function (el) {
+    var v = el && typeof el.value === 'string' ? el.value : '', go = { saveNew: 'ct.d.saveNew', 'new': 'ct.d.new', 'delete': 'ct.d.delete' }[v];
+    if (!go || !own(TK.actions, go)) return null;
+    return TK.actions[go](el);
   });
   TK.action('ct.d.open', function (el) {
     var kind = draftKind(el), id = el && typeof el.value === 'string' ? el.value : '', dr = drafts(kind);
