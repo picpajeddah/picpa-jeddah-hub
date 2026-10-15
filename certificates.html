@@ -2007,7 +2007,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function drawPlaqueIn(doc, p) {
     // finishes: 'dark' (teal, one-colour white marks), 'teal-color' (teal, the logo and the seal in their own colours), 'neutral' (white)
     var dark = p.finish !== 'neutral', colour = p.finish === 'teal-color', P = pal(dark), M = PLAQUE_W / 2, W = PLAQUE_W, H = PLAQUE_H, dy = 0;
-    var LAY = layoutOf(p.logo), MONO = dark ? DARK.frame : null, ln = LAY === 'footer' ? 126.5 : 131.5;
+    var LAY = layoutOf(p.logo), MONO = dark && !colour ? DARK.frame : null, ln = LAY === 'footer' ? 126.5 : 131.5;
     var term = String(p.term || (p.signatories && p.signatories[0] && p.signatories[0].term) || '').trim();
     var sealText = SEAL_TEXT;
     // ground and frame
@@ -4429,7 +4429,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return '<div class="tk-ct-optrow">' + pqSeg('Logo', THEMES, p.theme, 'ct.p.theme') + pqSeg('Logo layout', PQ_LOGO, pqLogo(p.logo), 'ct.p.logo') +
       pqSeg('Plaque', PQ_KINDS, p.kind, 'ct.p.kind') + pqSeg('Finish', pqFinishes(), p.finish, 'ct.p.finish') + '</div>' +
       body + pqSignHtml() +
-      '<p class="tk-mini">The plaque is A6 portrait (105 × 148 mm), ready for the engraver. On both dark teal finishes the e-signatures print in white; full colour keeps the logo in its own colours. ACTION with I.M.P.A.C.T. plaques carry no seal; Side panel is their navy I.M.P.A.C.T. design. ' +
+      '<p class="tk-mini">The plaque is A6 portrait (105 × 148 mm), ready for the engraver. On both dark teal finishes the e-signatures print in white; full colour keeps the logos (the theme logo and the PICPA chevrons) in their own colours. ACTION with I.M.P.A.C.T. plaques carry no seal; Side panel is their navy I.M.P.A.C.T. design. ' +
       'Logo layout sets where the PICPA mark sits beside the theme logo; on Side panel, Header row is set as a masthead.</p>';
   }
   function plaquesHtml() {
