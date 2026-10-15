@@ -2368,7 +2368,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   // o: the "Other certificates" list (kept while switching views); ctx: cert_context() {settings, officers, default_signatories}.
   // sign: the "Signed by" chooser [officer id, officer id or ''] (kept while switching views); img: officer id -> e-signature
   // data URI (null = none), for this page load only; sigWarn: lines to add to the note when cert_set_signatories failed.
-  var S = { l: null, p: null, access: null, events: [], eventId: null, data: null, rows: [], layout: 'formal', date: '', loadError: '',
+  var S = { dr: {}, l: null, p: null, access: null, events: [], eventId: null, data: null, rows: [], layout: 'formal', date: '', loadError: '',
     note: null, busy: false, run: null, showSettings: false, seq: 0, view: 'event', o: null, ctx: null, ctxError: '', regType: '',
     regLoaded: false, editing: null, sign: null, img: {}, imgBase: {}, sigWarn: null, sigBusy: '', sigConfirm: '', sigMsg: null };
 
@@ -3653,7 +3653,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       (issued ? '<p class="tk-mini">Issued rows are locked. To correct one, open the Register.</p>' : '');
   }
   function othersHtml() {
-    return '<div id="ct-note">' + noticeHtml(S.note) + '</div>' + (S.ctx ? mailerWarnHtml() : '') + oFormHtml() +
+    return '<div id="ct-note">' + noticeHtml(S.note) + '</div>' + (S.ctx ? mailerWarnHtml() : '') + draftBarHtml('others') + oFormHtml() +
       '<div id="ct-actions">' + actionsHtml() + '</div>' +
       '<div id="ct-run">' + runHtml() + '</div>' +
       '<div id="ct-table">' + tableHtml() + '</div>' +
@@ -4254,9 +4254,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
   function plaquesHtml() {
     var p = S.p;
-    return '<div id="ct-note">' + noticeHtml(S.note) + '</div>' +
+    return '<div id="ct-note">' + noticeHtml(S.note) + '</div>' + draftBarHtml('plaque') +
       '<section class="tk-card tk-ct-opts" aria-label="Plaques and oath of office">' +
-      '<p class="tk-mini">Plaques and oaths are prepared for printing only. They are not numbered, saved or e-mailed.</p>' +
+      '<p class="tk-mini">Plaques and oaths are prepared for printing: they are not numbered or e-mailed. Save draft keeps your work in the Hub.</p>' +
       '<div class="tk-ct-optrow">' + pqSeg('Document', PQ_DOCS, p.doc, 'ct.p.doc') +
       '<div class="tk-field"><label for="ct-p-date">Date of the ceremony</label><input id="ct-p-date" type="date" value="' + esc(p.date) +
         '" data-change="ct.p.field" data-f="date"' + dis() + '></div>' +
@@ -4398,6 +4398,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     }).join('');
     var o = officerById(l.signer), hint = o && !o.has_signature ? '<span class="tk-hint" id="ct-l-sgh">' + esc(NO_ESIG) + '</span>' : '';
     return '<div id="ct-note">' + noticeHtml(S.note) + '</div>' +
+      draftBarHtml('letter') +
       '<section class="tk-card tk-ct-opts" aria-labelledby="ct-l-word-h"><h2 id="ct-l-word-h">Word letterhead</h2>' +
       '<p class="tk-mini">A blank letterhead for typing letters in Microsoft Word, with the officers listed on the Hub today in the left ' +
       'column. Seats without a name are left off. Download a new copy whenever the officers change.</p>' +
@@ -4405,7 +4406,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<p class="tk-mini" id="ct-l-wordnote" role="status"></p></section>' +
       '<section class="tk-card tk-ct-opts" aria-label="Letter on the chapter letterhead">' +
       '<p class="tk-mini">The letter is drawn on the chapter letterhead, with the officers listed on the Hub in the left column. ' +
-      'It is prepared for download only and is not saved: download it before leaving this page.</p>' +
+      'It is not e-mailed or kept as a letter: download it, and use Save draft to keep your work in the Hub.</p>' +
       '<div class="tk-ct-optrow"><div class="tk-field"><label for="ct-l-date">Date</label><input id="ct-l-date" type="date" value="' + esc(l.date) +
         '" data-change="ct.l.field" data-f="date"' + d + '></div>' +
       ltField('subject', 'Subject', { hint: 'Printed in capital letters, for example INVITATION' }) + '</div>' +
@@ -4537,6 +4538,164 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     }, function (e) { TK.toast(TK.friendlyError(e), 'crit'); return null; });
   });
 
+  // ------------------------------------------------------------------ drafts (16-certificates-drafts.sql)
+  // Work in progress on #others, #plaques and #letter can be saved to the Hub and reopened later, on any device. Drafts are
+  // shared by the Hub admins. A draft never holds an e-signature (only the form's own fields) or an issued certificate.
+  // S.dr[kind] = { list: [{id, title, updated_at, saved_by_name}] | null, current: that object | null, error: '' }
+  var DRAFT_OF = { others: 'others', plaques: 'plaque', letter: 'letter' };
+  function drafts(kind) { return S.dr[kind] || (S.dr[kind] = { list: null, current: null, error: '' }); }
+  function draftWhen(iso) {
+    var t = Date.parse(iso || '');
+    if (isNaN(t)) return '';
+    var j = new Date(t + 3 * 3600000).toISOString();                 // Jeddah time
+    return dateText(j.slice(0, 10)) + ', ' + j.slice(11, 16);
+  }
+  /** The form of a view as a plain object (what a draft keeps) and a short title for the list. */
+  function draftData(kind) {
+    if (kind === 'others') {
+      var o = S.o;
+      return { type: o.type, role: o.role, title: o.title, link: o.link, date: o.date, layout: o.layout, sign: S.sign || null,
+        rows: o.rows.filter(function (r) { return !r.cert && !oBlank(r); }).map(function (r) {
+          return { name: r.name, letters: r.letters, email: r.email, award: r.award };
+        }) };
+    }
+    var src = kind === 'plaque' ? S.p : S.l, out = {};
+    Object.keys(src).forEach(function (k) { out[k] = src[k]; });
+    return out;
+  }
+  function draftTitle(kind) {
+    if (kind === 'others') {
+      var n = S.o.rows.filter(function (r) { return !r.cert && !oBlank(r); }).length;
+      return (sq(S.o.title) || typeDef(S.o.type)[1] + ' certificates') + ' · ' + plural(n, 'person', 'people');
+    }
+    if (kind === 'plaque') {
+      var p = S.p;
+      if (p.doc === 'oath') return 'Oath of Office · ' + plural(pqOathOfficers().length, 'officer', 'officers');
+      return (p.kind === 'award' ? sq(p.title) || 'Award plaque' : 'Plaque of Appreciation') + (sq(p.name) ? ' · ' + sq(p.name) : '');
+    }
+    return sq(S.l.subject) || sq(String(S.l.to || '').split(/\r?\n/)[0]) || 'Letter';
+  }
+  /** Put a draft's form back on the page (unknown keys are ignored; officers no longer listed are dropped). */
+  function applyDraft(kind, data) {
+    data = data && typeof data === 'object' ? data : {};
+    function str(v, max) { return typeof v === 'string' ? v.slice(0, max) : ''; }
+    if (kind === 'others') {
+      newOthers();
+      var o = S.o;
+      if (TYPES.some(function (t) { return t[0] === data.type; })) o.type = data.type;
+      o.role = str(data.role, MAX.role) || typeDef(o.type)[3]; o.title = str(data.title, MAX.title);
+      o.link = typeof data.link === 'string' && evById(data.link) ? data.link : '';
+      o.date = /^\d{4}-\d{2}-\d{2}$/.test(String(data.date || '')) ? data.date : o.date;
+      o.layout = normLayout(data.layout);
+      if (Array.isArray(data.sign)) S.sign = [0, 1].map(function (i) { return data.sign[i] && officerById(data.sign[i]) ? data.sign[i] : ''; });
+      var rows = Array.isArray(data.rows) ? data.rows.slice(0, MAX.batch) : [];
+      if (rows.length) o.rows = [];
+      rows.forEach(function (x) {
+        var r = blankRow();
+        r.name = str(x && x.name, MAX.name); r.letters = str(x && x.letters, MAX.letters);
+        r.email = str(x && x.email, MAX.email); r.award = str(x && x.award, MAX.award);
+        o.rows.push(r);
+      });
+      S.rows = o.rows;
+      return;
+    }
+    if (kind === 'plaque') {
+      newPlaques();
+      Object.keys(S.p).forEach(function (k) {
+        if (!own(data, k)) return;
+        if (k === 'sign') S.p.sign = [0, 1, 2].map(function (i) { return Array.isArray(data.sign) && officerById(data.sign[i]) ? data.sign[i] : ''; });
+        else if (k === 'oath') { if (data.oath && typeof data.oath === 'object') Object.keys(S.p.oath).forEach(function (id) { if (own(data.oath, id)) S.p.oath[id] = data.oath[id] !== false; }); }
+        else if (typeof data[k] === 'string') S.p[k] = data[k].slice(0, own(PQ_MAX, k) ? PQ_MAX[k] : 40);
+      });
+      if (S.p.theme !== 'action' && S.p.theme !== 'empower') S.p.theme = 'empower';
+      if (!pqFinishes().some(function (x) { return x[0] === S.p.finish; })) S.p.finish = 'dark';
+      return;
+    }
+    newLetter();
+    Object.keys(S.l).forEach(function (k) {
+      if (own(data, k) && typeof data[k] === 'string') S.l[k] = data[k].slice(0, own(LT_MAX, k) ? LT_MAX[k] : 40);
+    });
+    if (S.l.signer && !officerById(S.l.signer)) S.l.signer = '';
+  }
+  /** Load the list of drafts of a view (never rejects; a failure shows a sentence in the bar). */
+  function loadDrafts(kind) {
+    var dr = drafts(kind);
+    return TK.rpc('cert_drafts', { p_kind: kind }).then(function (list) {
+      dr.list = Array.isArray(list) ? list.filter(function (d) { return d && d.id; }) : [];
+      dr.error = '';
+      if (dr.current && !dr.list.some(function (d) { return d.id === dr.current.id; })) dr.current = null;
+    }, function (err) { dr.list = dr.list || []; dr.error = TK.friendlyError(err); });
+  }
+  function draftBarHtml(kind) {
+    var dr = drafts(kind), d = dis(), cur = dr.current;
+    var opts = '<option value="" selected>' + (dr.list === null ? 'Loading…' : dr.list.length ? 'Choose a draft' : 'No drafts saved yet') + '</option>' +
+      (dr.list || []).map(function (x) {
+        return '<option value="' + esc(x.id) + '">' + esc((x.title || 'Untitled') + ' · ' + draftWhen(x.updated_at) +
+          (x.saved_by_name ? ' · ' + x.saved_by_name : '')) + '</option>';
+      }).join('');
+    var status = cur ? 'Working on the draft “' + (cur.title || 'Untitled') + '”, saved ' + draftWhen(cur.updated_at) +
+      (cur.saved_by_name ? ' by ' + cur.saved_by_name : '') + '. Save draft updates it.' :
+      'Not saved as a draft. Save draft keeps this work in the Hub, so a refresh or another device can open it.';
+    return '<section class="tk-card tk-ct-opts tk-ct-drafts" aria-label="Drafts"><div class="tk-ct-optrow">' +
+      '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-primary" data-action="ct.d.save" data-k="' + kind + '"' + d + '>Save draft</button>' +
+      (cur ? '<button type="button" class="tk-btn" data-action="ct.d.new" data-k="' + kind + '"' + d + '>Start new</button>' +
+        '<button type="button" class="tk-btn" data-action="ct.d.delete" data-k="' + kind + '"' + d + '>Delete this draft</button>' : '') + '</div>' +
+      '<div class="tk-field tk-ct-title"><label for="ct-d-pick">Open a draft</label><select id="ct-d-pick" data-change="ct.d.open" data-k="' + kind + '"' +
+        (dr.list && dr.list.length ? '' : ' disabled') + d + '>' + opts + '</select></div></div>' +
+      '<p class="tk-mini" id="ct-d-status" role="status">' + esc(dr.error || status) + '</p></section>';
+  }
+  function draftKind(el) { var k = el && el.getAttribute ? el.getAttribute('data-k') : ''; return k === 'others' || k === 'plaque' || k === 'letter' ? k : ''; }
+  function draftReady(kind) { return kind === 'others' ? !!S.o : kind === 'plaque' ? !!S.p : !!S.l; }
+  TK.action('ct.d.save', function (el) {
+    var kind = draftKind(el), dr = drafts(kind);
+    if (!kind || S.busy || !draftReady(kind)) return null;
+    S.busy = true; drawPage();
+    return TK.rpc('cert_draft_save', { p_id: dr.current ? dr.current.id : null, p_kind: kind, p_title: draftTitle(kind), p_data: draftData(kind) })
+      .then(function (out) { dr.current = out && out.id ? out : null; dr.error = ''; return loadDrafts(kind); },
+            function (err) { dr.error = TK.friendlyError(err); })
+      .then(function () { S.busy = false; drawPage(); if (!dr.error) TK.toast('Draft saved.', 'good'); return null; });
+  });
+  TK.action('ct.d.open', function (el) {
+    var kind = draftKind(el), id = el && typeof el.value === 'string' ? el.value : '', dr = drafts(kind);
+    if (!kind || !id || S.busy) return null;
+    S.busy = true; drawPage();
+    return TK.rpc('cert_draft_get', { p_id: id }).then(function (d) {
+      applyDraft(kind, d && d.data);
+      dr.current = { id: d.id, title: d.title, updated_at: d.updated_at, saved_by_name: d.saved_by_name }; dr.error = '';
+    }, function (err) { dr.error = TK.friendlyError(err); return loadDrafts(kind); })
+      .then(function () { S.busy = false; drawPage(); return null; });
+  });
+  TK.action('ct.d.new', function (el) {
+    var kind = draftKind(el);
+    if (!kind || S.busy) return null;
+    if (kind === 'others') { newOthers(); S.o.layout = settings().default_layout === 'modern' ? 'modern' : 'formal'; S.rows = S.o.rows; }
+    else if (kind === 'plaque') newPlaques(); else newLetter();
+    drafts(kind).current = null;
+    drawPage();
+    return null;
+  });
+  TK.action('ct.d.delete', function (el) {
+    var kind = draftKind(el), dr = drafts(kind);
+    if (!kind || S.busy || !dr.current) return null;
+    var id = dr.current.id, title = dr.current.title || 'Untitled';
+    TK.modal('<h2>Delete this draft?</h2><p>The draft “' + esc(title) + '” will be deleted from the Hub for every administrator. ' +
+      'What is on this page stays until you leave it.</p><div class="tk-modal-actions">' +
+      '<button type="button" class="tk-btn" data-action="tk.closeModal">Keep it</button>' +
+      '<button type="button" class="tk-btn tk-btn-danger" data-action="ct.d.deleteGo" data-k="' + kind + '" data-id="' + esc(id) + '">Delete draft</button></div>',
+      { label: 'Delete draft' });
+    return null;
+  });
+  TK.action('ct.d.deleteGo', function (el) {
+    var kind = draftKind(el), id = el && el.getAttribute ? el.getAttribute('data-id') : '', dr = drafts(kind);
+    if (!kind || !id || S.busy) return null;
+    if (TK.closeModal) TK.closeModal();
+    S.busy = true;
+    return TK.rpc('cert_draft_delete', { p_id: id }).then(function () {
+      if (dr.current && dr.current.id === id) dr.current = null;
+      return loadDrafts(kind);
+    }, function (err) { dr.error = TK.friendlyError(err); }).then(function () { S.busy = false; drawPage(); TK.toast('Draft deleted.', 'good'); return null; });
+  });
+
   // ------------------------------------------------------------------ page
   /** '#others', '#register', '#plaques' and '#letter' pick those views; anything else is the attendance view. */
   function viewOf() {
@@ -4566,17 +4725,17 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
           S.rows = S.o.rows;
           if (fresh) S.o.layout = settings().default_layout === 'modern' ? 'modern' : 'formal';
           if (S.o.link && !evById(S.o.link)) S.o.link = '';
-          return null;
+          return loadDrafts('others');
         }
         if (view === 'letter') {
           if (!S.l) newLetter();
           if (S.l.signer && !officerById(S.l.signer)) S.l.signer = '';
-          return null;
+          return loadDrafts('letter');
         }
         if (view === 'plaques') {
           if (!S.p) newPlaques();
           S.p.sign = S.p.sign.map(function (id) { return id && officerById(id) ? id : ''; });
-          return null;
+          return loadDrafts('plaque');
         }
         if (view === 'register') {
           S.regLoaded = false;
@@ -4593,7 +4752,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   });
 
   TK.certificatesPage = { certData: certData, rowError: rowError, clean: clean, parseList: parseList, registerCsv: registerCsv, S: S,
-    signError: signError, sigFit: sigFit, sigCutoff: sigCutoff, sigClear: sigClear, sigBounds: sigBounds, readSignature: readSignature, rotateSignature: rotateSignature,
+    signError: signError, draftData: draftData, draftTitle: draftTitle, sigFit: sigFit, sigCutoff: sigCutoff, sigClear: sigClear, sigBounds: sigBounds, readSignature: readSignature, rotateSignature: rotateSignature,
     SIG: SIG, givenText: givenText, plaqueData: plaqueData, oathData: oathData, pqErrors: pqErrors, newPlaques: newPlaques, letterData: letterData, letterErrors: letterErrors, longDate: longDate };
 }(typeof window !== 'undefined' ? window : globalThis));
 </script>
