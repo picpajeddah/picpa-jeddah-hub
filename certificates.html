@@ -1426,11 +1426,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   // the theme: 'empower' (2026-2027) or 'action' (ACTION with I.M.P.A.C.T., 2025-2026). The design is the same;
   // only the logo and the footer line change (ACTION's values line in place of EMPOWER's tagline).
   var THEME = 'empower';
+  var ACTION_LOCK_AR = 423 / 1100;          // assets/cert/action-lockup*.png (the full artwork with its values line)
   var ACTION_AR = 365 / 1100;                // assets/cert/action-mark*.png (the lockup without its values line)
   var VALUES = 'Integrity. Merit. Professionalism. Accountability. Competence. Teamwork.';
   /** 'action' only when its logo files were loaded; anything else is EMPOWER. */
   function setTheme(name) {
-    THEME = name === 'action' && ASSETS && ASSETS.actionMarkPng && ASSETS.actionMarkWhitePng && ASSETS.actionMarkStagePng ? 'action' : 'empower';
+    THEME = name === 'action' && ASSETS && ASSETS.actionMarkPng && ASSETS.actionMarkStagePng && ASSETS.actionLockupPng &&
+      ASSETS.actionLockupWhitePng && ASSETS.actionLockupStagePng ? 'action' : 'empower';
   }
   // Canonical traced chevrons (viewBox 0 0 200 200) - same as the Hub's CHEVRONS; never redraw.
   var CHEV = [
@@ -1454,6 +1456,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     achievement:   { of: 'ACHIEVEMENT',   intro: 'This certificate is proudly presented to', sentence: function () { return 'for outstanding achievement in the'; }, award: true }
   };
   var TAGLINE = 'Elevating the Filipino CPA Towards Ethical Leadership and Global Excellence';
+  // The chapter seal's rim: the founding year, never a term, so the seal is the same on every document of every year
+  // (officers' advice, 2026-10-15). The signatories' lines already carry the term.
+  var SEAL_TEXT = 'PICPA WESTERN REGION · JEDDAH CHAPTER · EST. 1992 · ';
 
   var ASSETS = null;
   function setup(doc, assets) {
@@ -1583,7 +1588,19 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
   function footer(doc, certNo) {
     T(doc, 24, 194.5, 'Certificate no. ' + certNo, 2.5, 500, COL.subtle, { ls: 0.15 });
-    T(doc, 273, 194.5, THEME === 'action' ? VALUES : TAGLINE, 2.5, 500, COL.goldText, { anchor: 'end', ls: 0.05 });
+  }
+  /* The theme's line belongs to the theme's logo, not to the chapter or its seal: EMPOWER's tagline, or ACTION with
+     I.M.P.A.C.T.'s values. It is set as part of the logo (a lockup, as in the official artwork): exactly the logo's width,
+     small, tight under it, so it reads as one mark and not as another line of the header. */
+  function themeLine() { return THEME === 'action' ? VALUES : TAGLINE; }
+  /** Where the logo drawn by logo(doc, x, y, w) ends, and how wide its artwork really is. */
+  function logoBottom(y, w) { return THEME === 'action' ? y + w * LOGO_AR * 1.15 : y + w * (LOGO_AR + LOGO_COLOR_AR) / 2; }
+  function logoArtWidth(w) { return THEME === 'action' ? w * LOGO_AR * 1.3 / ACTION_AR : w; }
+  /** The lockup line under a logo of box width w (centred on cx, its artwork ending at yBottom). */
+  function lockupLine(doc, cx, yBottom, w, color) {
+    if (THEME === 'action') return;           // ACTION's values line is part of its artwork
+    var text = themeLine(), aw = logoArtWidth(w) * 0.96, s = fitSize(doc, text, 500, SANS, 3, aw, 0.9, 0);
+    T(doc, cx, yBottom + s * 1.05, text, s, 500, color, { anchor: 'middle' });
   }
   // boxH: the tallest the e-signature may be (the space above the line differs per design)
   function signatory(doc, x, ln, s, anchor, boxH) {
@@ -1620,12 +1637,14 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       doc.addImage(uri, m[1] === 'png' ? 'PNG' : 'JPEG', cx - w / 2, top, w, h, undefined, 'FAST');
     } catch (e) { /* unreadable image: leave the line for a wet signature */ }
   }
+  /* The complete ACTION with I.M.P.A.C.T. artwork, its slanted values line included, as the chapter used it on the
+     2025-2026 certificates and plaques; centred on cx in the box of an EMPOWER logo of width w whose top is y. */
+  function actionLockup(doc, cx, y, w, img, alias) {
+    var h = w * 0.34, aw = h / ACTION_LOCK_AR;
+    doc.addImage(img, 'PNG', cx - aw / 2, y - (h - w * LOGO_AR) / 2, aw, h, alias, 'FAST');
+  }
   function logo(doc, x, y, w) {
-    if (THEME === 'action') {                 // the ACTION mark, as tall as the EMPOWER box, centred in it
-      var h = w * LOGO_AR * 1.3, aw = h / ACTION_AR;
-      doc.addImage(ASSETS.actionMarkPng, 'PNG', x + (w - aw) / 2, y - (h - w * LOGO_AR) / 2, aw, h, 'action-mark', 'FAST');
-      return;
-    }
+    if (THEME === 'action') { actionLockup(doc, x + w / 2, y, w, ASSETS.actionLockupPng, 'action-lockup'); return; }
     // the crisp transparent logo (official artwork), centred in the box the older JPEG used; the JPEG only as a fallback
     if (ASSETS.logoColorPng) doc.addImage(ASSETS.logoColorPng, 'PNG', x, y + w * (LOGO_AR - LOGO_COLOR_AR) / 2, w, w * LOGO_COLOR_AR, 'empower-logo-color', 'FAST');
     else doc.addImage(ASSETS.logoJpeg, 'JPEG', x, y, w, w * LOGO_AR, 'empower-logo', 'FAST');
@@ -1651,16 +1670,24 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
 
   // ---------- FORMAL: centred, logo masthead, seal between the signatures ----------
+  /* The certificate header, the same on both designs: the PICPA chevrons and the chapter on the left, the theme's logo
+     (with its tagline or values line) on the right, a hairline under them. */
+  function headerRow(doc) {
+    chevrons(doc, 31, 25.5, 15);
+    T(doc, 42, 22, 'PHILIPPINE INSTITUTE OF CERTIFIED PUBLIC ACCOUNTANTS', 3.2, 700, COL.navy, { ls: 0.35 });
+    T(doc, 42, 27, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  KINGDOM OF SAUDI ARABIA  ·  FOUNDED 1992', 2.5, 500, COL.green7, { ls: 0.4 });
+    logo(doc, 273 - 56, 31 - 56 * LOGO_AR, 56);
+    lockupLine(doc, 273 - 28, logoBottom(31 - 56 * LOGO_AR, 56), 56, COL.goldText);
+    line(doc, 24, 37, 273, 37, COL.line, 0.3);
+  }
   function drawFormal(doc, c) {
     var t = TYPES[c.type], M = 148.5;
     frame(doc);
-    logo(doc, M - 31, 17, 62);
-    T(doc, M, 39.5, 'PHILIPPINE INSTITUTE OF CERTIFIED PUBLIC ACCOUNTANTS', 3.3, 700, COL.navy, { anchor: 'middle', ls: 0.55 });
-    T(doc, M, 44.8, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  KINGDOM OF SAUDI ARABIA', 2.6, 500, COL.green7, { anchor: 'middle', ls: 0.5 });
-    T(doc, M, 60, 'CERTIFICATE OF', 6.2, 400, COL.goldText, { fam: DISP, anchor: 'middle', ls: 1.2 });
+    headerRow(doc);
+    T(doc, M, 57, 'CERTIFICATE OF', 6.2, 400, COL.goldText, { fam: DISP, anchor: 'middle', ls: 1.2 });
     var ts = fitSize(doc, t.of, 400, DISP, 15, 200, 9, 0.3);
-    T(doc, M, 60 + ts * 1.03, t.of, ts, 400, COL.navy, { fam: DISP, anchor: 'middle', ls: 0.3 });
-    var ruleY = 60 + ts * 1.03 + 5.5;
+    T(doc, M, 57 + ts * 1.03, t.of, ts, 400, COL.navy, { fam: DISP, anchor: 'middle', ls: 0.3 });
+    var ruleY = 57 + ts * 1.03 + 5.5;
     rectFill(doc, M - 14, ruleY, 28, 0.7, COL.gold5);
 
     // shrink the whole block a little (never below 80%) when long texts would run into the "Given" line
@@ -1684,13 +1711,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       signatory(doc, M, 174, c.signatories[0], 'middle');     // no seal: the one signature sits in the centre
     } else if (c.signatories.length === 1) {
       // one signatory: seal on the left, signature on the right (keeps the foot balanced)
-      seal(doc, M - 82, 171, 16, c.sealText);   // a little higher than the centred seal: clear of the footer text
+      seal(doc, M - 82, 169, 16, c.sealText);
       signatory(doc, M + 82, 174, c.signatories[0], 'middle');
     } else {
       var gx = THEME === 'action' ? 60 : 82;                  // no seal between them on ACTION: closer to the centre
       if (c.signatories[0]) signatory(doc, M - gx, 174, c.signatories[0], 'middle');
       if (c.signatories[1]) signatory(doc, M + gx, 174, c.signatories[1], 'middle');
-      seal(doc, M, 175, 16, c.sealText);
+      seal(doc, M, 172, 16, c.sealText);
     }
     footer(doc, c.certNo);
   }
@@ -1725,7 +1752,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     // the certificate, on white
     var X = 112, R = 277, maxW = R - X;
     T(doc, X, 22, 'PHILIPPINE INSTITUTE OF CERTIFIED PUBLIC ACCOUNTANTS', 3, 700, AC.navy, { ls: 0.35 });
-    T(doc, X, 27, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  KINGDOM OF SAUDI ARABIA', 2.4, 500, AC.greenText, { ls: 0.4 });
+    T(doc, X, 27, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  KINGDOM OF SAUDI ARABIA  ·  FOUNDED 1992', 2.4, 500, AC.greenText, { ls: 0.4 });
     line(doc, X, 34, R, 34, COL.line, 0.3);
     T(doc, X, 54, 'CERTIFICATE OF', 5.4, 400, AC.greenText, { fam: DISP, ls: 1.1 });
     var ts = fitSize(doc, t.of, 400, DISP, 14, maxW, 8.5, 0.3);
@@ -1760,11 +1787,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (THEME === 'action') { drawActionModern(doc, c); return; }
     var t = TYPES[c.type], X = 24;
     frame(doc);
-    chevrons(doc, 31, 25.5, 15);
-    T(doc, 42, 22, 'PHILIPPINE INSTITUTE OF CERTIFIED PUBLIC ACCOUNTANTS', 3.2, 700, COL.navy, { ls: 0.35 });
-    T(doc, 42, 27, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  KINGDOM OF SAUDI ARABIA', 2.5, 500, COL.green7, { ls: 0.4 });
-    logo(doc, 273 - 56, 32 - 56 * LOGO_AR, 56);
-    line(doc, 24, 37, 273, 37, COL.line, 0.3);
+    headerRow(doc);
 
     T(doc, X, 56, 'CERTIFICATE OF', 6.2, 400, COL.goldText, { fam: DISP, ls: 1.2 });
     var ts = fitSize(doc, t.of, 400, DISP, 14.5, 168, 9, 0.3);
@@ -1789,7 +1812,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     T(doc, X, 154, c.givenLine, 3.3, 400, COL.subtle);
     if (c.signatories[0]) signatory(doc, X, 168, c.signatories[0], 'start', 11);
     if (c.signatories[1]) signatory(doc, X + 86, 168, c.signatories[1], 'start', 11);
-    seal(doc, 273 - 21 - 1, 168, 21, c.sealText);
+    seal(doc, 273 - 19 - 1, 162, 19, c.sealText);
     footer(doc, c.certNo);
   }
 
@@ -1837,7 +1860,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       certNo: String(cert.certNo || ''),
       term: term,
       signatories: sigs,
-      sealText: 'PICPA WESTERN REGION · JEDDAH CHAPTER · ' + (term ? term.replace(/-/g, '–') + ' · ' : '')
+      sealText: SEAL_TEXT
     };
   }
   function draw(doc, cert) {
@@ -1863,6 +1886,65 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     'interest of the Institute and the Chapter in particular and the accounting profession in general. So help me God.';
 
   function pal(dark) { return function (name) { return dark ? DARK[name] : COL[name]; }; }
+  /* How the chapter's PICPA mark and the theme logo share a plaque or an oath (the chapter issues the piece, the theme is the
+     year's campaign; the two logos are never merged, and the theme logo always keeps its own line):
+       header   - the certificates' header in a centred row: PICPA lockup | hairline | theme logo
+       masthead - a slim PICPA line across the top, the theme logo large under it
+       crest    - the PICPA chevrons centred, the chapter's name under them, then the theme logo
+       footer   - the theme logo large at the top, the PICPA lockup signing off under the signatures
+       classic  - the theme logo and the chapter's name in text (the original design) */
+  var LOGO_LAYOUTS = ['header', 'masthead', 'crest', 'footer', 'classic'];
+  function layoutOf(v) { return LOGO_LAYOUTS.indexOf(v) >= 0 ? v : 'classic'; }
+  var PICPA_L1 = 'PHILIPPINE INSTITUTE OF CERTIFIED PUBLIC ACCOUNTANTS';
+  /* The PICPA lockup: the chevrons (a square of side h) and the chapter's name in left-aligned lines beside them, the text
+     block centred on the chevrons. lines = [[text, size, weight, colour, letterSpacing]]. Returns the lockup's width;
+     draws only when draw is true. mono = one colour for the chevrons (dark finishes), else their own colours. */
+  function picpaLockup(doc, x, cy, h, lines, mono, draw) {
+    var gap = h * 0.3, tw = 0;
+    lines.forEach(function (l) { tw = Math.max(tw, width(doc, l[0], l[2], SANS, l[1], l[4]) - l[4]); });
+    if (draw) {
+      if (mono) chevronsMono(doc, x + h / 2, cy, h, mono); else chevrons(doc, x + h / 2, cy, h);
+      var tot = 0; lines.forEach(function (l, i) { tot += i ? l[1] * 1.55 : l[1] * 0.72; });
+      var y = cy - tot / 2;
+      lines.forEach(function (l, i) { y += i ? l[1] * 1.55 : l[1] * 0.72; T(doc, x + h + gap, y, l[0], l[1], l[2], l[3], { ls: l[4] }); });
+    }
+    return h + gap + tw;
+  }
+  /** The lockup centred on cx. */
+  function picpaCentred(doc, cx, cy, h, lines, mono) {
+    var w = picpaLockup(doc, 0, 0, h, lines, mono, false);
+    picpaLockup(doc, cx - w / 2, cy, h, lines, mono, true);
+  }
+  function scaleLines(lines, k) { return lines.map(function (l) { return [l[0], l[1] * k, l[2], l[3], l[4] * k]; }); }
+  /** The theme logo by its artwork width aw, its top at y, for a finish (dark: on teal; colour: in its own colours on teal);
+      EMPOWER keeps its tagline under it. Returns where it ends. */
+  function themeMark(doc, cx, y, aw, dark, colour) {
+    if (THEME === 'action') {
+      var h = aw * ACTION_LOCK_AR;
+      var img = !dark ? ASSETS.actionLockupPng : (colour ? ASSETS.actionLockupStagePng : ASSETS.actionLockupWhitePng);
+      var al = !dark ? 'action-lockup' : (colour ? 'action-lockup-stage' : 'action-lockup-white');
+      doc.addImage(img, 'PNG', cx - aw / 2, y, aw, h, al, 'FAST');
+      return y + h;
+    }
+    if (dark && !colour) doc.addImage(ASSETS.logoWhitePng, 'PNG', cx - aw / 2, y - aw * (LOGO_AR - LOGO_COLOR_AR) / 2, aw, aw * LOGO_AR, 'empower-logo-white', 'FAST');
+    else doc.addImage(ASSETS.logoColorPng, 'PNG', cx - aw / 2, y, aw, aw * LOGO_COLOR_AR, 'empower-logo-color', 'FAST');
+    var b = y + aw * LOGO_COLOR_AR, s = fitSize(doc, TAGLINE, 500, SANS, 3, aw * 0.96, 0.5, 0);
+    T(doc, cx, b + s * 1.05, TAGLINE, s, 500, pal(dark)('goldText'), { anchor: 'middle' });
+    return b + s * 1.3;
+  }
+  /** The header row centred on cx (shrinks evenly to maxW): PICPA lockup | hairline | theme logo. */
+  function headerRowCentred(doc, cx, cy, maxW, chevH, lines, logoW, P, mono, dark, colour) {
+    var gap = chevH * 0.42, lw = picpaLockup(doc, 0, 0, chevH, lines, mono, false), tot = lw + gap * 2 + logoW, k;
+    if (tot > maxW) {
+      k = maxW / tot; chevH *= k; lines = scaleLines(lines, k); logoW *= k; gap *= k;
+      lw = picpaLockup(doc, 0, 0, chevH, lines, mono, false); tot = lw + gap * 2 + logoW;
+    }
+    var x = cx - tot / 2;
+    picpaLockup(doc, x, cy, chevH, lines, mono, true);
+    var dx = x + lw + gap; line(doc, dx, cy - chevH * 0.55, dx, cy + chevH * 0.55, P('gold5'), 0.2);
+    var lh = THEME === 'action' ? logoW * ACTION_LOCK_AR : logoW * LOGO_COLOR_AR * 1.2;
+    themeMark(doc, dx + gap + logoW / 2, cy - lh / 2, logoW, dark, colour);
+  }
   // one-colour chevrons and seal (dark plaques)
   function chevronsMono(doc, cx, cy, size, c) {
     var s = size / 200, ox = cx - 100 * s, oy = cy - 100 * s;
@@ -1925,29 +2007,58 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function drawPlaqueIn(doc, p) {
     // finishes: 'dark' (teal, one-colour white marks), 'teal-color' (teal, the logo and the seal in their own colours), 'neutral' (white)
     var dark = p.finish !== 'neutral', colour = p.finish === 'teal-color', P = pal(dark), M = PLAQUE_W / 2, W = PLAQUE_W, H = PLAQUE_H, dy = 0;
+    var LAY = layoutOf(p.logo), MONO = dark ? DARK.frame : null, ln = LAY === 'footer' ? 126.5 : 131.5;
     var term = String(p.term || (p.signatories && p.signatories[0] && p.signatories[0].term) || '').trim();
-    var sealText = 'PICPA WESTERN REGION · JEDDAH CHAPTER · ' + (term ? term.replace(/-/g, '–') + ' · ' : '');
+    var sealText = SEAL_TEXT;
     // ground and frame
     if (dark) {
       doc.addImage(ASSETS.tealBgJpeg, 'JPEG', 0, 0, W, H, 'plaque-teal-bg', 'FAST');
       var fr = DARK.frame;
       doc.setDrawColor(fr[0], fr[1], fr[2]); doc.setLineWidth(0.56); doc.rect(4, 4, W - 8, H - 8, 'S');
       doc.setDrawColor(148, 176, 177); doc.setLineWidth(0.25); doc.rect(5.6, 5.6, W - 11.2, H - 11.2, 'S');
-      if (THEME === 'action') {
-        var ah = 58 * LOGO_AR * 1.3, aw = ah / ACTION_AR;
-        doc.addImage(colour ? ASSETS.actionMarkStagePng : ASSETS.actionMarkWhitePng, 'PNG', M - aw / 2, 9.5 - (ah - 58 * LOGO_AR) / 2, aw, ah,
-          colour ? 'action-mark-stage' : 'action-mark-white', 'FAST');
+      if (LAY !== 'classic') { /* the logos are placed below */ }
+      else if (THEME === 'action') {
+        actionLockup(doc, M, 10.4, 58, colour ? ASSETS.actionLockupStagePng : ASSETS.actionLockupWhitePng,
+          colour ? 'action-lockup-stage' : 'action-lockup-white');
       }
       else if (colour) doc.addImage(ASSETS.logoColorPng, 'PNG', M - 29, 9.5 + 58 * (LOGO_AR - LOGO_COLOR_AR) / 2, 58, 58 * LOGO_COLOR_AR, 'empower-logo-color', 'FAST');
       else doc.addImage(ASSETS.logoWhitePng, 'PNG', M - 29, 9.5, 58, 58 * LOGO_AR, 'empower-logo-white', 'FAST');
     } else {
       doc.setDrawColor(COL.navy[0], COL.navy[1], COL.navy[2]); doc.setLineWidth(0.8); doc.rect(4, 4, W - 8, H - 8, 'S');
       doc.setDrawColor(COL.gold5[0], COL.gold5[1], COL.gold5[2]); doc.setLineWidth(0.25); doc.rect(5.6, 5.6, W - 11.2, H - 11.2, 'S');
-      logo(doc, M - 29, 9.5, 58);
+      if (LAY === 'classic') logo(doc, M - 29, THEME === 'action' ? 10.4 : 9.5, 58);   // the taller ACTION artwork sits a little lower
     }
-    T(doc, M, 30.2 + dy, 'PHILIPPINE INSTITUTE OF CERTIFIED PUBLIC ACCOUNTANTS', 2.05, 700, P('navy'), { anchor: 'middle', ls: 0.18 });
-    T(doc, M, 33.6 + dy, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  FOUNDED 1992', 1.7, 500, P('green7'), { anchor: 'middle', ls: 0.22 });
-    rectFill(doc, M - 8, 36.2, 16, 0.4, P('gold5'));
+    var rule = 36.2, mb;
+    if (LAY === 'header') {
+      headerRowCentred(doc, M, 17.2, 86, 10.5, [
+        ['PHILIPPINE INSTITUTE OF', 1.62, 700, P('navy'), 0.1], ['CERTIFIED PUBLIC ACCOUNTANTS', 1.62, 700, P('navy'), 0.1],
+        ['WESTERN REGION  ·  JEDDAH CHAPTER', 1.28, 500, P('green7'), 0.12], ['FOUNDED 1992', 1.28, 500, P('green7'), 0.12]],
+        THEME === 'action' ? 34 : 36, P, MONO, dark, colour);
+      rule = 27.6;
+    } else if (LAY === 'masthead') {
+      picpaCentred(doc, M, 12.6, 6, [[PICPA_L1, 1.62, 700, P('navy'), 0.12],
+        ['WESTERN REGION  ·  JEDDAH CHAPTER  ·  FOUNDED 1992', 1.36, 500, P('green7'), 0.16]], MONO);
+      line(doc, M - 34, 17.6, M + 34, 17.6, P('line'), 0.15);
+      mb = themeMark(doc, M, THEME === 'action' ? 19.6 : 21.4, THEME === 'action' ? 46 : 52, dark, colour);
+      rule = Math.max(36.6, mb + 2.2);
+    } else if (LAY === 'crest') {
+      if (MONO) chevronsMono(doc, M, 12.4, 7.2, MONO); else chevrons(doc, M, 12.4, 7.2);
+      T(doc, M, 19.9, PICPA_L1, 1.62, 700, P('navy'), { anchor: 'middle', ls: 0.14 });
+      T(doc, M, 22.5, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  FOUNDED 1992', 1.3, 500, P('green7'), { anchor: 'middle', ls: 0.18 });
+      mb = themeMark(doc, M, 25.2, THEME === 'action' ? 34 : 42, dark, colour);
+      rule = mb + 2.2;
+    } else if (LAY === 'footer') {
+      mb = themeMark(doc, M, THEME === 'action' ? 11 : 12.5, THEME === 'action' ? 56 : 62, dark, colour);
+      rule = mb + 2.6;
+      picpaCentred(doc, M, 138.2, 5.4, [[PICPA_L1, 1.42, 700, P('navy'), 0.1],
+        ['WESTERN REGION  ·  JEDDAH CHAPTER  ·  FOUNDED 1992', 1.18, 500, P('green7'), 0.14]], MONO);
+    } else {
+      lockupLine(doc, M, logoBottom(9.5, 58), 58, P('goldText'));
+      T(doc, M, 30.2, PICPA_L1, 2.05, 700, P('navy'), { anchor: 'middle', ls: 0.18 });
+      T(doc, M, 33.6, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  FOUNDED 1992', 1.7, 500, P('green7'), { anchor: 'middle', ls: 0.22 });
+    }
+    rectFill(doc, M - 8, rule, 16, 0.4, P('gold5'));
+    dy = rule - 36.2;
     var y, items = [], maxW = 86;
     if (p.kind === 'award') {
       var t = String(p.title || 'AWARD').trim().toUpperCase(), ts = fitSize(doc, t, 400, DISP, 7.4, 88, 4.2, 0.1);
@@ -1984,7 +2095,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (String(p.given || '').trim()) balanced(doc, 'Given this ' + String(p.given).trim().replace(/\.$/, '') + '.', 400, 2.15, maxW)
       .forEach(function (l, i) { items.push([l, 2.15, 400, 'subtle', i ? 0 : 2.2]); });
     // the body, centred between the title and the signature row (shrinks to 82% at most when long)
-    var h = items.reduce(function (a, it) { return a + it[4] + it[1] * 1.32; }, 0), top = y + 4, bottom = 121;
+    var h = items.reduce(function (a, it) { return a + it[4] + it[1] * 1.32; }, 0), top = y + 4, bottom = ln - 10.5;
     var f = h > bottom - top ? Math.max(0.82, (bottom - top) / h) : 1;
     var yy = top + Math.max(1.5, (bottom - top - h * f) / 2);
     items.forEach(function (it) {
@@ -1993,7 +2104,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       yy += it[1] * f * 0.22;
     });
     // signatories: 1 (seal left, signature right), 2 (seal between) or 3 (in a row)
-    var sg = sigsOf(p.signatories, term), ln = 131.5;
+    var sg = sigsOf(p.signatories, term);
     if (sg.length >= 3) {
       sigBlock(doc, M - 32, ln, sg[0], 1.85, 26, 8, P); sigBlock(doc, M, ln, sg[1], 1.85, 26, 8, P); sigBlock(doc, M + 32, ln, sg[2], 1.85, 26, 8, P);
     } else if (sg.length === 2) {
@@ -2006,7 +2117,6 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       sealOf(doc, M - 30, ln - 1.2, 7, sealText, dark && !colour);
       sigBlock(doc, M + 26, ln, sg[0], 2.05, 38, 9, P);
     }
-    T(doc, M, 141.6, THEME === 'action' ? VALUES : TAGLINE, 1.55, 500, P('goldText'), { anchor: 'middle', ls: 0.02 });
   }
   /* ACTION with I.M.P.A.C.T. plaque, 'panel' finish: the certificate's composition in portrait. A narrow navy panel on the left
      with the rising edge and the green and blue stripes, I.M.P.A.C.T. stacked down it with its values (A, C, T green), and the
@@ -2029,11 +2139,29 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     });
     if (term) T(doc, lx, 142.5, term.replace(/-/g, '–'), 1.5, 700, AC.greenLit, { anchor: 'middle', ls: 0.2 });
     // the plaque, on white
-    var lw = 50, lh = lw * ACTION_AR;
-    doc.addImage(ASSETS.actionMarkPng, 'PNG', CX - lw / 2, 7.5, lw, lh, 'action-mark', 'FAST');
-    var hs = fitSize(doc, 'PHILIPPINE INSTITUTE OF CERTIFIED PUBLIC ACCOUNTANTS', 700, SANS, 2.05, CW, 1.5, 0.12);
-    T(doc, CX, 29.5, 'PHILIPPINE INSTITUTE OF CERTIFIED PUBLIC ACCOUNTANTS', hs, 700, AC.navy, { anchor: 'middle', ls: 0.12 });
-    T(doc, CX, 32.7, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  FOUNDED 1992', 1.6, 500, AC.greenText, { anchor: 'middle', ls: 0.18 });
+    var lw = 50, lh = lw * ACTION_AR, LAY = layoutOf(p.logo);
+    if (LAY === 'classic' || LAY === 'footer') {
+      doc.addImage(ASSETS.actionMarkPng, 'PNG', CX - lw / 2, 7.5, lw, lh, 'action-mark', 'FAST');
+      if (LAY === 'classic') {
+        var hs = fitSize(doc, PICPA_L1, 700, SANS, 2.05, CW, 1.5, 0.12);
+        T(doc, CX, 29.5, PICPA_L1, hs, 700, AC.navy, { anchor: 'middle', ls: 0.12 });
+        T(doc, CX, 32.7, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  FOUNDED 1992', 1.6, 500, AC.greenText, { anchor: 'middle', ls: 0.18 });
+      } else {
+        picpaCentred(doc, CX, 140.2, 5, [['PHILIPPINE INSTITUTE OF', 1.3, 700, AC.navy, 0.08], ['CERTIFIED PUBLIC ACCOUNTANTS', 1.3, 700, AC.navy, 0.08],
+          ['JEDDAH CHAPTER  ·  FOUNDED 1992', 1.02, 500, AC.greenText, 0.1]], null);
+      }
+    } else if (LAY === 'crest') {
+      chevrons(doc, CX, 10.6, 6.2);
+      var cs = fitSize(doc, PICPA_L1, 700, SANS, 1.5, CW, 1.1, 0.1);
+      T(doc, CX, 16.8, PICPA_L1, cs, 700, AC.navy, { anchor: 'middle', ls: 0.1 });
+      T(doc, CX, 19.2, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  FOUNDED 1992', 1.15, 500, AC.greenText, { anchor: 'middle', ls: 0.12 });
+      var lw3 = 40; doc.addImage(ASSETS.actionMarkPng, 'PNG', CX - lw3 / 2, 21, lw3, lw3 * ACTION_AR, 'action-mark', 'FAST');
+    } else {                                   // header and masthead: the white field is too narrow for a row
+      picpaCentred(doc, CX, 11.4, 6.4, [['PHILIPPINE INSTITUTE OF', 1.5, 700, AC.navy, 0.1], ['CERTIFIED PUBLIC ACCOUNTANTS', 1.5, 700, AC.navy, 0.1],
+        ['WESTERN REGION  ·  JEDDAH CHAPTER  ·  FOUNDED 1992', 1.12, 500, AC.greenText, 0.1]], null);
+      line(doc, CX - 27, 16.6, CX + 27, 16.6, COL.line, 0.15);
+      var lw2 = 46; doc.addImage(ASSETS.actionMarkPng, 'PNG', CX - lw2 / 2, 18.2, lw2, lw2 * ACTION_AR, 'action-mark', 'FAST');
+    }
     rectFill(doc, CX - 8.5, 35.3, 10, 0.5, AC.green); rectFill(doc, CX + 2.5, 35.3, 6, 0.5, AC.blue);
     var y, items = [];
     function words(str, size, max) {                         // display lines: greedy, two at most
@@ -2070,14 +2198,14 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     }
     if (String(p.given || '').trim()) balanced(doc, 'Given this ' + String(p.given).trim().replace(/\.$/, '') + '.', 400, 2.05, CW)
       .forEach(function (l, i) { items.push([l, 2.05, 400, COL.subtle, i ? 0 : 2]); });
-    var h = items.reduce(function (a, it) { return a + it[4] + it[1] * 1.32; }, 0), tp = y + 4, bt = 117;
+    var h = items.reduce(function (a, it) { return a + it[4] + it[1] * 1.32; }, 0), tp = y + 4, bt = LAY === 'footer' ? 113.5 : 117;
     var f = h > bt - tp ? Math.max(0.74, (bt - tp) / h) : 1, yy = tp + Math.max(1.5, (bt - tp - h * f) / 2);
     items.forEach(function (it) {
       yy += it[4] * f + it[1] * f * 1.1;
       T(doc, CX, yy, it[0], it[1] * f, it[2], it[3], it[5] ? { fam: it[5], anchor: 'middle', ls: 0.1 } : { anchor: 'middle' });
       yy += it[1] * f * 0.22;
     });
-    var P = function (n) { return ({ navy: AC.navy })[n] || COL[n]; }, sg = sigsOf(p.signatories, term), ln = 128;
+    var P = function (n) { return ({ navy: AC.navy })[n] || COL[n]; }, sg = sigsOf(p.signatories, term), ln = LAY === 'footer' ? 124.5 : 128;
     if (sg.length >= 3) {
       sigBlock(doc, CX - 23, ln, sg[0], 1.5, 21, 7, P); sigBlock(doc, CX, ln, sg[1], 1.5, 21, 7, P); sigBlock(doc, CX + 23, ln, sg[2], 1.5, 21, 7, P);
     } else if (sg.length === 2) {
@@ -2095,10 +2223,32 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var term = String(o.term || '').trim().replace(/-/g, '–');
     doc.setDrawColor(COL.navy[0], COL.navy[1], COL.navy[2]); doc.setLineWidth(1.2); doc.rect(8, 8, W - 16, H - 16, 'S');
     doc.setDrawColor(COL.gold5[0], COL.gold5[1], COL.gold5[2]); doc.setLineWidth(0.35); doc.rect(11, 11, W - 22, H - 22, 'S');
-    logo(doc, M - 46, 20, 92);
-    T(doc, M, 51, 'PHILIPPINE INSTITUTE OF CERTIFIED PUBLIC ACCOUNTANTS', 3.3, 700, P('navy'), { anchor: 'middle', ls: 0.5 });
-    T(doc, M, 56.4, 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  KINGDOM OF SAUDI ARABIA  ·  FOUNDED 1992', 2.55, 500, P('green7'), { anchor: 'middle', ls: 0.4 });
-    rectFill(doc, M - 14, 61, 28, 0.6, P('gold5'));
+    var LAY = layoutOf(o.logo), L2 = 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  KINGDOM OF SAUDI ARABIA  ·  FOUNDED 1992';
+    if (LAY === 'header') {
+      headerRowCentred(doc, M, 38, 168, 21, [
+        ['PHILIPPINE INSTITUTE OF', 3.2, 700, P('navy'), 0.2], ['CERTIFIED PUBLIC ACCOUNTANTS', 3.2, 700, P('navy'), 0.2],
+        ['WESTERN REGION  ·  JEDDAH CHAPTER', 2.5, 500, P('green7'), 0.22], ['KINGDOM OF SAUDI ARABIA  ·  FOUNDED 1992', 2.5, 500, P('green7'), 0.22]],
+        72, P, null, false, false);
+    } else if (LAY === 'masthead') {
+      picpaCentred(doc, M, 24.5, 11, [[PICPA_L1, 3.1, 700, P('navy'), 0.3], [L2, 2.35, 500, P('green7'), 0.25]], null);
+      line(doc, M - 60, 33, M + 60, 33, P('line'), 0.2);
+      themeMark(doc, M, 38, 84, false, false);
+    } else if (LAY === 'crest') {
+      chevrons(doc, M, 27, 12);
+      T(doc, M, 39.4, PICPA_L1, 3.1, 700, P('navy'), { anchor: 'middle', ls: 0.35 });
+      T(doc, M, 44, L2, 2.3, 500, P('green7'), { anchor: 'middle', ls: 0.3 });
+      themeMark(doc, M, 47.6, 52, false, false);
+      rectFill(doc, M - 14, 64.5, 28, 0.6, P('gold5'));
+    } else if (LAY === 'footer') {
+      themeMark(doc, M, 26, 100, false, false);
+      picpaCentred(doc, M, 279, 8, [[PICPA_L1, 2.4, 700, P('navy'), 0.22], [L2, 1.85, 500, P('green7'), 0.2]], null);
+    } else {
+      logo(doc, M - 46, 20, 92);
+      lockupLine(doc, M, logoBottom(20, 92), 92, P('goldText'));
+      T(doc, M, 51, PICPA_L1, 3.3, 700, P('navy'), { anchor: 'middle', ls: 0.5 });
+      T(doc, M, 56.4, L2, 2.55, 500, P('green7'), { anchor: 'middle', ls: 0.4 });
+    }
+    if (LAY !== 'crest') rectFill(doc, M - 14, 61, 28, 0.6, P('gold5'));
     T(doc, M, 80, 'OATH OF OFFICE', 13, 400, P('navy'), { fam: DISP, anchor: 'middle', ls: 0.4 });
     rectFill(doc, M - 14, 86, 28, 0.6, P('gold5'));
     T(doc, M, 101, 'I,', 4.6, 400, P('muted'), { anchor: 'middle' });
@@ -2129,11 +2279,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (String(o.given || '').trim()) balanced(doc, 'Sworn this ' + String(o.given).trim().replace(/\.$/, '') + '.', 400, 3.6, 164)
       .forEach(function (l) { T(doc, M, y, l, 3.6, 400, P('subtle'), { anchor: 'middle' }); y += 5.4; });
     // the inducting officer (signs by hand, or an e-signature when given); the seal balances the row on the left
-    var ind = o.inducting || {}, ln = 262;
-    sealOf(doc, M - 58, ln - 1, 13, 'PICPA WESTERN REGION · JEDDAH CHAPTER · ' + (term ? term + ' · ' : ''), false);
+    var ind = o.inducting || {}, ln = LAY === 'footer' ? 256 : 262;
+    sealOf(doc, M - 58, ln - 1, 13, SEAL_TEXT, false);
     sigBlock(doc, M + 52, ln, { name: String(ind.full_name || '').toUpperCase(), position: String(ind.title || 'Inducting Officer'),
       signature: typeof ind.signature === 'string' && ind.signature ? ind.signature : null }, 3.3, 74, 14, P);
-    T(doc, M, 282.5, TAGLINE, 2.5, 500, P('goldText'), { anchor: 'middle', ls: 0.05 });
   }
 
   // ================================================================ letterhead (A4 portrait) and letters
@@ -2252,7 +2401,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
 
   var api = { setup: setup, drawLetterhead: drawLetterhead, drawLetter: drawLetter, draw: draw, normalise: normalise, givenLine: givenLine, heldLine: heldLine, fullName: fullName, TYPES: Object.keys(TYPES),
-              drawPlaque: drawPlaque, drawOath: drawOath, OATH_TEXT: OATH_TEXT,
+              drawPlaque: drawPlaque, drawOath: drawOath, OATH_TEXT: OATH_TEXT, LOGO_LAYOUTS: LOGO_LAYOUTS.slice(),
               PLAQUE_SIZE: [PLAQUE_W, PLAQUE_H], OATH_SIZE: [OATH_W, OATH_H] };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.CertRender = api;
@@ -2933,9 +3082,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<button type="button" class="tk-btn tk-btn-primary" id="ct-go" data-action="ct.ask"' + (n && !S.busy ? '' : ' disabled') + '>' +
       (ready() ? 'Issue &amp; e-mail all' : 'Issue all') + ' (' + n + ')</button>' +
       '<button type="button" class="tk-btn" data-action="ct.all"' + dis() + '>Download all</button>' +
+      '<button type="button" class="tk-btn" data-action="ct.sample"' + dis() + '>Preview sample</button>' +
       '<button type="button" class="tk-btn" data-action="ct.settings" aria-controls="ct-settings" aria-expanded="' +
       (S.showSettings ? 'true' : 'false') + '"' + dis() + '>Settings</button></div>';
   }
+  /** A made-up attendee, to see the certificate (logo, design, date, signatories, the event) before anyone attended.
+   *  Nothing is issued, saved or e-mailed. */
+  var SAMPLE_ROW = { key: 'sample', name: 'Juan Dela Cruz', letters: 'CPA', email: '', cert: null, sel: false, sending: false };
   function runHtml() {
     var r = S.run;
     if (!r) return '';
@@ -3407,7 +3560,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       url = root.URL.createObjectURL(blob);
     } catch (e) { TK.toast(TK.friendlyError(e), 'crit'); return null; }
     var name = certData(r).name || 'this person';
-    TK.modal('<h2>Preview</h2><p class="tk-mini">' + esc(name) + (r.cert ? ' · ' + esc(r.cert.ref) : ' · not issued yet') + '</p>' +
+    TK.modal('<h2>Preview</h2><p class="tk-mini">' + (r === SAMPLE_ROW ? 'Sample with a made-up name: how the certificates of this event will look. Nothing is issued.' :
+      esc(name) + (r.cert ? ' · ' + esc(r.cert.ref) : ' · not issued yet')) + '</p>' +
       '<iframe class="tk-ct-frame" title="' + esc('Certificate preview for ' + name) + '" src="' + esc(url) + '"></iframe>' +
       '<div class="tk-modal-actions"><button type="button" class="tk-btn" data-action="tk.closeModal">Close</button></div>',
       { label: 'Certificate preview', onClose: function () { try { root.URL.revokeObjectURL(url); } catch (e) { /* gone */ } } });
@@ -3417,6 +3571,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var x = rowOf(el);
     if (!x || S.busy) return null;
     return showPreview(x.r);
+  });
+  TK.action('ct.sample', function () {
+    if (S.busy || !S.data) return null;
+    return showPreview(SAMPLE_ROW);
   });
   TK.action('ct.download', function (el) {
     var x = rowOf(el);
@@ -4069,6 +4227,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   // ACTION with I.M.P.A.C.T. adds the side-panel design (navy panel with I.M.P.A.C.T., white plaque)
   var PQ_FINISH_ACTION = PQ_FINISH.concat([['panel', 'Side panel']]);
   function pqFinishes() { return S.p && S.p.theme === 'action' ? PQ_FINISH_ACTION : PQ_FINISH; }
+  // how the PICPA mark and the theme logo share the plaque or the oath (CertRender LOGO_LAYOUTS); the first is the default
+  var PQ_LOGO = [['header', 'Header row: PICPA beside the theme logo'], ['masthead', 'Masthead: PICPA line above the theme logo'],
+    ['crest', 'Crest: PICPA emblem above the theme logo'], ['footer', 'Theme logo above, PICPA at the foot'], ['classic', 'Theme logo only (original)']];
+  function pqLogo(v) { return PQ_LOGO.some(function (x) { return x[0] === v; }) ? v : PQ_LOGO[0][0]; }
   var PQ_DOCS = [['plaque', 'Plaque'], ['oath', 'Oath of Office']];
   var PQ_INDUCTING = 'Joey I. Villanueva, CPA';
   var MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -4079,7 +4241,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function newPlaques() {
     var pair = defaultPair(), term = pqTerm(), oath = {};
     officers().forEach(function (o) { oath[o.id] = true; });
-    S.p = { doc: 'plaque', theme: 'empower', kind: 'appreciation', finish: 'dark', name: '', designation: '',
+    S.p = { doc: 'plaque', theme: 'empower', kind: 'appreciation', finish: 'dark', logo: PQ_LOGO[0][0], name: '', designation: '',
       sentence: 'in grateful recognition and sincere appreciation for his invaluable presence and inspiring message as', role: 'Guest Speaker',
       title: 'Outstanding Service Award',
       body: 'in grateful recognition and sincere appreciation for his invaluable service, commitment, and unwavering dedication to the ' +
@@ -4124,7 +4286,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function plaqueData(sigs) {
     var p = S.p, term = pqTerm();
     return { theme: p.theme === 'action' ? 'action' : 'empower', kind: p.kind === 'award' ? 'award' : 'appreciation',
-      finish: pqFinishes().some(function (x) { return x[0] === p.finish; }) ? p.finish : 'dark',
+      finish: pqFinishes().some(function (x) { return x[0] === p.finish; }) ? p.finish : 'dark', logo: pqLogo(p.logo),
       title: sq(p.title), name: sq(p.name).toUpperCase(), designation: sq(p.designation), sentence: sq(p.sentence), role: sq(p.role),
       body: String(p.body || '').replace(/\r\n?/g, '\n').trim(), occasion: sq(p.occasion), given: givenText(p.date, p.venue), term: term,
       signatories: pqSigners().map(function (id) {
@@ -4137,7 +4299,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function oathData() {
     var p = S.p, given = givenText(p.date, p.venue);
     return pqOathOfficers().map(function (o) {
-      return { name: o.full_name || '', position: o.position || '', term: o.term || pqTerm(), given: given,
+      return { name: o.full_name || '', position: o.position || '', term: o.term || pqTerm(), given: given, logo: pqLogo(p.logo),
         inducting: { full_name: sq(p.indName), title: sq(p.indTitle) || 'Inducting Officer', signature: null } };
     });
   }
@@ -4231,7 +4393,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         (o.term ? ', ' + esc(String(o.term).replace(/-/g, '–')) : '') + '</span></label></li>';
     }).join('') + '</ul>' : '<div class="tk-note tk-note-warn"><p>No officers are listed on the Hub yet.</p></div>';
     var n = pqOathOfficers().length;
-    return '<fieldset class="tk-ct-signers"><legend>Officers taking the oath (' + n + ' of ' + list.length + ' selected; one page each)</legend>' +
+    return '<div class="tk-ct-optrow">' + pqSeg('Logo layout', PQ_LOGO, pqLogo(S.p.logo), 'ct.p.logo') + '</div>' +
+      '<fieldset class="tk-ct-signers"><legend>Officers taking the oath (' + n + ' of ' + list.length + ' selected; one page each)</legend>' +
       '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-small" data-action="ct.p.oathAll" data-v="1"' + dis() + '>Select all</button>' +
       '<button type="button" class="tk-btn tk-btn-small" data-action="ct.p.oathAll" data-v="0"' + dis() + '>Clear</button></div>' + items + '</fieldset>' +
       '<div class="tk-ct-optrow">' + pqField('indName', 'Inducting officer') + pqField('indTitle', 'Title under the name') + '</div>' +
@@ -4248,10 +4411,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<div class="tk-ct-optrow">' + pqField('sentence', 'Recognition sentence', { area: true, rows: 2, wide: true, hint: 'Ends just before the role, for example “… inspiring message as”.' }) + '</div>' +
       '<div class="tk-ct-optrow">' + pqField('role', 'Role', { hint: 'Printed large, for example Guest Speaker or Inducting Officer' }) + '</div>' +
       '<div class="tk-ct-optrow">' + pqField('occasion', 'Occasion', { area: true, rows: 3, wide: true }) + '</div>';
-    return '<div class="tk-ct-optrow">' + pqSeg('Logo', THEMES, p.theme, 'ct.p.theme') + pqSeg('Plaque', PQ_KINDS, p.kind, 'ct.p.kind') +
-      pqSeg('Finish', pqFinishes(), p.finish, 'ct.p.finish') + '</div>' +
+    return '<div class="tk-ct-optrow">' + pqSeg('Logo', THEMES, p.theme, 'ct.p.theme') + pqSeg('Logo layout', PQ_LOGO, pqLogo(p.logo), 'ct.p.logo') +
+      pqSeg('Plaque', PQ_KINDS, p.kind, 'ct.p.kind') + pqSeg('Finish', pqFinishes(), p.finish, 'ct.p.finish') + '</div>' +
       body + pqSignHtml() +
-      '<p class="tk-mini">The plaque is A6 portrait (105 × 148 mm), ready for the engraver. On both dark teal finishes the e-signatures print in white; full colour keeps the logo in its own colours. ACTION with I.M.P.A.C.T. plaques carry no seal; Side panel is their navy I.M.P.A.C.T. design.</p>';
+      '<p class="tk-mini">The plaque is A6 portrait (105 × 148 mm), ready for the engraver. On both dark teal finishes the e-signatures print in white; full colour keeps the logo in its own colours. ACTION with I.M.P.A.C.T. plaques carry no seal; Side panel is their navy I.M.P.A.C.T. design. ' +
+      'Logo layout sets where the PICPA mark sits beside the theme logo; on Side panel, Header row is set as a masthead.</p>';
   }
   function plaquesHtml() {
     var p = S.p;
@@ -4277,6 +4441,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var v = choiceVal(el);
     if (!S.p || S.busy || (v !== 'appreciation' && v !== 'award')) return null;
     S.p.kind = v; pqRedraw(); return null;
+  });
+  TK.action('ct.p.logo', function (el) {
+    var v = choiceVal(el);
+    if (!S.p || S.busy || !PQ_LOGO.some(function (x) { return x[0] === v; })) return null;
+    S.p.logo = v; pqRedraw(); return null;
   });
   TK.action('ct.p.finish', function (el) {
     var v = choiceVal(el);
@@ -4610,6 +4779,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       });
       if (S.p.theme !== 'action' && S.p.theme !== 'empower') S.p.theme = 'empower';
       if (!pqFinishes().some(function (x) { return x[0] === S.p.finish; })) S.p.finish = 'dark';
+      S.p.logo = pqLogo(S.p.logo);
       return;
     }
     newLetter();
@@ -4764,7 +4934,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 
   TK.certificatesPage = { certData: certData, rowError: rowError, clean: clean, parseList: parseList, registerCsv: registerCsv, S: S,
     signError: signError, draftData: draftData, draftTitle: draftTitle, sigFit: sigFit, sigCutoff: sigCutoff, sigClear: sigClear, sigBounds: sigBounds, readSignature: readSignature, rotateSignature: rotateSignature,
-    SIG: SIG, givenText: givenText, plaqueData: plaqueData, oathData: oathData, pqErrors: pqErrors, newPlaques: newPlaques, letterData: letterData, letterErrors: letterErrors, longDate: longDate };
+    SIG: SIG, givenText: givenText, plaqueData: plaqueData, oathData: oathData, pqErrors: pqErrors, newPlaques: newPlaques, applyDraft: applyDraft, letterData: letterData, letterErrors: letterErrors, longDate: longDate };
 }(typeof window !== 'undefined' ? window : globalThis));
 </script>
 <script>TK.start();</script>
