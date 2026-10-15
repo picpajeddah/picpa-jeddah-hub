@@ -197,15 +197,53 @@ body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:ce
 (function () {
   document.body.classList.add('hub-prog-locked');
   var page = (location.pathname.split('/').pop() || '').trim();
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  var STYLES = { hl: ' hl', round: ' round', brk: ' brk' };
+  function draw(c) {
+    var card = document.querySelector('#programme .card');
+    if (!card || !c || !Array.isArray(c.parts) || !c.parts.length) return;
+    var n = 0, html = '';
+    c.parts.forEach(function (p, pi) {
+      html += '<div class="part"><span class="part-k">Part ' + (pi + 1) + '</span><h3>' + esc(p.title) + '</h3></div><ol class="tl">';
+      (Array.isArray(p.items) ? p.items : []).forEach(function (it) {
+        var subs = Array.isArray(it.subs) && it.subs.length ? '<ol class="tl-subs">' + it.subs.map(function (s) {
+          return '<li><span class="tl-sub-t">' + esc(s.title) + '</span>' + (s.who ? '<span class="tl-sub-w">' + esc(s.who) + '</span>' : '') + '</li>';
+        }).join('') + '</ol>' : '';
+        html += '<li class="tl-item' + (STYLES[it.style] || '') + '"><span class="tl-dot"></span><span class="tl-time">' +
+          (it.num === true ? '<b>' + (++n) + '</b>' : '') + '</span><div class="tl-body"><div class="tl-title">' + esc(it.title) + '</div>' +
+          (it.who ? '<div class="tl-who">' + esc(it.who) + '</div>' : '') + subs + '<span class="tl-now">Happening now</span></div></li>';
+      });
+      html += '</ol>';
+    });
+    if (c.mc) html += '<p class="mc">Master of the Ceremony: <b>' + esc(c.mc) + '</b></p>';
+    card.innerHTML = html;
+  }
   fetch('https://cpumktocfhbnzocyztlb.supabase.co/rest/v1/rpc/hub_programme_status', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: 'sb_publishable_un5TqUZ6gEcFtulfGlh-Jg_D8Q6jWrC' },
     body: JSON.stringify({ p_page: page })
   }).then(function (r) { return r.ok ? r.json() : null; })
-    .then(function (j) { if (j && j.visible === true) document.body.classList.remove('hub-prog-locked'); })
+    .then(function (j) {
+      if (j && j.visible === true) {
+        // the guard runs at the top of the page: draw once the programme card exists
+        var go = function () { try { draw(j.content); } catch (e) { /* keep the built-in list */ } };
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+        document.body.classList.remove('hub-prog-locked');
+      }
+    })
     .catch(function () {});
 })();
 </script>
+<style id="hub-prog-content-css">
+.tl-subs{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-left:2px solid var(--line)}
+.tl-subs li{margin:4px 0;font-size:13px;line-height:1.4}
+.tl-sub-t{display:block;font-weight:600;color:var(--ink-2)}
+.tl-sub-w{display:block;color:var(--ink-3)}
+</style>
 
 <header class="top">
   <div class="in">

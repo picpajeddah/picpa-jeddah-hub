@@ -1643,6 +1643,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return '<p class="tk-muted">Close registration now. Tickets already issued stay valid.</p>' +
       '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-small" data-action="cn.stop">Stop sales now</button></div>';
   }
+  /** "Edit the programme" (programme.html, 2026-10-15) for a programme page of the chapter site. */
+  function progEditLink(url) {
+    var m = /^https:\/\/picpajeddah\.github\.io\/picpa-jeddah-hub\/([A-Za-z0-9_-][A-Za-z0-9._-]{0,60}\.html)$/.exec(String(url || ''));
+    return m ? '<p class="tk-mini"><a href="./programme.html#page=' + esc(encodeURIComponent(m[1])) + '">Edit the programme (order of proceedings and people)</a></p>' : '';
+  }
   function setupFormHtml(h) {
     var t = h.ticketing, edit = !!t, locked = edit && num(t.tickets_issued) > 0;
     function val(x) { return x === null || x === undefined ? '' : String(x); }
@@ -1681,7 +1686,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<label class="tk-check tk-wide"><input type="checkbox" name="checkin"' + (edit && t.checkin_open ? ' checked' : '') + '> Check-in open (the door can scan tickets)</label>' +
       '<div class="tk-wide"><label class="tk-check"><input type="checkbox" name="programme_visible" aria-describedby="mg-s-progh"' +
       (edit && t.programme_visible ? ' checked' : '') + '> Show the programme to registrants</label>' +
-      '<span class="tk-hint" id="mg-s-progh">When ticked, the programme button appears on every ticket and the programme page opens. The link in the e-mails opens the programme only while this is ticked.</span></div>' +
+      '<span class="tk-hint" id="mg-s-progh">When ticked, the programme button appears on every ticket and the programme page opens. The link in the e-mails opens the programme only while this is ticked.</span>' +
+      progEditLink(edit ? t.programme_url : '') + '</div>' +
       '<p class="tk-ferr tk-wide" id="mg-s-err" role="alert"></p>' +
       '<div class="tk-wide"><button type="submit" class="tk-btn tk-btn-primary" id="mg-sgo">' + (edit ? 'Save changes' : 'Turn on ticket sales') + '</button></div></form>';
   }

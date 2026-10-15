@@ -1422,6 +1422,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   var esc = TK.esc;
 
   /* who: 'all' (everyone, signed in or not) | 'signed' (any Hub session) | 'officer' (officer, Hub admin or any ledger role)
+   *      | 'events' (Hub admin or the permission Manage events)
    *      | 'scanner' (Hub admin, ledger encoder or approver) | 'ledger' (Hub admin or any ledger role) | 'admin' (Hub admin only). */
   var GROUPS = [
     ['Run the chapter', [
@@ -1429,7 +1430,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       ['Chapter calendar', 'Public view of chapter activities.', './calendar.html', 'all']]],
     ['Money', [
       ['Ledger', 'Receipts, payments, approvals and statements.', './ledger.html', 'ledger'],
-      ['Events console', 'Tickets, payments, attendees, walk-ins and CSV.', './manage.html', 'officer']]],
+      ['Events console', 'Tickets, payments, attendees, walk-ins and CSV.', './manage.html', 'officer'],
+      ['Event programme', 'Edit the order of proceedings and the people of an event programme.', './programme.html', 'events']]],
     ['At the event', [
       ['Check-in', 'Scan tickets at the door, on a phone.', './checkin.html', 'scanner'],
       ['Register for an event', 'Sign up for a chapter event and get a ticket.', './register.html', 'all'],
@@ -1448,6 +1450,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (who === 'admin') return !!a.hub_admin;
     if (who === 'scanner') return !!a.hub_admin || a.ledger_role === 'encoder' || a.ledger_role === 'approver';   // a ledger viewer cannot scan
     if (who === 'ledger') return !!a.hub_admin || !!a.ledger_role;
+    if (who === 'events') return !!a.hub_admin || a.manage_events === true;   // the programme editor (Manage events)
     return !!a.officer || !!a.hub_admin || !!a.ledger_role;
   }
 
