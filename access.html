@@ -523,7 +523,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 </style>
 <style id="ac-style">
 /* access.html only: the permission table (desktop) / cards (phones) */
-body[data-page="access"] .tk-view { max-width: 1180px; }
+body[data-page="access"] .tk-view { max-width: 1360px; }
 .tk-ac h1 { margin-bottom: var(--s2); }
 .tk-ac-help { margin: var(--s4) 0; }
 .tk-ac-who { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
@@ -532,21 +532,24 @@ body[data-page="access"] .tk-view { max-width: 1180px; }
 .tk-ac-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .tk-ac-box { min-height: 32px; }
 .tk-ac-box input[type="checkbox"] { width: 20px; height: 20px; margin: 0; accent-color: var(--navy-800); }
-.tk-ac-ledger select { min-height: 40px; max-width: 13rem; padding: var(--s1) var(--s2); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); font: inherit; }
+.tk-ac-ledger select { min-height: 40px; width: 100%; min-width: 0; max-width: 10rem; padding: var(--s1) var(--s2); border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); font: inherit; }
 .tk-ac-ledger select:disabled { background: var(--surface-2); color: var(--muted); }
 .tk-ac-hint { max-width: 16rem; color: var(--muted); }
 .tk-ac-ledgernote { margin: 0 0 var(--s2); }
 #ac-notice:empty { display: none; }
 #ac-notice { margin: 0 0 var(--s3); }
-/* cards until the table has room for its seven columns (tk.css switches tk-stack tables to a grid at 640px) */
-@media (max-width: 959px) {
+/* cards until the table has room for its nine columns (tk.css switches tk-stack tables to a grid at 640px) */
+@media (max-width: 1199px) {
   table.tk-stack.tk-ac-table thead { display: none; }
   table.tk-stack.tk-ac-table, table.tk-stack.tk-ac-table tbody, table.tk-stack.tk-ac-table tr, table.tk-stack.tk-ac-table td { display: block; width: 100%; }
   table.tk-stack.tk-ac-table tr { border: 1px solid var(--line); border-radius: var(--r-md); margin-bottom: var(--s3); padding: var(--s2) var(--s3); background: var(--surface); }
   table.tk-stack.tk-ac-table td { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s3); border: 0; padding: var(--s1) 0; text-align: right; }
   table.tk-stack.tk-ac-table td::before { content: attr(data-label); color: var(--muted); font-size: var(--fs-xs); text-align: left; flex: none; padding-top: 2px; }
 }
-@media (min-width: 960px) {
+/* the module choices stay narrow so the Save column always fits (2026-10-15) */
+.tk-ac-table td:last-child { white-space: nowrap; }
+.tk-ac-ledger select:disabled[data-admin] { color: var(--ink, inherit); }
+@media (min-width: 1200px) {
   .tk-ac-cell { align-items: flex-start; }
   .tk-ac-table td:first-child { min-width: 13rem; }
 }
@@ -1441,7 +1444,8 @@ body[data-page="access"] .tk-view { max-width: 1180px; }
  *
  * Data: hub_my_permissions() (the gate: admins only; whether the caller is an active Ledger approver) and hub_access_list()
  * (every Hub account). Each row is saved on its own with hub_access_set(p_user, p_admin, p_view_directory, p_approve_signups,
- * p_manage_events, p_ledger_role) - sql/patches/hub-access.sql. The SERVER is the authority: it refuses a non-admin, the
+ * p_manage_events, p_ledger_role, p_view_events, p_checkin, p_tracker, p_certificates) - sql/patches/hub-access.sql and
+ * sql/patches/hub-modules.sql (2026-10-15: one choice per module; Officer tools shows each person their own modules). The SERVER is the authority: it refuses a non-admin, the
  * removal of the last admin or of one's own admin access, and any Ledger role change by someone who is not an active Ledger
  * approver; its sentence is shown as it is. The page only mirrors those rules (disabled boxes and hints).
  * Desktop: a table; phones: the same rows as labelled cards (tk-stack). Every dynamic string goes through TK.esc.
@@ -1454,15 +1458,22 @@ body[data-page="access"] .tk-view { max-width: 1180px; }
   var doc = root.document;
 
   var STAR = '⭐';
-  var FLAGS = [['admin', 'Admin'], ['view_directory', 'View Member Directory'], ['approve_signups', 'Approve sign-ups'],
-    ['manage_events', 'Manage events']];
+  // one choice per module (president 2026-10-15); admins hold every module
+  var MODS = [
+    ['directory', 'Member Directory', [['none', 'None'], ['view', 'View'], ['approve', 'View and approve sign-ups']]],
+    ['events', 'Events console', [['none', 'None'], ['view', 'View'], ['manage', 'Manage']]],
+    ['checkin', 'Check-in', [['none', 'None'], ['scan', 'Scan tickets']]],
+    ['tracker', 'Chapter Tracker', [['none', 'None'], ['view', 'View'], ['edit', 'Edit']]],
+    ['certificates', 'Certificates', [['none', 'None'], ['issue', 'Issue and e-mail']]]];
   var LEDGER = [['none', 'None'], ['viewer', 'Viewer'], ['encoder', 'Encoder — confirms payments'],
     ['approver', 'Approver — confirms and approves receipts']];
   var HELP = [
-    ['Admin', 'Full access to the Hub, the Events console, certificates and this page.'],
-    ['View Member Directory', 'May read the complete member roster.'],
-    ['Approve sign-ups', 'May approve or delete New Applicants; includes viewing the Member Directory.'],
-    ['Manage events', 'May use the Events console: ticket sales, prices, venue map and programme, and may cancel events, tickets and groups.'],
+    ['Admin', 'Every module, the Hub Admin Panel and this page.'],
+    ['Member Directory', 'View: the complete member roster. View and approve sign-ups: also approves or deletes New Applicants.'],
+    ['Events console', 'View: events, payments to review and attendees. Manage: also ticket sales, prices, venue map, the event programme, and cancelling events, tickets and groups.'],
+    ['Check-in', 'Scan tickets at the door. Recording a cash payment still needs a Ledger role.'],
+    ['Chapter Tracker', 'View: read the tracker. Edit: also change it. Posting on the Hub stays with admins.'],
+    ['Certificates', 'Issue certificates and e-mail them to attendees.'],
     ['Ledger role', 'Viewer reads the Ledger; Encoder also confirms payments; Approver also approves receipts. Only a Ledger approver may change Ledger roles.']
   ];
   var HINT_SELF = 'You cannot remove your own admin access.';
@@ -1479,9 +1490,17 @@ body[data-page="access"] .tk-view { max-width: 1180px; }
   function ledgerOf(r) { return r && r.ledger_active === true ? ledgerKey(r.ledger_role) : 'none'; }
   function canLedger() { return !!S.me && S.me.ledger_role === 'approver'; }
   function saved(r) {
-    return { admin: r.admin === true, view_directory: r.view_directory === true, approve_signups: r.approve_signups === true,
-      manage_events: r.manage_events === true, ledger: ledgerOf(r) };
+    return { admin: r.admin === true,
+      directory: r.approve_signups === true ? 'approve' : r.view_directory === true ? 'view' : 'none',
+      events: r.manage_events === true ? 'manage' : r.view_events === true ? 'view' : 'none',
+      checkin: r.checkin === true ? 'scan' : 'none',
+      tracker: r.tracker === 'edit' || r.tracker === 'view' ? r.tracker : 'none',
+      certificates: r.certificates === true ? 'issue' : 'none',
+      ledger: ledgerOf(r) };
   }
+  function modOf(k) { for (var i = 0; i < MODS.length; i++) if (MODS[i][0] === k) return MODS[i]; return null; }
+  function choiceOk(k, v) { var m = modOf(k); return !!m && m[2].some(function (o) { return o[0] === v; }); }
+  function choiceName(k, v) { var m = modOf(k), o = m ? m[2].filter(function (x) { return x[0] === v; })[0] : null; return o ? o[1] : v; }
 
   /** The server's own sentence when it is a plain one (a leading CODE: is dropped); otherwise the shared friendly text. */
   function message(e) {
@@ -1516,16 +1535,27 @@ body[data-page="access"] .tk-view { max-width: 1180px; }
       (r.is_self === true ? ' <span class="tk-pill">You</span>' : '') +
       (r.email ? '<span class="tk-mini tk-ac-email">' + esc(r.email) + '</span>' : '') +
       (status ? '<span class="tk-mini">' + esc(status) + '</span>' : '') +
+      (r.admin === true ? '<span class="tk-mini">Admin: every module.</span>' : '') +
       (r.is_self === true ? '<span class="tk-mini tk-ac-hint" id="ac-self-hint">' + esc(HINT_SELF) + '</span>' : '') + '</div></td>';
   }
-  function boxCell(r, i, f, v) {
-    var self = f[0] === 'admin' && r.is_self === true;
-    var dis = self;
-    return '<td data-label="' + esc(f[1]) + '"><div class="tk-ac-cell"><label class="tk-check tk-ac-box">' +
-      '<input type="checkbox" name="' + f[0] + '" form="ac-f-' + i + '" data-change="ac.edit" data-i="' + i + '"' +
-      (v[f[0]] ? ' checked' : '') + (dis ? ' disabled' : '') + (self ? ' title="' + esc(HINT_SELF) + '" aria-describedby="ac-self-hint"' : '') +
-      ' aria-label="' + esc(f[1] + ': ' + (r.name || r.email || '')) + '">' +
-      '<span class="tk-sr">' + esc(f[1]) + '</span></label></div></td>';
+  function adminCell(r, i, v) {
+    var self = r.is_self === true;
+    return '<td data-label="Admin"><div class="tk-ac-cell"><label class="tk-check tk-ac-box">' +
+      '<input type="checkbox" name="admin" form="ac-f-' + i + '" data-change="ac.edit" data-i="' + i + '"' +
+      (v.admin ? ' checked' : '') + (self ? ' disabled title="' + esc(HINT_SELF) + '" aria-describedby="ac-self-hint"' : '') +
+      ' aria-label="' + esc('Admin: ' + (r.name || r.email || '')) + '">' +
+      '<span class="tk-sr">Admin</span></label></div></td>';
+  }
+  function modCell(r, i, m, v) {
+    if (r.admin === true) {                         // an admin holds every module: shown as such, nothing to choose
+      return '<td data-label="' + esc(m[1]) + '"><div class="tk-ac-cell tk-ac-ledger"><select disabled data-admin aria-label="' +
+        esc(m[1] + ': ' + (r.name || r.email || '') + ': all (admin)') + '"><option>All (admin)</option></select></div></td>';
+    }
+    return '<td data-label="' + esc(m[1]) + '"><div class="tk-ac-cell tk-ac-ledger"><select name="' + m[0] + '" form="ac-f-' + i +
+      '" data-change="ac.edit" data-i="' + i + '" aria-label="' + esc(m[1] + ': ' + (r.name || r.email || '')) + '">' +
+      m[2].map(function (o) {
+        return '<option value="' + o[0] + '"' + (o[0] === v[m[0]] ? ' selected' : '') + '>' + esc(o[1]) + '</option>';
+      }).join('') + '</select></div></td>';
   }
   function ledgerCell(r, i, v) {
     var dis = !canLedger();
@@ -1538,8 +1568,8 @@ body[data-page="access"] .tk-view { max-width: 1180px; }
   }
   function rowHtml(r, i) {
     var v = saved(r);
-    return '<tr id="ac-row-' + i + '">' + nameCell(r) +
-      FLAGS.map(function (f) { return boxCell(r, i, f, v); }).join('') + ledgerCell(r, i, v) +
+    return '<tr id="ac-row-' + i + '">' + nameCell(r) + adminCell(r, i, v) +
+      MODS.map(function (m) { return modCell(r, i, m, v); }).join('') + ledgerCell(r, i, v) +
       '<td data-label=""><form id="ac-f-' + i + '" data-action="ac.save" data-i="' + i + '" data-user="' + esc(r.user_id) + '">' +
       '<button type="submit" class="tk-btn tk-btn-primary tk-btn-small" id="ac-save-' + i + '" disabled>Save</button></form></td></tr>';
   }
@@ -1547,15 +1577,16 @@ body[data-page="access"] .tk-view { max-width: 1180px; }
     if (!S.rows.length) return '<p class="tk-muted">No Hub accounts were found.</p>';
     // the Ledger role select is disabled for everyone when the caller is not an active Ledger approver: the hint once, above
     return (canLedger() ? '' : '<p class="tk-mini tk-ac-ledgernote" id="ac-ledger-hint">Ledger role: ' + esc(HINT_LEDGER) + '</p>') +
-      '<div class="tk-table-wrap"><table class="tk-grid tk-stack tk-ac-table"><thead><tr><th scope="col">Name</th>' +
-      FLAGS.map(function (f) { return '<th scope="col">' + esc(f[1]) + '</th>'; }).join('') +
+      '<div class="tk-table-wrap"><table class="tk-grid tk-stack tk-ac-table"><thead><tr><th scope="col">Name</th><th scope="col">Admin</th>' +
+      MODS.map(function (m) { return '<th scope="col">' + esc(m[1]) + '</th>'; }).join('') +
       '<th scope="col">Ledger role</th><th scope="col"><span class="tk-sr">Save</span></th></tr></thead><tbody>' +
       S.rows.map(rowHtml).join('') + '</tbody></table></div>';
   }
   function pageHtml() {
     return '<div class="tk-ac"><h1>Access</h1>' +
-      '<p class="tk-muted">Who may do what in the Hub, the Events console and the Ledger. Each person is saved separately; ' +
-      'a change applies the next time that person opens a page.</p>' + helpHtml() +
+      '<p class="tk-muted">Choose, for each person, what they may see and do in each module. Officer tools shows each person ' +
+      'only the modules they have, and the database refuses everything else. Each person is saved separately; a change applies ' +
+      'the next time that person opens a page.</p>' + helpHtml() +
       '<div id="ac-notice">' + noticeHtml() + '</div><div id="ac-list">' + listHtml() + '</div></div>';
   }
   function deniedHtml() {
@@ -1592,9 +1623,11 @@ body[data-page="access"] .tk-view { max-width: 1180px; }
   function current(i, form) {
     var r = S.rows[i], v = saved(r), out = {};
     form = form || byId('ac-f-' + i);
-    FLAGS.forEach(function (f) {
-      var el = field(form, f[0]);
-      out[f[0]] = el && typeof el.checked === 'boolean' ? el.checked : v[f[0]];
+    var box = field(form, 'admin');
+    out.admin = box && typeof box.checked === 'boolean' ? box.checked : v.admin;
+    MODS.forEach(function (m) {
+      var el = field(form, m[0]);
+      out[m[0]] = el && typeof el.value === 'string' && choiceOk(m[0], el.value) ? el.value : v[m[0]];
     });
     var sel = field(form, 'ledger');
     out.ledger = sel && typeof sel.value === 'string' ? ledgerKey(sel.value) : v.ledger;
@@ -1626,8 +1659,9 @@ body[data-page="access"] .tk-view { max-width: 1180px; }
       return null;
     }
     var v = current(i, form);
-    var args = { p_user: r.user_id, p_admin: v.admin, p_view_directory: v.view_directory, p_approve_signups: v.approve_signups,
-      p_manage_events: v.manage_events, p_ledger_role: v.ledger };
+    var args = { p_user: r.user_id, p_admin: v.admin, p_view_directory: v.directory !== 'none', p_approve_signups: v.directory === 'approve',
+      p_manage_events: v.events === 'manage', p_ledger_role: v.ledger, p_view_events: v.events !== 'none', p_checkin: v.checkin === 'scan',
+      p_tracker: v.tracker, p_certificates: v.certificates === 'issue' };
     S.busy = i;
     S.notice = null;
     showNotice();
@@ -1648,10 +1682,11 @@ body[data-page="access"] .tk-view { max-width: 1180px; }
     });
   });
 
-  /** "Admin, Manage events, Ledger encoder" - what the person now holds, in words. */
+  /** "Admin, Events console: Manage, Ledger encoder" - what the person now holds, in words. */
   function summary(r) {
     var v = saved(r), parts = [];
-    FLAGS.forEach(function (f) { if (v[f[0]]) parts.push(f[1]); });
+    if (v.admin) parts.push('Admin');
+    MODS.forEach(function (m) { if (v[m[0]] !== 'none') parts.push(m[1] + ': ' + choiceName(m[0], v[m[0]])); });
     if (v.ledger !== 'none') parts.push('Ledger ' + v.ledger);
     return parts.length ? parts.join(', ') : 'no additional access';
   }

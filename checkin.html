@@ -1439,7 +1439,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function curEvent() { return S.eventId ? evById(S.eventId) : null; }
 
   // ------------------------------------------------------------------ roles (from ticketing_my_access)
-  function isScanner(a) { return !!a && (!!a.hub_admin || a.ledger_role === 'encoder' || a.ledger_role === 'approver'); }
+  /* + the Access page's Check-in module (2026-10-15): scanning only; recording cash still needs a Ledger role (canCash) */
+  function isScanner(a) { return !!a && (!!a.hub_admin || a.ledger_role === 'encoder' || a.ledger_role === 'approver' || a.checkin === true); }
   function canCash() { return !!S.access && (S.access.ledger_role === 'encoder' || S.access.ledger_role === 'approver'); }
   function canOverride() { return !!S.access && S.access.ledger_role === 'approver'; }
 

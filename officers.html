@@ -1422,11 +1422,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   var esc = TK.esc;
 
   /* who: 'all' (everyone, signed in or not) | 'signed' (any Hub session) | 'officer' (officer, Hub admin or any ledger role)
-   *      | 'events' (Hub admin or the permission Manage events)
-   *      | 'scanner' (Hub admin, ledger encoder or approver) | 'ledger' (Hub admin or any ledger role) | 'admin' (Hub admin only). */
+   *      | 'events' (Hub admin or the permission Manage events) | 'tracker' (Hub admin or Tracker View / Edit) - the Access page's modules (2026-10-15)
+   *      | 'scanner' (Hub admin, ledger encoder or approver, or Check-in) | 'ledger' (Hub admin or any ledger role) | 'admin' (Hub admin only). */
   var GROUPS = [
     ['Run the chapter', [
-      ['Chapter Tracker', 'Projects, activities, meetings and tasks.', './tracker.html', 'officer'],
+      ['Chapter Tracker', 'Projects, activities, meetings and tasks.', './tracker.html', 'tracker'],
       ['Chapter calendar', 'Public view of chapter activities.', './calendar.html', 'all']]],
     ['Money', [
       ['Ledger', 'Receipts, payments, approvals and statements.', './ledger.html', 'ledger'],
@@ -1448,7 +1448,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (!a) return false;                       // 'a' = {hub_admin, officer, ledger_role}; null/absent = nothing known
     if (who === 'signed') return true;
     if (who === 'admin') return !!a.hub_admin;
-    if (who === 'scanner') return !!a.hub_admin || a.ledger_role === 'encoder' || a.ledger_role === 'approver';   // a ledger viewer cannot scan
+    // the Access page's modules (2026-10-15): each person sees the cards of the modules they hold
+    if (who === 'scanner') return !!a.hub_admin || a.ledger_role === 'encoder' || a.ledger_role === 'approver' || a.checkin === true;   // a ledger viewer cannot scan
+    if (who === 'tracker') return !!a.hub_admin || a.tracker === 'view' || a.tracker === 'edit';
     if (who === 'ledger') return !!a.hub_admin || !!a.ledger_role;
     if (who === 'events') return !!a.hub_admin || a.manage_events === true;   // the programme editor (Manage events)
     return !!a.officer || !!a.hub_admin || !!a.ledger_role;
