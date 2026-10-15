@@ -1588,22 +1588,36 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   // boxH: the tallest the e-signature may be (the space above the line differs per design)
   function signatory(doc, x, ln, s, anchor, boxH) {
     var x1 = anchor === 'start' ? x : x - 34, x2 = anchor === 'start' ? x + 68 : x + 34;
-    if (s.signature) signatureImage(doc, (x1 + x2) / 2, ln, s.signature, boxH || 15);
+    if (s.signature) signatureImage(doc, (x1 + x2) / 2, ln, s.signature, boxH || 15, s.base);
     line(doc, x1, ln, x2, ln, COL.ink, 0.25);
-    T(doc, x, ln + 5, s.name, 3.3, 700, COL.ink, { anchor: anchor, ls: 0.12 });
-    T(doc, x, ln + 9.3, s.position, 2.8, 400, COL.muted, { anchor: anchor });
+    // the name sits 6 mm under the line (was 5): room for a signature's tail between the line and the name
+    T(doc, x, ln + 6, s.name, 3.3, 700, COL.ink, { anchor: anchor, ls: 0.12 });
+    T(doc, x, ln + 10.3, s.position, 2.8, 400, COL.muted, { anchor: anchor });
   }
   // An officer's electronic signature (data URI, PNG or JPEG), centred above the signature line, fitted into
   // a 46 mm x boxH box with its aspect ratio kept, its bottom 2 mm below the line. A bad image is skipped (the line stays).
-  function signatureImage(doc, cx, ln, uri, boxH) {
+  function signatureImage(doc, cx, ln, uri, boxH, base) {
+    // certificates: the name's capitals start about 3.6 mm under the line; a tail may come down to 0.4 mm above them
+    placeSignature(doc, uri, cx, ln, 46, boxH, base, 3.2, 2);
+  }
+  /* An e-signature on its line. base (from the page, 0..1) = how far down the picture the main body of the signature ends
+     (where 90% of the ink is reached). With it, that point sits on the line and a long tail hangs below, like a pen; a tail
+     that would reach the printed name (room = mm below the line) shrinks the signature (to 80% at most), then lifts it.
+     Without base (older callers, tests): the picture's bottom sits `drop` mm below the line, as before. */
+  function placeSignature(doc, uri, cx, ln, maxW, boxH, base, room, drop) {
     try {
       var m = /^data:image\/(png|jpeg);base64,/.exec(String(uri || ''));
       if (!m) return;
-      var p = doc.getImageProperties(uri), boxW = 46;
+      var p = doc.getImageProperties(uri);
       if (!p || !p.width || !p.height) return;
-      var k = Math.min(boxW / p.width, boxH / p.height), w = p.width * k, h = p.height * k;
-      // like a pen signature: the bottom of the ink crosses the line a little (2 mm), still clear of the printed name
-      doc.addImage(uri, m[1] === 'png' ? 'PNG' : 'JPEG', cx - w / 2, ln + 2 - h, w, h, undefined, 'FAST');
+      var k = Math.min(maxW / p.width, boxH / p.height), w = p.width * k, h = p.height * k, top;
+      if (typeof base === 'number' && base > 0.2 && base <= 1) {
+        var tail = (1 - base) * h, s = tail - 0.3 > room ? Math.max(0.8, (room + 0.3) / tail) : 1;
+        w *= s; h *= s;
+        top = ln + 0.3 - base * h;
+        if (top + h > ln + room) top = ln + room - h;
+      } else top = ln + drop - h;
+      doc.addImage(uri, m[1] === 'png' ? 'PNG' : 'JPEG', cx - w / 2, top, w, h, undefined, 'FAST');
     } catch (e) { /* unreadable image: leave the line for a wet signature */ }
   }
   function logo(doc, x, y, w) {
@@ -1808,7 +1822,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var sigs = (cert.signatories || []).slice(0, 2).map(function (s) {
       var pos = String(s.position || '').trim(), term = String(s.term || cert.term || '').trim();
       return { name: String(s.full_name || '').toUpperCase(), position: term ? pos + ', ' + term : pos,
-               signature: typeof s.signature === 'string' && s.signature ? s.signature : null };
+               signature: typeof s.signature === 'string' && s.signature ? s.signature : null,
+               base: typeof s.base === 'number' ? s.base : null };
     });
     var term = String(cert.term || (cert.signatories && cert.signatories[0] && cert.signatories[0].term) || '').trim();
     return {
@@ -1881,24 +1896,18 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
   // a signatory centred on cx: optional e-signature, the line, NAME, position
   function sigBlock(doc, cx, ln, s, nameSize, lineW, boxH, P) {
-    if (s.signature) {
-      try {
-        var m = /^data:image\/(png|jpeg);base64,/.exec(s.signature), pr = m && doc.getImageProperties(s.signature);
-        if (pr && pr.width && pr.height) {
-          var k = Math.min(lineW * 0.72 / pr.width, boxH / pr.height), w = pr.width * k, h = pr.height * k;
-          doc.addImage(s.signature, m[1] === 'png' ? 'PNG' : 'JPEG', cx - w / 2, ln + 1.2 - h, w, h, undefined, 'FAST');
-        }
-      } catch (e) { /* unreadable image: the line stays for a wet signature */ }
-    }
+    var nameY = ln + nameSize * 1.45 + 0.8;                    // 0.8 mm lower than before: room for a signature's tail
+    if (s.signature) placeSignature(doc, s.signature, cx, ln, lineW * 0.72, boxH, s.base, nameY - nameSize * 0.72 - ln - 0.3, 1.2);
     line(doc, cx - lineW / 2, ln, cx + lineW / 2, ln, P('ink'), Math.max(0.2, nameSize * 0.07));
-    T(doc, cx, ln + nameSize * 1.45, s.name, nameSize, 700, P('ink'), { anchor: 'middle', ls: nameSize * 0.03 });
-    T(doc, cx, ln + nameSize * 2.75, s.position, nameSize * 0.85, 400, P('muted'), { anchor: 'middle' });
+    T(doc, cx, nameY, s.name, nameSize, 700, P('ink'), { anchor: 'middle', ls: nameSize * 0.03 });
+    T(doc, cx, nameY + nameSize * 1.3, s.position, nameSize * 0.85, 400, P('muted'), { anchor: 'middle' });
   }
   function sigsOf(list, term) {
     return (list || []).slice(0, 3).map(function (s) {
       var pos = String(s.position || '').trim(), t = String(s.term || term || '').trim();
       return { name: String(s.full_name || '').toUpperCase(), position: t ? pos + ', ' + t.replace(/-/g, '–') : pos,
-               signature: typeof s.signature === 'string' && s.signature ? s.signature : null };
+               signature: typeof s.signature === 'string' && s.signature ? s.signature : null,
+               base: typeof s.base === 'number' ? s.base : null };
     });
   }
   function paras(text) { return String(text || '').split(/\n\s*\n/).map(function (p) { return p.replace(/\s+/g, ' ').trim(); }).filter(Boolean); }
@@ -2360,7 +2369,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   // data URI (null = none), for this page load only; sigWarn: lines to add to the note when cert_set_signatories failed.
   var S = { l: null, p: null, access: null, events: [], eventId: null, data: null, rows: [], layout: 'formal', date: '', loadError: '',
     note: null, busy: false, run: null, showSettings: false, seq: 0, view: 'event', o: null, ctx: null, ctxError: '', regType: '',
-    regLoaded: false, editing: null, sign: null, img: {}, sigWarn: null, sigBusy: '', sigConfirm: '', sigMsg: null };
+    regLoaded: false, editing: null, sign: null, img: {}, imgBase: {}, sigWarn: null, sigBusy: '', sigConfirm: '', sigMsg: null };
 
   function byId(id) { return doc && doc.getElementById ? doc.getElementById(id) : null; }
   function own(map, k) { return typeof k === 'string' && Object.prototype.hasOwnProperty.call(map, k); }
@@ -2436,7 +2445,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   /** The renderer's signatories: name, position, term and the e-signature when one is loaded. */
   function sigData(c) {
     return signersOf(c).map(function (s) {
-      return { full_name: s.full_name, position: s.position, term: s.term, signature: own(S.img, s.id) && S.img[s.id] ? S.img[s.id] : null };
+      return { full_name: s.full_name, position: s.position, term: s.term, signature: own(S.img, s.id) && S.img[s.id] ? S.img[s.id] : null,
+        base: own(S.imgBase, s.id) ? S.imgBase[s.id] : null };
     });
   }
   function signedText(c) {
@@ -2476,9 +2486,42 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     }
     return p;
   }
-  /** A promise of fn(), run once the e-signatures the rows need are loaded. */
+  /** A promise of fn(), run once the e-signatures the rows need are loaded (and measured). */
   function withImages(rows, fn) {
-    return Promise.resolve().then(function () { return loadImages(needIds(rows)); }).then(fn);
+    return Promise.resolve().then(function () { return loadImages(needIds(rows)); }).then(function () { return ensureBases(Object.keys(S.img)); }).then(fn);
+  }
+  /** Where the main body of a signature ends, as a fraction of the picture's height (0..1): the row by which 90% of the
+   *  ink is reached. The renderer puts that point on the line so a long tail hangs below it. Null when it cannot tell. */
+  function inkBase(uri) {
+    return new Promise(function (resolve) {
+      if (!uri || typeof root.Image !== 'function' || !doc || !doc.createElement) return resolve(null);
+      var img = new root.Image();
+      img.onerror = function () { resolve(null); };
+      img.onload = function () {
+        try {
+          var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height, c = canvasOf(w, h), x = c.getContext && c.getContext('2d');
+          if (!x || !(w > 0 && h > 1)) return resolve(null);
+          x.drawImage(img, 0, 0);
+          var d = x.getImageData(0, 0, w, h).data, rows = [], total = 0, y, i;
+          for (y = 0; y < h; y++) {
+            var n = 0;
+            for (i = y * w * 4; i < (y + 1) * w * 4; i += 4) if (d[i + 3] > 60 && lum(d, i) < 200) n++;
+            rows.push(n); total += n;
+          }
+          if (!total) return resolve(null);
+          var acc = 0;
+          for (y = 0; y < h; y++) { acc += rows[y]; if (acc >= total * 0.9) return resolve((y + 1) / h); }
+          resolve(null);
+        } catch (e) { resolve(null); }
+      };
+      img.src = uri;
+    });
+  }
+  /** Measure the loaded e-signatures not measured yet (kept in memory for this page load, like the pictures). */
+  function ensureBases(ids) {
+    return Promise.all((ids || []).filter(function (id) { return own(S.img, id) && S.img[id] && !own(S.imgBase, id); }).map(function (id) {
+      return inkBase(S.img[id]).then(function (b) { S.imgBase[id] = b; });
+    }));
   }
   /** cert_set_signatories for rows just issued (the chooser's choice); each row takes its snapshot. A failure keeps the
    *  rows (they print with the chooser's choice until fixed) and leaves lines for the note at the end of the action. */
@@ -3188,7 +3231,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var mine = S.seq;
     return readSignature(file).then(function (uri) {
       return TK.rpc('cert_save_signature', { p_officer: id, p_image: uri }).then(function () {
-        S.img[id] = uri; o.has_signature = true;
+        S.img[id] = uri; delete S.imgBase[id]; o.has_signature = true;
       });
     }).then(function () {
       S.sigBusy = '';
@@ -3208,7 +3251,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     drawSettings();
     var mine = S.seq;
     return rotateSignature(img, dir).then(function (uri) {
-      return TK.rpc('cert_save_signature', { p_officer: id, p_image: uri }).then(function () { S.img[id] = uri; });
+      return TK.rpc('cert_save_signature', { p_officer: id, p_image: uri }).then(function () { S.img[id] = uri; delete S.imgBase[id]; });
     }).then(function () {
       S.sigBusy = '';
       if (mine === S.seq) sigDone('good', 'The e-signature of ' + (o.full_name || '') + ' was turned and saved.');
@@ -4081,7 +4124,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       body: String(p.body || '').replace(/\r\n?/g, '\n').trim(), occasion: sq(p.occasion), given: givenText(p.date, p.venue), term: term,
       signatories: pqSigners().map(function (id) {
         var o = officerById(id);
-        return { full_name: o.full_name || '', position: o.position || '', term: o.term || term, signature: sigs && sigs[id] ? sigs[id] : null };
+        return { full_name: o.full_name || '', position: o.position || '', term: o.term || term, signature: sigs && sigs[id] ? sigs[id] : null,
+          base: sigs && sigs[id] && own(S.imgBase, id) ? S.imgBase[id] : null };
       }) };
   }
   /** The renderer's data for each oath page, in the order of the officers list. */
@@ -4116,7 +4160,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   /** A promise of {officer id: data URI} for the plaque's signatories that have an e-signature. */
   function pqSignatures() {
     var ids = pqSigners(), need = ids.filter(function (id) { var o = officerById(id); return o && o.has_signature && !own(S.img, id); });
-    return loadImages(need).then(function () {
+    return loadImages(need).then(function () { return ensureBases(ids); }).then(function () {
       var out = {}, dark = S.p.finish === 'dark' || S.p.finish === 'teal-color';   // white e-signatures on teal only
       return Promise.all(ids.map(function (id) {
         var uri = own(S.img, id) ? S.img[id] : null;
