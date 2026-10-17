@@ -2083,6 +2083,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     rectFill(doc, M - 8, rule, 16, 0.4, P('gold5'));
     dy = rule - 36.2;
     var y, items = [], maxW = 86;
+    dy += 3;                                      // a little more air under the logos before the title (every kind of plaque)
     if (p.kind === 'award') {
       // set like PLAQUE OF / APPRECIATION: the first word small and spaced, the rest large (OUTSTANDING / SERVICE AWARD),
       // the same sizes and places as the Plaque of Appreciation
@@ -2200,15 +2201,15 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       if (cur) L.push(cur); return L.slice(0, 2);
     }
     if (p.kind === 'award') {
-      var aw = awardTitle(p.title), kick = aw[0], big = aw[1];     // as PLAQUE OF / APPRECIATION
-      if (kick) T(doc, CX, 42, kick, fitSize(doc, kick, 400, DISP, 2.9, CW, 2, 0.5), 400, AC.greenText, { fam: DISP, anchor: 'middle', ls: 0.5 });
+      var aw = awardTitle(p.title), kick = aw[0], big = aw[1];     // as PLAQUE OF / APPRECIATION, a little lower (air under the logo)
+      if (kick) T(doc, CX, 45, kick, fitSize(doc, kick, 400, DISP, 2.9, CW, 2, 0.5), 400, AC.greenText, { fam: DISP, anchor: 'middle', ls: 0.5 });
       var tsA = fitSize(doc, big, 400, DISP, 7.4, CW, 4.4, 0.15);
-      y = 42 + tsA * 1.05;
+      y = 45 + tsA * 1.05;
       T(doc, CX, y, big, tsA, 400, AC.navy, { fam: DISP, anchor: 'middle', ls: 0.15 });
     } else {
-      T(doc, CX, 42, 'PLAQUE OF', 2.9, 400, AC.greenText, { fam: DISP, anchor: 'middle', ls: 0.5 });
+      T(doc, CX, 45, 'PLAQUE OF', 2.9, 400, AC.greenText, { fam: DISP, anchor: 'middle', ls: 0.5 });   // as the award: air under the logo
       var ts2 = fitSize(doc, 'APPRECIATION', 400, DISP, 7.4, CW, 5, 0.15);
-      y = 42 + ts2 * 1.05;
+      y = 45 + ts2 * 1.05;
       T(doc, CX, y, 'APPRECIATION', ts2, 400, AC.navy, { fam: DISP, anchor: 'middle', ls: 0.15 });
     }
     items.push(['is hereby presented to', 2.55, 400, COL.muted, 0]);
