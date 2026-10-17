@@ -4450,6 +4450,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       date: TK.localISO(new Date()), venue: '', sign: [pair[0], pair[1], ''], oath: oath, indName: PQ_INDUCTING, indTitle: 'Inducting Officer',
       offSentence: PQ_OFF_SENTENCE, offOccasion: PQ_OFF_OCCASION, offs: pqOffRows(),
       offKind: 'appreciation', offTitle: PQ_OFF_AWARD, offBody: PQ_OFF_CITATION,
+      offSub: officerByPos(/president/i, /elect|past|immediate|vice/i),
       mNames: '', mInd: officerByPos(/president/i, /elect|past|immediate|vice/i), mWit: officerByPos(/operations/i) };
   }
   /** 'YYYY-MM-DD' + venue -> '23rd day of October 2026 at the Gladiolus Hotel, Jeddah' ('' when the date is not valid). */
@@ -4510,25 +4511,46 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       finish: pqFinishes().some(function (x) { return x[0] === p.finish; }) ? p.finish : 'dark', logo: pqLogo(p.logo),
       title: sq(p.title), name: sq(p.name).toUpperCase(), designation: sq(p.designation), sentence: sq(p.sentence), role: sq(p.role),
       body: String(p.body || '').replace(/\r\n?/g, '\n').trim(), occasion: sq(p.occasion), given: givenText(p.date, p.venue), term: term,
-      signatories: pqSigners().map(function (id) {
-        var o = pqSignee(id);
-        return { full_name: o.full_name || '', position: o.position || '', term: o.term || term, signature: sigs && sigs[id] ? sigs[id] : null,
-          base: sigs && sigs[id] && o.sigId && own(S.imgBase, o.sigId) ? S.imgBase[o.sigId] : null };
-      }) };
+      signatories: pqSigners().map(function (id) { return sigObj(id, sigs, term); }) };
+  }
+  /** The renderer's signatory for a signee id (an officer, or 'b25:<n>'), with the e-signature when it was loaded. */
+  function sigObj(id, sigs, term) {
+    var o = pqSignee(id);
+    if (!o) return null;
+    return { full_name: o.full_name || '', position: o.position || '', term: o.term || term || '', signature: sigs && sigs[id] ? sigs[id] : null,
+      base: sigs && sigs[id] && o.sigId && own(S.imgBase, o.sigId) ? S.imgBase[o.sigId] : null };
+  }
+  /** Officers' plaques: nobody signs their own plaque. A signatory who is the recipient (same first initial and surname) is
+   *  replaced by the substitute (S.p.offSub), or left off when there is none; a name is never printed twice. */
+  function offSigners(r, list, sub) {
+    var out = [];
+    list.forEach(function (s) {
+      var x = sameSigner(s.full_name, r.name) ? (sub && !sameSigner(sub.full_name, r.name) ? sub : null) : s;
+      if (x && !out.some(function (y) { return sameSigner(y.full_name, x.full_name); })) out.push(x);
+    });
+    return out;
+  }
+  /** The plaques (rows) whose recipient is one of the signatories, as sentences for the form. */
+  function offSelfNotes() {
+    var p = S.p, signers = pqSigners().map(function (id) { return pqSignee(id); }).filter(Boolean), sub = p.offSub ? pqSignee(p.offSub) : null;
+    return pqOffChosen().filter(function (r) { return sq(r.name) && signers.some(function (s) { return sameSigner(s.full_name, r.name); }); }).map(function (r) {
+      return sq(r.name) + ': signed by ' + (sub && !sameSigner(sub.full_name, r.name) ? sub.full_name + ' in place of the recipient' : 'the other signatories only') + '.';
+    });
   }
   /** The renderer's data for each officer's plaque (Plaque of Appreciation; the role printed large is the position, the
    *  occasion ends with the officer's own fiscal year). */
   function officersData(sigs) {
     var p = S.p, base = plaqueData(sigs), occ = sq(p.offOccasion).replace(/[.\s]+$/, '');
+    var sub = p.offSub ? sigObj(p.offSub, sigs, base.term) : null;
     return pqOffChosen().map(function (r) {
-      var term = sq(r.term).replace(/-/g, '–');
+      var term = sq(r.term).replace(/-/g, '–'), signatories = offSigners(r, base.signatories, sub);
       if (p.offKind === 'award') {
         // the award: title, name, "Position, fiscal year", the citation ([fiscal year] = this officer's)
-        return Object.assign({}, base, { kind: 'award', title: sq(p.offTitle), name: sq(r.name).toUpperCase(),
+        return Object.assign({}, base, { signatories: signatories, kind: 'award', title: sq(p.offTitle), name: sq(r.name).toUpperCase(),
           designation: sq(r.position) + (term ? ', ' + term : ''), sentence: '', role: '', occasion: '', term: term || base.term,
           body: String(p.offBody || '').replace(/\r\n?/g, '\n').split(PQ_OFF_FY).join(term || '').trim() });
       }
-      return Object.assign({}, base, { kind: 'appreciation', name: sq(r.name).toUpperCase(), designation: '', title: '', body: '',
+      return Object.assign({}, base, { signatories: signatories, kind: 'appreciation', name: sq(r.name).toUpperCase(), designation: '', title: '', body: '',
         sentence: sq(p.offSentence), role: sq(r.position), term: term || base.term,
         occasion: occ ? occ + (term ? ' for the fiscal year ' + term : '') + '.' : '' });
     });
@@ -4585,7 +4607,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
   /** A promise of {officer id: data URI} for the plaque's signatories that have an e-signature. */
   function pqSignatures() {
-    var ids = pqSigners(), sid = ids.map(function (id) { var s = pqSignee(id); return s && s.has_signature ? s.sigId : ''; });
+    var ids = pqSigners();
+    if (S.p.doc === 'officers' && S.p.offSub && pqSignee(S.p.offSub) && ids.indexOf(S.p.offSub) < 0) ids = ids.concat([S.p.offSub]);
+    var sid = ids.map(function (id) { var s = pqSignee(id); return s && s.has_signature ? s.sigId : ''; });
     var need = sid.filter(function (x, i) { return x && !own(S.img, x) && sid.indexOf(x) === i; });
     return loadImages(need).then(function () { return ensureBases(sid.filter(Boolean)); }).then(function () {
       var out = {}, dark = S.p.finish === 'dark' || S.p.finish === 'teal-color';   // white e-signatures on teal only
@@ -4694,6 +4718,21 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<p class="tk-mini">The plaque is A6 portrait (105 × 148 mm), ready for the engraver. On both dark teal finishes the e-signatures print in white; full colour keeps the logos (the theme logo and the PICPA chevrons) in their own colours. ACTION with I.M.P.A.C.T. plaques carry no seal; Side panel is their navy I.M.P.A.C.T. design. ' +
       'Logo layout sets where the PICPA mark sits beside the theme logo; on Side panel, Header row is set as a masthead.</p>';
   }
+  /** Officers' plaques: who signs in place of a signatory on that signatory's own plaque, and which plaques it affects. */
+  function offSubHtml() {
+    var cur = S.p.offSub || '', notes = offSelfNotes();
+    var opts = '<option value=""' + (cur ? '' : ' selected') + '>Nobody (leave that line off)</option>' +
+      '<optgroup label="Officers ' + esc(String(pqTerm() || '').replace(/-/g, '–')) + '">' + officers().filter(function (x) { return /[A-Za-z]/.test(String(x.full_name || '')); }).map(function (x) {
+        return '<option value="' + esc(x.id) + '"' + (x.id === cur ? ' selected' : '') + '>' + esc(offLabel(x)) + '</option>';
+      }).join('') + '</optgroup><optgroup label="Board 2025–2026 (outgoing)">' + PQ_BOARD_2025.map(function (x, i) {
+        var v = 'b25:' + i;
+        return '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + esc(x[0] + ' - ' + x[1] + ', 2025–2026') + '</option>';
+      }).join('') + '</optgroup>';
+    return '<div class="tk-ct-optrow"><div class="tk-field tk-ct-title"><label for="ct-p-osub">On a signatory’s own plaque, sign instead with</label>' +
+      '<select id="ct-p-osub" data-change="ct.p.osub" aria-describedby="ct-p-osubh"' + dis() + '>' + opts + '</select>' +
+      '<span class="tk-hint" id="ct-p-osubh">Nobody signs their own plaque: on it, this person replaces them.</span></div></div>' +
+      (notes.length ? '<div class="tk-note" id="ct-p-onotes"><p>' + notes.map(esc).join('<br>') + '</p></div>' : '');
+  }
   /** Oath of Membership: the logo layout, the new members (one per line), sworn in before / witnessed by. */
   function pqMemberHtml() {
     var p = S.p, d = dis();
@@ -4746,7 +4785,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<button type="button" class="tk-btn tk-btn-small" data-action="ct.p.ofill"' + d + '>Load the Hub officers</button>' +
       '<button type="button" class="tk-btn tk-btn-small" data-action="ct.p.oprev"' + d + '>Load the 2025–2026 board</button>' +
       '<button type="button" class="tk-btn tk-btn-small" data-action="ct.p.oclear"' + (rows.length ? d : ' disabled') + '>Clear the list</button></div>' + list + '</fieldset>' +
-      pqSignHtml() +
+      pqSignHtml() + offSubHtml() +
       '<p class="tk-mini">One Plaque of Appreciation per selected officer, A6 portrait (105 × 148 mm), in one PDF. The officers come from the Hub’s officers list; ' +
       'names, positions and fiscal years can be changed here without changing the Hub. Load the Hub officers and Load the 2025–2026 board (the outgoing board, ' +
       'as printed in the August 2026 programme) replace the list. Add a person: a new row takes the fiscal year of the row above.</p>';
@@ -4802,6 +4841,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var v = choiceVal(el);
     if (!S.p || S.busy || !PQ_OFF_KINDS.some(function (x) { return x[0] === v; })) return null;
     S.p.offKind = v; pqRedraw(); return null;
+  });
+  TK.action('ct.p.osub', function (el) {
+    var v = el && typeof el.value === 'string' ? el.value : '';
+    if (!S.p || S.busy || (v && !pqSignee(v))) return null;
+    S.p.offSub = v; pqRedraw(); return null;
   });
   TK.action('ct.p.oprev', function () {
     if (!S.p || S.busy) return null;
@@ -5170,6 +5214,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       if (!pqFinishes().some(function (x) { return x[0] === S.p.finish; })) S.p.finish = 'dark';
       S.p.logo = pqLogo(S.p.logo);
       if (S.p.offKind !== 'award') S.p.offKind = 'appreciation';
+      if (S.p.offSub && !pqSignee(S.p.offSub)) S.p.offSub = '';
       if (S.p.mInd && !officerById(S.p.mInd)) S.p.mInd = '';
       if (S.p.mWit && !officerById(S.p.mWit)) S.p.mWit = '';
       return;
