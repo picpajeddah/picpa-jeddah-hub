@@ -2837,8 +2837,29 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
   }
   function canvasOf(w, h) { var c = doc.createElement('canvas'); c.width = w; c.height = h; return c; }
-  /** A loaded picture -> a trimmed PNG data URI with a transparent background, at most 600 x 200 and 300 KB. */
-  function drawSignature(img) {
+  /** A canvas -> a PNG data URI fitted to 600 x 200 (never enlarged), at most 300 KB. */
+  function fitSignature(src) {
+    var out = sigFit(src.width, src.height, SIG.maxW, SIG.maxH);
+    var b = canvasOf(out.w, out.h), bx = b.getContext('2d');
+    bx.drawImage(src, 0, 0, src.width, src.height, 0, 0, out.w, out.h);
+    var uri = String(b.toDataURL('image/png') || '');
+    if (!/^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(uri)) throw sigErr('UNREADABLE');
+    if (uri.length > SIG.maxUri) throw sigErr('TOO_BIG');
+    return uri;
+  }
+  /** A canvas turned a quarter turn: dir -1 = left (anticlockwise), 1 = right (clockwise). */
+  function turnCanvas(src, dir) {
+    var w = src.width, h = src.height, r = canvasOf(h, w), rx = r.getContext && r.getContext('2d');
+    if (!rx) throw TK.makeError('LIB_MISSING');
+    rx.translate(h / 2, w / 2);
+    rx.rotate(dir < 0 ? -Math.PI / 2 : Math.PI / 2);
+    rx.drawImage(src, -w / 2, -h / 2);
+    return r;
+  }
+  /** A loaded picture -> a trimmed PNG data URI with a transparent background, at most 600 x 200 and 300 KB.
+   *  keep: also return the cleaned, trimmed picture at its working size ({ uri, src }), so that a quarter turn made right
+   *  after the upload starts from it and not from the small saved copy (a sideways photo would otherwise end up tiny). */
+  function drawSignature(img, keep) {
     var w0 = img.naturalWidth || img.width, h0 = img.naturalHeight || img.height;
     if (!(w0 > 0 && h0 > 0)) throw sigErr('UNREADABLE');
     var f = sigFit(w0, h0, SIG.work, SIG.work);               // a large phone photo is worked on at 1600 px at most
@@ -2850,13 +2871,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var box = sigBounds(data.data, f.w, f.h);
     if (!box) throw sigErr('EMPTY');
     ax.putImageData(data, 0, 0);
-    var out = sigFit(box.w, box.h, SIG.maxW, SIG.maxH);
-    var b = canvasOf(out.w, out.h), bx = b.getContext('2d');
-    bx.drawImage(a, box.x, box.y, box.w, box.h, 0, 0, out.w, out.h);
-    var uri = String(b.toDataURL('image/png') || '');
-    if (!/^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(uri)) throw sigErr('UNREADABLE');
-    if (uri.length > SIG.maxUri) throw sigErr('TOO_BIG');
-    return uri;
+    var src = canvasOf(box.w, box.h), sx = src.getContext('2d');
+    sx.drawImage(a, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+    var uri = fitSignature(src);
+    return keep ? { uri: uri, src: src } : uri;
   }
   /** A saved e-signature (PNG data URI) turned a quarter turn: dir -1 = left (anticlockwise), 1 = right (clockwise).
    *  Transparency is kept; the result is fitted to the same 600 x 200 box and size limit as an upload. */
@@ -2887,7 +2905,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     });
   }
   /** A chosen file -> a promise of the cleaned PNG data URI (rejects with .sigMsg, a plain sentence). Nothing is kept. */
-  function readSignature(file) {
+  function readSignature(file, keep) {
     return new Promise(function (resolve, reject) {
       var type = String((file && file.type) || '').toLowerCase();
       if (!file || (type !== 'image/png' && type !== 'image/jpeg')) return reject(sigErr('TYPE'));
@@ -2900,7 +2918,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         var img = new root.Image();
         img.onerror = function () { reject(sigErr('UNREADABLE')); };
         img.onload = function () {
-          try { resolve(drawSignature(img)); } catch (e) { reject(e && (e.sigMsg || e.code === 'LIB_MISSING') ? e : sigErr('UNREADABLE')); }
+          try { resolve(drawSignature(img, keep)); } catch (e) { reject(e && (e.sigMsg || e.code === 'LIB_MISSING') ? e : sigErr('UNREADABLE')); }
         };
         img.src = fr.result;
       };
@@ -3487,9 +3505,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     S.sigBusy = id; S.sigConfirm = ''; S.sigMsg = null;
     drawSettings();
     var mine = S.seq;
-    return readSignature(file).then(function (uri) {
+    return readSignature(file, true).then(function (r) {
+      var uri = r && typeof r === 'object' ? r.uri : r;
       return TK.rpc('cert_save_signature', { p_officer: id, p_image: uri }).then(function () {
         S.img[id] = uri; delete S.imgBase[id]; o.has_signature = true;
+        // the full-size picture, in memory for this page load only (never stored): a quarter turn starts from it
+        S.sigSrc = S.sigSrc || {};
+        if (r && typeof r === 'object' && r.src) S.sigSrc[id] = r.src; else delete S.sigSrc[id];
       });
     }).then(function () {
       S.sigBusy = '';
@@ -3508,8 +3530,15 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     S.sigBusy = id; S.sigConfirm = ''; S.sigMsg = null;
     drawSettings();
     var mine = S.seq;
-    return rotateSignature(img, dir).then(function (uri) {
-      return TK.rpc('cert_save_signature', { p_officer: id, p_image: uri }).then(function () { S.img[id] = uri; delete S.imgBase[id]; });
+    S.sigSrc = S.sigSrc || {};
+    var full = own(S.sigSrc, id) ? S.sigSrc[id] : null, turned = null;
+    // just uploaded: turn the full-size picture (sharp); otherwise the saved copy
+    var made = full ? Promise.resolve().then(function () { turned = turnCanvas(full, dir); return fitSignature(turned); }) : rotateSignature(img, dir);
+    return made.then(function (uri) {
+      return TK.rpc('cert_save_signature', { p_officer: id, p_image: uri }).then(function () {
+        S.img[id] = uri; delete S.imgBase[id];
+        if (turned) S.sigSrc[id] = turned;
+      });
     }).then(function () {
       S.sigBusy = '';
       if (mine === S.seq) sigDone('good', 'The e-signature of ' + (o.full_name || '') + ' was turned and saved.');
@@ -3536,6 +3565,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var mine = S.seq;
     return TK.rpc('cert_save_signature', { p_officer: id, p_image: '' }).then(function () {
       S.sigBusy = ''; S.img[id] = null; o.has_signature = false;
+      if (S.sigSrc) delete S.sigSrc[id];
       if (mine === S.seq) sigDone('good', 'The e-signature of ' + (o.full_name || '') + ' was removed.');
     }, function (err) {
       S.sigBusy = '';
