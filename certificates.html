@@ -4333,6 +4333,22 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     ['Artemio Marquez, CPA', 'BOD – Government Service / Committee on Culture & Sports'], ['Aljon Marcellano, CPA', 'President-Elect'],
     ['Diendo M. Dupal, CPA', 'Immediate Past President']];
   // ('Secre' + 'tary': the build guard refuses the letters s-e-c-r-e-t anywhere in a page, so the position is joined at run time)
+  /* A signatory of a plaque: an officer on the Hub (its id), or a member of the 2025-2026 board ('b25:<index>', for the outgoing
+     board's plaques: printed as "Position, 2025-2026"). A board member uses the e-signature of the Hub officer with the same
+     first initial and surname (Romelito B. Abarquez = Romelito Abarquez; Willie M. Araza = Wilfredo Araza), when there is one. */
+  function sameSigner(a, b) {
+    function key(n) { var w = String(n || '').replace(/,.*$/, '').replace(/[^A-Za-z\s-]/g, ' ').trim().split(/\s+/).filter(Boolean);
+      return w.length ? (w[0][0] + ' ' + w[w.length - 1]).toLowerCase() : ''; }
+    return !!key(a) && key(a) === key(b);
+  }
+  function pqSignee(id) {
+    var o = id ? officerById(id) : null;
+    if (o) return { full_name: o.full_name || '', position: o.position || '', term: o.term || '', sigId: o.id, has_signature: !!o.has_signature };
+    var m = /^b25:(\d+)$/.exec(String(id || '')), x = m && PQ_BOARD_2025[Number(m[1])];
+    if (!x) return null;
+    var hub = officers().filter(function (h) { return sameSigner(h.full_name, x[0]); })[0];
+    return { full_name: x[0], position: x[1], term: '2025-2026', sigId: hub ? hub.id : '', has_signature: !!(hub && hub.has_signature) };
+  }
   function pqBoard2025() { return PQ_BOARD_2025.map(function (x) { return { id: '', on: true, name: x[0], position: x[1], term: '2025–2026' }; }); }
   var PQ_OFF_KINDS = [['appreciation', 'Plaque of Appreciation'], ['award', 'Outstanding Service Award (citation)']];
   var PQ_OFF_FY = '[fiscal year]';
@@ -4405,7 +4421,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
   function pqSigners() {
     var out = [];
-    (S.p.sign || []).forEach(function (id) { if (id && officerById(id) && out.indexOf(id) < 0) out.push(id); });
+    (S.p.sign || []).forEach(function (id) { if (id && pqSignee(id) && out.indexOf(id) < 0) out.push(id); });
     return out;
   }
   function pqOathOfficers() { return officers().filter(function (o) { return S.p.oath[o.id] !== false; }); }
@@ -4441,7 +4457,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (p.doc !== 'officers' && p.kind === 'award' && !sq(p.title)) e.push('Enter the title of the award.');
     if (p.doc !== 'officers' && p.kind === 'award' && !sq(p.body)) e.push('Enter the citation.');
     if (p.doc !== 'officers' && p.kind === 'appreciation' && !sq(p.role)) e.push('Enter the role being recognised, for example Guest Speaker.');
-    if (!p.sign[0] || !officerById(p.sign[0])) e.push('Choose who signs the plaque (Signatory 1).');
+    if (!p.sign[0] || !pqSignee(p.sign[0])) e.push('Choose who signs the plaque (Signatory 1).');
     var ids = (p.sign || []).filter(Boolean);
     if (ids.some(function (id, i) { return ids.indexOf(id) !== i; })) e.push('Choose a different officer for each signatory.');
     return e;
@@ -4454,9 +4470,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       title: sq(p.title), name: sq(p.name).toUpperCase(), designation: sq(p.designation), sentence: sq(p.sentence), role: sq(p.role),
       body: String(p.body || '').replace(/\r\n?/g, '\n').trim(), occasion: sq(p.occasion), given: givenText(p.date, p.venue), term: term,
       signatories: pqSigners().map(function (id) {
-        var o = officerById(id);
+        var o = pqSignee(id);
         return { full_name: o.full_name || '', position: o.position || '', term: o.term || term, signature: sigs && sigs[id] ? sigs[id] : null,
-          base: sigs && sigs[id] && own(S.imgBase, id) ? S.imgBase[id] : null };
+          base: sigs && sigs[id] && o.sigId && own(S.imgBase, o.sigId) ? S.imgBase[o.sigId] : null };
       }) };
   }
   /** The renderer's data for each officer's plaque (Plaque of Appreciation; the role printed large is the position, the
@@ -4528,11 +4544,12 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
   /** A promise of {officer id: data URI} for the plaque's signatories that have an e-signature. */
   function pqSignatures() {
-    var ids = pqSigners(), need = ids.filter(function (id) { var o = officerById(id); return o && o.has_signature && !own(S.img, id); });
-    return loadImages(need).then(function () { return ensureBases(ids); }).then(function () {
+    var ids = pqSigners(), sid = ids.map(function (id) { var s = pqSignee(id); return s && s.has_signature ? s.sigId : ''; });
+    var need = sid.filter(function (x, i) { return x && !own(S.img, x) && sid.indexOf(x) === i; });
+    return loadImages(need).then(function () { return ensureBases(sid.filter(Boolean)); }).then(function () {
       var out = {}, dark = S.p.finish === 'dark' || S.p.finish === 'teal-color';   // white e-signatures on teal only
-      return Promise.all(ids.map(function (id) {
-        var uri = own(S.img, id) ? S.img[id] : null;
+      return Promise.all(ids.map(function (id, i) {
+        var uri = sid[i] && own(S.img, sid[i]) ? S.img[sid[i]] : null;
         if (!uri) return null;
         return (dark ? whiteSignature(uri) : Promise.resolve(uri)).then(function (u) { if (u) out[id] = u; });
       })).then(function () { return out; });
@@ -4590,11 +4607,14 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function pqSignHtml() {
     if (!officers().length) return '<div class="tk-note tk-note-warn"><p>No officers are listed on the Hub yet, so nobody can sign the plaque.</p></div>';
     var sels = [0, 1, 2].map(function (n) {
-      var cur = S.p.sign[n] || '', o = cur ? officerById(cur) : null, id = 'ct-p-s' + (n + 1);
+      var cur = S.p.sign[n] || '', o = cur ? pqSignee(cur) : null, id = 'ct-p-s' + (n + 1);
       var opts = n === 0 ? (o ? '' : '<option value="" selected>Choose an officer</option>') : '<option value=""' + (cur ? '' : ' selected') + '>None</option>';
-      opts += officers().map(function (x) {
+      opts += '<optgroup label="Officers ' + esc(String(pqTerm() || '').replace(/-/g, '–')) + '">' + officers().map(function (x) {
         return '<option value="' + esc(x.id) + '"' + (x.id === cur ? ' selected' : '') + '>' + esc(offLabel(x)) + '</option>';
-      }).join('');
+      }).join('') + '</optgroup><optgroup label="Board 2025–2026 (outgoing)">' + PQ_BOARD_2025.map(function (x, i) {
+        var v = 'b25:' + i;
+        return '<option value="' + v + '"' + (v === cur ? ' selected' : '') + '>' + esc(x[0] + ' - ' + x[1] + ', 2025–2026') + '</option>';
+      }).join('') + '</optgroup>';
       var hint = o && !o.has_signature ? '<span class="tk-hint" id="' + id + 'h">' + esc(NO_ESIG) + '</span>' : '';
       return '<div class="tk-field"><label for="' + id + '">Signatory ' + (n + 1) + (n ? ' (optional)' : '') + '</label><select id="' + id +
         '" data-change="ct.p.sign" data-n="' + n + '"' + (hint ? ' aria-describedby="' + id + 'h"' : '') + dis() + '>' + opts + '</select>' + hint + '</div>';
@@ -4744,7 +4764,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   });
   TK.action('ct.p.oprev', function () {
     if (!S.p || S.busy) return null;
-    S.p.offs = pqBoard2025(); pqRedraw(); return null;
+    // the outgoing board's plaques are signed by its own officers (2025-2026: the President, then the board's recording officer); changeable below
+    S.p.offs = pqBoard2025(); S.p.sign = ['b25:0', 'b25:3', '']; pqRedraw(); return null;
   });
   TK.action('ct.p.oclear', function () {
     if (!S.p || S.busy) return null;
@@ -4785,7 +4806,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   });
   TK.action('ct.p.sign', function (el) {
     var n = Number(el && el.getAttribute ? el.getAttribute('data-n') : -1), v = el && typeof el.value === 'string' ? el.value : '';
-    if (!S.p || S.busy || !(n >= 0 && n <= 2) || (v && !officerById(v))) return null;
+    if (!S.p || S.busy || !(n >= 0 && n <= 2) || (v && !pqSignee(v))) return null;
     S.p.sign[n] = v; pqRedraw(); return null;
   });
   TK.action('ct.p.oath', function (el) {
@@ -5093,7 +5114,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       newPlaques();
       Object.keys(S.p).forEach(function (k) {
         if (!own(data, k)) return;
-        if (k === 'sign') S.p.sign = [0, 1, 2].map(function (i) { return Array.isArray(data.sign) && officerById(data.sign[i]) ? data.sign[i] : ''; });
+        if (k === 'sign') S.p.sign = [0, 1, 2].map(function (i) { return Array.isArray(data.sign) && typeof data.sign[i] === 'string' && pqSignee(data.sign[i]) ? data.sign[i] : ''; });
         else if (k === 'offs') {
           if (Array.isArray(data.offs)) S.p.offs = data.offs.slice(0, PQ_OFF_MAX).filter(function (x) { return x && typeof x === 'object'; }).map(function (x) {
             function s(v, max) { return typeof v === 'string' ? v.slice(0, max) : ''; }
