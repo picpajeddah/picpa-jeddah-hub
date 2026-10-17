@@ -2014,6 +2014,12 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   /* plaque = { kind: 'appreciation'|'award', finish: 'dark'|'neutral', title (award), name, designation, sentence, role,
                 body (award; blank line = new paragraph), occasion, given (e.g. '23rd day of October 2026 at ...'),
                 signatories: [{full_name, position, term, signature}] (1..3), term } */
+  /** An award's title as [the small spaced line, the large words], like PLAQUE OF / APPRECIATION: the first word small, the
+      rest large ('Outstanding Service Award' -> ['OUTSTANDING', 'SERVICE AWARD']); two words or one -> ['', all of it]. */
+  function awardTitle(title) {
+    var w = String(title || 'Award').trim().toUpperCase().split(/\s+/).filter(Boolean);
+    return w.length > 2 ? [w[0], w.slice(1).join(' ')] : ['', w.join(' ') || 'AWARD'];
+  }
   function drawPlaque(doc, p) {
     if (!ASSETS) throw new Error('CertRender.setup() first');
     setTheme(p.theme);
@@ -2078,11 +2084,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     dy = rule - 36.2;
     var y, items = [], maxW = 86;
     if (p.kind === 'award') {
-      var t = String(p.title || 'AWARD').trim().toUpperCase(), ts = fitSize(doc, t, 400, DISP, 7.4, 88, 4.2, 0.1);
-      var tl = (function () { var w = String(t).split(/\s+/), L = [], cur = ''; w.forEach(function (x) { var n = cur ? cur + ' ' + x : x;
-        if (cur && width(doc, n, 400, DISP, ts, 0.1) > 88) { L.push(cur); cur = x; } else cur = n; }); if (cur) L.push(cur); return L.slice(0, 2); })();
-      y = 41.5 + dy;
-      tl.forEach(function (l, i) { y += ts * (i ? 1.05 : 0.9); T(doc, M, y, l, ts, 400, P('navy'), { fam: DISP, anchor: 'middle', ls: 0.1 }); });
+      // set like PLAQUE OF / APPRECIATION: the first word small and spaced, the rest large (OUTSTANDING / SERVICE AWARD),
+      // the same sizes and places as the Plaque of Appreciation
+      var aw = awardTitle(p.title), kick = aw[0], big = aw[1];
+      if (kick) T(doc, M, 43.2 + dy, kick, fitSize(doc, kick, 400, DISP, 3.3, 88, 2.2, 0.6), 400, P('goldText'), { fam: DISP, anchor: 'middle', ls: 0.6 });
+      var tsA = fitSize(doc, big, 400, DISP, 8.2, 86, 4.6, 0.15);
+      y = 43.2 + dy + tsA * 1.05;
+      T(doc, M, y, big, tsA, 400, P('navy'), { fam: DISP, anchor: 'middle', ls: 0.15 });
       items.push(['is hereby presented to', 2.75, 400, 'muted', 0]);
       var nm = String(p.name || '').trim(), ns = fitSize(doc, nm, 700, SANS, 5.4, maxW, 3.4);
       items.push([nm, ns, 700, 'ink', 4]);
@@ -2192,9 +2200,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       if (cur) L.push(cur); return L.slice(0, 2);
     }
     if (p.kind === 'award') {
-      var t = String(p.title || 'AWARD').trim().toUpperCase(), ts = fitSize(doc, t, 400, DISP, 6.4, CW, 4, 0.1), tl = words(t, ts, CW);
-      y = 40.5;
-      tl.forEach(function (l, i) { y += ts * (i ? 1.05 : 0.9); T(doc, CX, y, l, ts, 400, AC.navy, { fam: DISP, anchor: 'middle', ls: 0.1 }); });
+      var aw = awardTitle(p.title), kick = aw[0], big = aw[1];     // as PLAQUE OF / APPRECIATION
+      if (kick) T(doc, CX, 42, kick, fitSize(doc, kick, 400, DISP, 2.9, CW, 2, 0.5), 400, AC.greenText, { fam: DISP, anchor: 'middle', ls: 0.5 });
+      var tsA = fitSize(doc, big, 400, DISP, 7.4, CW, 4.4, 0.15);
+      y = 42 + tsA * 1.05;
+      T(doc, CX, y, big, tsA, 400, AC.navy, { fam: DISP, anchor: 'middle', ls: 0.15 });
     } else {
       T(doc, CX, 42, 'PLAQUE OF', 2.9, 400, AC.greenText, { fam: DISP, anchor: 'middle', ls: 0.5 });
       var ts2 = fitSize(doc, 'APPRECIATION', 400, DISP, 7.4, CW, 5, 0.15);
