@@ -1481,7 +1481,8 @@ body[data-page="access"] .tk-view { max-width: 1360px; }
     ['events', 'Events console', [['none', 'None'], ['view', 'View'], ['manage', 'Manage']]],
     ['checkin', 'Check-in', [['none', 'None'], ['scan', 'Scan tickets']]],
     ['tracker', 'Chapter Tracker', [['none', 'None'], ['view', 'View'], ['edit', 'Edit']]],
-    ['certificates', 'Certificates', [['none', 'None'], ['prepare', 'Prepare (drafts only)'], ['issue', 'Issue and e-mail']]]];
+    ['certificates', 'Certificates', [['none', 'None'], ['prepare', 'Prepare (drafts only)'], ['issue', 'Issue and e-mail']]],
+    ['jobs', 'Job Board', [['none', 'None'], ['approve', 'Approve job posts']]]];
   var LEDGER = [['none', 'None'], ['viewer', 'Viewer'], ['encoder', 'Encoder — confirms payments'],
     ['approver', 'Approver — confirms and approves receipts']];
   var HELP = [
@@ -1491,6 +1492,7 @@ body[data-page="access"] .tk-view { max-width: 1360px; }
     ['Check-in', 'Scan tickets at the door. Recording a cash payment still needs a Ledger role.'],
     ['Chapter Tracker', 'View: read the tracker. Edit: also change it. Posting on the Hub stays with admins.'],
     ['Certificates', 'Prepare (drafts only): prepares certificates and saves drafts; an admin or an officer with Issue and e-mail sends them. Issue and e-mail: issues certificates and e-mails them to attendees.'],
+    ['Job Board', 'Approve job posts: sees the postings that await review and publishes them; job seekers are then e-mailed.'],
     ['Ledger role', 'Viewer reads the Ledger; Encoder also confirms payments; Approver also approves receipts. Only a Ledger approver may change Ledger roles.']
   ];
   var HINT_SELF = 'You cannot remove your own admin access.';
@@ -1513,6 +1515,7 @@ body[data-page="access"] .tk-view { max-width: 1360px; }
       checkin: r.checkin === true ? 'scan' : 'none',
       tracker: r.tracker === 'edit' || r.tracker === 'view' ? r.tracker : 'none',
       certificates: r.certificates === true ? 'issue' : r.certificates_prepare === true ? 'prepare' : 'none',
+      jobs: r.approve_jobs === true ? 'approve' : 'none',
       ledger: ledgerOf(r) };
   }
   function modOf(k) { for (var i = 0; i < MODS.length; i++) if (MODS[i][0] === k) return MODS[i]; return null; }
@@ -1678,7 +1681,8 @@ body[data-page="access"] .tk-view { max-width: 1360px; }
     var v = current(i, form);
     var args = { p_user: r.user_id, p_admin: v.admin, p_view_directory: v.directory !== 'none', p_approve_signups: v.directory === 'approve',
       p_manage_events: v.events === 'manage', p_ledger_role: v.ledger, p_view_events: v.events !== 'none', p_checkin: v.checkin === 'scan',
-      p_tracker: v.tracker, p_certificates: v.certificates === 'issue', p_certificates_prepare: v.certificates === 'prepare' };
+      p_tracker: v.tracker, p_certificates: v.certificates === 'issue', p_certificates_prepare: v.certificates === 'prepare',
+      p_approve_jobs: v.jobs === 'approve' };
     S.busy = i;
     S.notice = null;
     showNotice();
