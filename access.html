@@ -520,6 +520,23 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 .tk-mg-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s2); }
 .tk-mg-acts .tk-btn { white-space: nowrap; }
 .tk-mg-acts .tk-mg-confirm { flex-basis: 100%; }
+
+/* Officers' plaques (certificates.js, 2026-10-16): one row per officer - Include | Name | Position | Fiscal year | Remove */
+.tk-ct-offhead, .tk-ct-offrow { display: grid; grid-template-columns: 2.5rem minmax(10rem, 2fr) minmax(10rem, 2fr) 7.5rem auto; gap: var(--s2) var(--s3); align-items: center; }
+.tk-ct-offhead { margin-top: var(--s3); font-size: .8rem; font-weight: 600; color: var(--muted); }
+.tk-ct-signers .tk-field.tk-ct-offrow { max-width: none; margin: 0; }
+.tk-ct-offlist { list-style: none; margin: var(--s1) 0 0; padding: 0; display: grid; gap: var(--s2); }
+.tk-ct-offrow input[type="text"] { width: 100%; min-width: 0; }
+.tk-ct-offrow .tk-check input { width: 20px; height: 20px; flex: none; }
+@media (max-width: 40rem) {
+  .tk-ct-offhead { display: none; }
+  .tk-ct-offrow { grid-template-columns: 2.5rem 1fr auto; padding-bottom: var(--s2); border-bottom: 1px solid var(--line); }
+  .tk-ct-offrow .tk-check { grid-column: 1; grid-row: 1; }
+  .tk-ct-offrow input[data-f="name"] { grid-column: 2; grid-row: 1; }
+  .tk-ct-offrow .tk-btn { grid-column: 3; grid-row: 1; }
+  .tk-ct-offrow input[data-f="position"] { grid-column: 2 / 4; grid-row: 2; }
+  .tk-ct-offrow input[data-f="term"] { grid-column: 2 / 4; grid-row: 3; }
+}
 </style>
 <style id="ac-style">
 /* access.html only: the permission table (desktop) / cards (phones) */
@@ -1464,7 +1481,7 @@ body[data-page="access"] .tk-view { max-width: 1360px; }
     ['events', 'Events console', [['none', 'None'], ['view', 'View'], ['manage', 'Manage']]],
     ['checkin', 'Check-in', [['none', 'None'], ['scan', 'Scan tickets']]],
     ['tracker', 'Chapter Tracker', [['none', 'None'], ['view', 'View'], ['edit', 'Edit']]],
-    ['certificates', 'Certificates', [['none', 'None'], ['issue', 'Issue and e-mail']]]];
+    ['certificates', 'Certificates', [['none', 'None'], ['prepare', 'Prepare (drafts only)'], ['issue', 'Issue and e-mail']]]];
   var LEDGER = [['none', 'None'], ['viewer', 'Viewer'], ['encoder', 'Encoder — confirms payments'],
     ['approver', 'Approver — confirms and approves receipts']];
   var HELP = [
@@ -1473,7 +1490,7 @@ body[data-page="access"] .tk-view { max-width: 1360px; }
     ['Events console', 'View: events, payments to review and attendees. Manage: also ticket sales, prices, venue map, the event programme, and cancelling events, tickets and groups.'],
     ['Check-in', 'Scan tickets at the door. Recording a cash payment still needs a Ledger role.'],
     ['Chapter Tracker', 'View: read the tracker. Edit: also change it. Posting on the Hub stays with admins.'],
-    ['Certificates', 'Issue certificates and e-mail them to attendees.'],
+    ['Certificates', 'Prepare (drafts only): prepares certificates and saves drafts; an admin or an officer with Issue and e-mail sends them. Issue and e-mail: issues certificates and e-mails them to attendees.'],
     ['Ledger role', 'Viewer reads the Ledger; Encoder also confirms payments; Approver also approves receipts. Only a Ledger approver may change Ledger roles.']
   ];
   var HINT_SELF = 'You cannot remove your own admin access.';
@@ -1495,7 +1512,7 @@ body[data-page="access"] .tk-view { max-width: 1360px; }
       events: r.manage_events === true ? 'manage' : r.view_events === true ? 'view' : 'none',
       checkin: r.checkin === true ? 'scan' : 'none',
       tracker: r.tracker === 'edit' || r.tracker === 'view' ? r.tracker : 'none',
-      certificates: r.certificates === true ? 'issue' : 'none',
+      certificates: r.certificates === true ? 'issue' : r.certificates_prepare === true ? 'prepare' : 'none',
       ledger: ledgerOf(r) };
   }
   function modOf(k) { for (var i = 0; i < MODS.length; i++) if (MODS[i][0] === k) return MODS[i]; return null; }
@@ -1661,7 +1678,7 @@ body[data-page="access"] .tk-view { max-width: 1360px; }
     var v = current(i, form);
     var args = { p_user: r.user_id, p_admin: v.admin, p_view_directory: v.directory !== 'none', p_approve_signups: v.directory === 'approve',
       p_manage_events: v.events === 'manage', p_ledger_role: v.ledger, p_view_events: v.events !== 'none', p_checkin: v.checkin === 'scan',
-      p_tracker: v.tracker, p_certificates: v.certificates === 'issue' };
+      p_tracker: v.tracker, p_certificates: v.certificates === 'issue', p_certificates_prepare: v.certificates === 'prepare' };
     S.busy = i;
     S.notice = null;
     showNotice();
