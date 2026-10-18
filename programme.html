@@ -1863,6 +1863,16 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
   }
   /** Everyone on a line, in order: the first person, then the further people. */
   function persons(x) { return [{ who: x.who, role: x.role }].concat(x.more || []).filter(function (m) { return m.who || m.role; }); }
+  /** Where an item's people go when it has steps: beside the first run of steps without names of their own -> {a, b} (indexes,
+   *  inclusive); null when the item has no people or no such step (then they stay on the title line). */
+  function nameRun(it) {
+    if (!persons(it).length) return null;
+    var a = -1, b = -1;
+    for (var i = 0; i < it.subs.length; i++) {
+      if (!persons(it.subs[i]).length) { if (a < 0) a = i; b = i; } else if (a >= 0) break;
+    }
+    return a < 0 ? null : { a: a, b: b };
+  }
   /** The programme as members would see it: texts tidied, empty lines dropped (as the server does on save). */
   function shown(c) {
     return {
@@ -1894,14 +1904,17 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     c.parts.forEach(function (p, pi) {
       h += '<div class="pv-part"><span class="pv-k">Part ' + (pi + 1) + '</span><h3>' + esc(caps(p.title || 'Untitled part')) + '</h3></div><ol class="pv-tl">';
       p.items.forEach(function (it) {
-        var subs = it.subs.length ? '<ol class="pv-subs">' + it.subs.map(function (s) {
-          return '<li class="pv-row"><span class="pv-st">' + esc(s.title) + '</span>' + people(s) + '</li>';
-        }).join('') + '</ol>' : '';
-        // the people of an item with steps sit beside the steps, unless a step has people of its own (they would overlap)
-        var beside = it.subs.length && persons(it).length && it.subs.every(function (s) { return !persons(s).length; });
+        function list(steps) {
+          return steps.length ? '<ol class="pv-subs">' + steps.map(function (s) {
+            return '<li class="pv-row"><span class="pv-st">' + esc(s.title) + '</span>' + people(s) + '</li>';
+          }).join('') + '</ol>' : '';
+        }
+        // the item's people sit beside its first run of unnamed steps; a step with its own name keeps its own line
+        var run = nameRun(it);
         h += '<li class="pv-item' + (PV_STYLE[it.style] || '') + '"><span class="pv-no">' + (it.num ? String(++n) : '') + '</span><div class="pv-body">' +
-          (beside ? '<div class="pv-row"><span class="pv-t">' + esc(it.title) + '</span></div><div class="pv-row pv-beside">' + subs + people(it) + '</div>'
-            : '<div class="pv-row"><span class="pv-t">' + esc(it.title) + '</span>' + people(it) + '</div>' + subs) + '</div></li>';
+          (run ? '<div class="pv-row"><span class="pv-t">' + esc(it.title) + '</span></div>' + list(it.subs.slice(0, run.a)) +
+              '<div class="pv-row pv-beside">' + list(it.subs.slice(run.a, run.b + 1)) + people(it) + '</div>' + list(it.subs.slice(run.b + 1))
+            : '<div class="pv-row"><span class="pv-t">' + esc(it.title) + '</span>' + people(it) + '</div>' + list(it.subs)) + '</div></li>';
       });
       h += '</ol>';
     });
@@ -1964,7 +1977,7 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
       p.items.forEach(function (it) {
         var allP = persons(it).concat.apply(persons(it), it.subs.map(function (s) { return persons(s); }));
         var RWi = Math.min(Math.max(RW, needW(allP)), TW * 0.62), LWi = TW - RWi - GAP;
-        var ppl = persons(it), beside = !!(ppl.length && it.subs.length && it.subs.every(function (s) { return !persons(s).length; })), tw0 = ppl.length && !beside ? LWi : TW;
+        var ppl = persons(it), run = nameRun(it), beside = !!run, tw0 = ppl.length && !beside ? LWi : TW;
         font(SANS, 'bold', 11, INK); var title = wrap(it.title, tw0);
         var cells = ppl.map(function (m) {
           font(SANS, 'normal', 10, INK); var w = m.who ? wrap(m.who, RWi) : [];
@@ -1972,9 +1985,9 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
           return { w: w, r: r };
         });
         var hPeople = cells.reduce(function (a, c, i) { return a + c.w.length * 10 * LH + c.r.length * 9 * LH + (i ? 1.5 * k : 0); }, 0);
-        var subs = it.subs.map(function (s) {
-          var sp = persons(s);
-          font(SANS, 'bold', 10, INK); var t = wrap(s.title, sp.length || beside ? LWi - 5 : TW - 5);
+        var subs = it.subs.map(function (s, si) {
+          var sp = persons(s), inRun = !!run && si >= run.a && si <= run.b;
+          font(SANS, 'bold', 10, INK); var t = wrap(s.title, sp.length || inRun ? LWi - 5 : TW - 5);
           var sc = sp.map(function (m) {
             font(SANS, 'normal', 9, INK); var w = m.who ? wrap(m.who, RWi) : [];
             font(SANS, 'normal', 8.5, INK); var r = m.role ? wrap(m.role, RWi) : [];
@@ -2002,8 +2015,9 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
         y += hHead;
         if (subs.length) {
           y += k;
-          var sTop = y - 3.5 * k, sFirst = y;
-          subs.forEach(function (s) {
+          var sTop = y - 3.5 * k, rTop = y, rEnd = y;
+          subs.forEach(function (s, si) {
+            if (run && si === run.a) rTop = y;
             font(SANS, 'bold', 10, MUTED); s.t.forEach(function (l, i) { d.text(l, X + 5, y + i * 10 * LH); });
             var sy = y;
             s.cells.forEach(function (c, i) {
@@ -2012,13 +2026,14 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
               font(SANS, 'normal', 8.5, SUBTLE); c.r.forEach(function (l) { d.text(l, RX, sy, { align: 'right' }); sy += 8.5 * LH; });
             });
             y += s.h;
+            if (run && si === run.b) {                   // the item's people, centred on their run of steps (never above it)
+              rEnd = y;
+              var span = rEnd - rTop - 1.5 * k;
+              drawPeople(rTop + Math.max(0, (span - hPeople) / 2));
+              if (rTop + hPeople + 1.5 * k > y) y = rTop + hPeople + 1.5 * k;   // a tall name block pushes the next steps down
+            }
           });
           d.setDrawColor(LINE[0], LINE[1], LINE[2]); d.setLineWidth(0.6); d.line(X + 1, Math.max(sTop, top), X + 1, y - 3.5 * k);
-          if (beside) {                                  // centred on the steps (never above the first one)
-            var span = y - sFirst - 1.5 * k;
-            drawPeople(sFirst + Math.max(0, (span - hPeople) / 2));
-            y = Math.max(y, sFirst + hPeople + 1.5 * k);
-          }
         }
         y += 3.5 * k;
       });
@@ -2107,7 +2122,7 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
   });
 
   // test hook (Node only): the in-memory state
-  if (typeof module === 'object' && module.exports) module.exports = { state: S, message: message, working: working, caps: caps, pdfFit: pdfFit, loadOfficers: loadOfficers, pickOfficer: pickOfficer, shown: shown, previewHtml: previewHtml, pdfOf: pdfOf, pdfName: pdfName };
+  if (typeof module === 'object' && module.exports) module.exports = { state: S, message: message, working: working, caps: caps, nameRun: nameRun, pdfFit: pdfFit, loadOfficers: loadOfficers, pickOfficer: pickOfficer, shown: shown, previewHtml: previewHtml, pdfOf: pdfOf, pdfName: pdfName };
 }(typeof window !== 'undefined' ? window : globalThis));
 </script>
 <script>TK.start();</script>

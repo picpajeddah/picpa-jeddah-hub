@@ -214,23 +214,31 @@ body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:ce
     c.parts.forEach(function (p, pi) {
       html += '<div class="part"><span class="part-k">Part ' + (pi + 1) + '</span><h3>' + esc(p.title) + '</h3></div><ol class="tl">';
       (Array.isArray(p.items) ? p.items : []).forEach(function (it) {
-        var subs = Array.isArray(it.subs) && it.subs.length ? '<ol class="tl-subs">' + it.subs.map(function (s) {
-          var sl = persons(s);
-          var sp = sl.length ? '<span class="tl-sub-p">' + sl.map(function (m) {
-            return '<span class="tl-person">' + (m.who ? '<span class="tl-sub-w">' + esc(m.who) + '</span>' : '') +
-              (m.role ? '<span class="tl-sub-r">' + esc(m.role) + '</span>' : '') + '</span>';
-          }).join('') + '</span>' : '';
-          return '<li><span class="tl-sub-t">' + esc(s.title) + '</span>' + sp + '</li>';
-        }).join('') + '</ol>' : '';
+        var steps = Array.isArray(it.subs) ? it.subs : [];
+        function list(group) {
+          return group.length ? '<ol class="tl-subs">' + group.map(function (s) {
+            var sl = persons(s);
+            var sp = sl.length ? '<span class="tl-sub-p">' + sl.map(function (m) {
+              return '<span class="tl-person">' + (m.who ? '<span class="tl-sub-w">' + esc(m.who) + '</span>' : '') +
+                (m.role ? '<span class="tl-sub-r">' + esc(m.role) + '</span>' : '') + '</span>';
+            }).join('') + '</span>' : '';
+            return '<li><span class="tl-sub-t">' + esc(s.title) + '</span>' + sp + '</li>';
+          }).join('') + '</ol>' : '';
+        }
         var ppl = persons(it).length ? '<div class="tl-people">' + persons(it).map(function (m) {
           return '<div class="tl-person">' + (m.who ? '<div class="tl-who">' + esc(m.who) + '</div>' : '') +
             (m.role ? '<div class="tl-role">' + esc(m.role) + '</div>' : '') + '</div>';
         }).join('') + '</div>' : '';
-        // an item with steps: its people sit beside the steps (centred), unless a step has people of its own
-        var beside = !!(subs && ppl) && !(it.subs || []).some(function (s) { return persons(s).length; });
+        // the item's people sit beside its first run of steps without names of their own (centred); a step with its own
+        // name keeps its own line; no such run: the people stay on the title line
+        var a = -1, b = -1;
+        if (ppl) for (var si = 0; si < steps.length; si++) {
+          if (!persons(steps[si]).length) { if (a < 0) a = si; b = si; } else if (a >= 0) break;
+        }
         html += '<li class="tl-item' + (STYLES[it.style] || '') + '"><span class="tl-dot"></span><span class="tl-time">' +
           (it.num === true ? '<b>' + (++n) + '</b>' : '') + '</span><div class="tl-body"><div class="tl-row"><div class="tl-title">' + esc(it.title) + '</div>' +
-          (beside ? '</div><div class="tl-row tl-beside">' + subs + ppl + '</div>' : ppl + '</div>' + subs) +
+          (a >= 0 ? '</div>' + list(steps.slice(0, a)) + '<div class="tl-row tl-beside">' + list(steps.slice(a, b + 1)) + ppl + '</div>' +
+              list(steps.slice(b + 1)) : ppl + '</div>' + list(steps)) +
           '<span class="tl-now">Happening now</span></div></li>';
       });
       html += '</ol>';
