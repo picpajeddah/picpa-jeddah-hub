@@ -211,11 +211,13 @@ body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:ce
       html += '<div class="part"><span class="part-k">Part ' + (pi + 1) + '</span><h3>' + esc(p.title) + '</h3></div><ol class="tl">';
       (Array.isArray(p.items) ? p.items : []).forEach(function (it) {
         var subs = Array.isArray(it.subs) && it.subs.length ? '<ol class="tl-subs">' + it.subs.map(function (s) {
-          return '<li><span class="tl-sub-t">' + esc(s.title) + '</span>' + (s.who ? '<span class="tl-sub-w">' + esc(s.who) + '</span>' : '') + '</li>';
+          return '<li><span class="tl-sub-t">' + esc(s.title) + '</span>' + (s.who ? '<span class="tl-sub-w">' + esc(s.who) + '</span>' : '') +
+            (s.role ? '<span class="tl-sub-r">' + esc(s.role) + '</span>' : '') + '</li>';
         }).join('') + '</ol>' : '';
         html += '<li class="tl-item' + (STYLES[it.style] || '') + '"><span class="tl-dot"></span><span class="tl-time">' +
           (it.num === true ? '<b>' + (++n) + '</b>' : '') + '</span><div class="tl-body"><div class="tl-title">' + esc(it.title) + '</div>' +
-          (it.who ? '<div class="tl-who">' + esc(it.who) + '</div>' : '') + subs + '<span class="tl-now">Happening now</span></div></li>';
+          (it.who ? '<div class="tl-who">' + esc(it.who) + '</div>' : '') + (it.role ? '<div class="tl-role">' + esc(it.role) + '</div>' : '') +
+          subs + '<span class="tl-now">Happening now</span></div></li>';
       });
       html += '</ol>';
     });
@@ -243,6 +245,8 @@ body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:ce
 .tl-subs li{margin:4px 0;font-size:13px;line-height:1.4}
 .tl-sub-t{display:block;font-weight:600;color:var(--ink-2)}
 .tl-sub-w{display:block;color:var(--ink-3)}
+.tl-sub-r{display:block;color:var(--ink-3);font-size:12px}
+.tl-role{font-size:12px;color:var(--ink-3);margin-top:1px}
 </style>
 
 <header class="top">
