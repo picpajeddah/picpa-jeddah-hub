@@ -226,8 +226,8 @@ body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:ce
           return '<div class="tl-person">' + (m.who ? '<div class="tl-who">' + esc(m.who) + '</div>' : '') +
             (m.role ? '<div class="tl-role">' + esc(m.role) + '</div>' : '') + '</div>';
         }).join('') + '</div>' : '';
-        // an item with steps: its people sit beside the steps (centred), not on the title line
-        var beside = !!(subs && ppl);
+        // an item with steps: its people sit beside the steps (centred), unless a step has people of its own
+        var beside = !!(subs && ppl) && !(it.subs || []).some(function (s) { return persons(s).length; });
         html += '<li class="tl-item' + (STYLES[it.style] || '') + '"><span class="tl-dot"></span><span class="tl-time">' +
           (it.num === true ? '<b>' + (++n) + '</b>' : '') + '</span><div class="tl-body"><div class="tl-row"><div class="tl-title">' + esc(it.title) + '</div>' +
           (beside ? '</div><div class="tl-row tl-beside">' + subs + ppl + '</div>' : ppl + '</div>' + subs) +
@@ -269,6 +269,37 @@ body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:ce
 .tl-person{display:block}.tl-person+.tl-person{margin-top:6px}
 .tl-beside{align-items:center}.tl-beside>.tl-subs{flex:1 1 50%;min-width:0}
 </style>
+<script id="hub-officers-live">
+(function () {
+  // the Officers section follows the Hub's officers list (latest term); the built-in list stays when the Hub does not answer
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+  function dash(s) { return String(s == null ? '' : s).trim().replace(/\s+-\s+/g, ' – '); }
+  function show(j) {
+    var list = j && Array.isArray(j.officers) ? j.officers.filter(function (o) { return o && /[A-Za-z]/.test(String(o.name || '')); }) : [];
+    var ul = document.querySelector('#officers ul.off');
+    if (!ul || !list.length) return;
+    ul.innerHTML = list.map(function (o) {
+      return '<li><span class="nm">' + esc(String(o.name).trim()) + '</span><span class="pos">' + esc(dash(o.position)) + '</span></li>';
+    }).join('');
+    var yr = document.querySelector('#officers .sec-h span'), t = String((j && j.term) || '').trim();
+    if (yr && /^\d{4}\s*[-–]\s*\d{4}$/.test(t)) yr.textContent = t.replace(/\s*[-–]\s*/, ' – ');
+  }
+  fetch('https://cpumktocfhbnzocyztlb.supabase.co/rest/v1/rpc/hub_public_officers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: 'sb_publishable_un5TqUZ6gEcFtulfGlh-Jg_D8Q6jWrC' },
+    body: '{}'
+  }).then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) {
+      var go = function () { try { show(j); } catch (e) { /* keep the built-in list */ } };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', go); else go();
+    })
+    .catch(function () {});
+})();
+</script>
 
 <header class="top">
   <div class="in">
