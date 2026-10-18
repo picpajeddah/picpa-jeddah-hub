@@ -520,6 +520,23 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 .tk-mg-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s2); }
 .tk-mg-acts .tk-btn { white-space: nowrap; }
 .tk-mg-acts .tk-mg-confirm { flex-basis: 100%; }
+
+/* Officers' plaques (certificates.js, 2026-10-16): one row per officer - Include | Name | Position | Fiscal year | Remove */
+.tk-ct-offhead, .tk-ct-offrow { display: grid; grid-template-columns: 2.5rem minmax(10rem, 2fr) minmax(10rem, 2fr) 7.5rem auto; gap: var(--s2) var(--s3); align-items: center; }
+.tk-ct-offhead { margin-top: var(--s3); font-size: .8rem; font-weight: 600; color: var(--muted); }
+.tk-ct-signers .tk-field.tk-ct-offrow { max-width: none; margin: 0; }
+.tk-ct-offlist { list-style: none; margin: var(--s1) 0 0; padding: 0; display: grid; gap: var(--s2); }
+.tk-ct-offrow input[type="text"] { width: 100%; min-width: 0; }
+.tk-ct-offrow .tk-check input { width: 20px; height: 20px; flex: none; }
+@media (max-width: 40rem) {
+  .tk-ct-offhead { display: none; }
+  .tk-ct-offrow { grid-template-columns: 2.5rem 1fr auto; padding-bottom: var(--s2); border-bottom: 1px solid var(--line); }
+  .tk-ct-offrow .tk-check { grid-column: 1; grid-row: 1; }
+  .tk-ct-offrow input[data-f="name"] { grid-column: 2; grid-row: 1; }
+  .tk-ct-offrow .tk-btn { grid-column: 3; grid-row: 1; }
+  .tk-ct-offrow input[data-f="position"] { grid-column: 2 / 4; grid-row: 2; }
+  .tk-ct-offrow input[data-f="term"] { grid-column: 2 / 4; grid-row: 3; }
+}
 </style>
 </head>
 <body data-page="officers">
@@ -1423,7 +1440,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 
   /* who: 'all' (everyone, signed in or not) | 'signed' (any Hub session) | 'officer' (officer, Hub admin or any ledger role)
    *      | 'events' (Hub admin or the permission Manage events) | 'tracker' (Hub admin or Tracker View / Edit) - the Access page's modules (2026-10-15)
-   *      | 'scanner' (Hub admin, ledger encoder or approver, or Check-in) | 'ledger' (Hub admin or any ledger role) | 'admin' (Hub admin only). */
+   *      | 'scanner' (Hub admin, ledger encoder or approver, or Check-in) | 'ledger' (Hub admin or any ledger role) | 'admin' (Hub admin only)
+   *      | 'certs' (Hub admin, or Certificates: Issue and e-mail, or Prepare - the Access page, 2026-10-15 and 10-18). */
   var GROUPS = [
     ['Run the chapter', [
       ['Chapter Tracker', 'Projects, activities, meetings and tasks.', './tracker.html', 'tracker'],
@@ -1436,7 +1454,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       ['Check-in', 'Scan tickets at the door, on a phone.', './checkin.html', 'scanner'],
       ['Register for an event', 'Sign up for a chapter event and get a ticket.', './register.html', 'all'],
       ['My tickets', 'Your tickets and their payment status.', './ticket.html', 'signed'],
-      ['Certificates', 'Issue certificates of attendance and e-mail them to attendees.', './certificates.html', 'admin']]],
+      ['Certificates', 'Certificates, plaques, oaths and letters: prepare, issue and e-mail.', './certificates.html', 'certs']]],
     ['Hub', [
       ['Chapter Hub', 'Members, programs and the directory.', './', 'all'],
       ['Hub Admin Panel', 'Open the Hub, then choose Admin Panel under Officers in the menu. Approvals, registrations and certificates.', './', 'admin'],
@@ -1453,6 +1471,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (who === 'tracker') return !!a.hub_admin || a.tracker === 'view' || a.tracker === 'edit';
     if (who === 'ledger') return !!a.hub_admin || !!a.ledger_role;
     if (who === 'events') return !!a.hub_admin || a.manage_events === true;   // the programme editor (Manage events)
+    if (who === 'certs') return !!a.hub_admin || a.certificates === true || a.certificates_prepare === true;
     return !!a.officer || !!a.hub_admin || !!a.ledger_role;
   }
 

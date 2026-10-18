@@ -2623,6 +2623,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function isAdmin() { return !!S.access && !!S.access.hub_admin; }
   /** May issue and e-mail certificates: a Hub admin, or Certificates access on the Access page (not the e-signatures). */
   function canIssue() { return isAdmin() || (!!S.access && S.access.certificates === true); }
+  /** May open the page and prepare drafts: also the Access page's "Prepare (drafts only)" (2026-10-18; Issue implies Prepare). */
+  function canPrepare() { return canIssue() || (!!S.access && S.access.certificates_prepare === true); }
+  /** Prepare only: builds, previews and saves drafts; never issues, downloads, e-mails, nor sees attendees or the Register. */
+  function isPreparer() { return canPrepare() && !canIssue(); }
   /** The settings and the officers (cert_context), the same for every view. */
   function settings() { return (S.ctx && S.ctx.settings) || {}; }
   function officers() { return (S.ctx && S.ctx.officers) || []; }
@@ -3352,6 +3356,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function switchHtml() {
     var items = [['event', S.eventId ? '#event=' + S.eventId : '#event', 'Attendance'], ['others', '#others', 'Other certificates'],
       ['register', '#register', 'Register'], ['plaques', '#plaques', 'Plaques &amp; Oath'], ['letter', '#letter', 'Letter']];
+    if (isPreparer()) items = items.filter(function (it) { return it[0] !== 'event' && it[0] !== 'register'; });
     return '<nav class="tk-ct-switch" aria-label="Certificates">' + items.map(function (it) {
       return '<a class="tk-ct-tab" href="' + esc(it[1]) + '"' + (S.view === it[0] ? ' aria-current="page"' : '') + '>' + it[2] + '</a>';
     }).join('') + '</nav>';
@@ -3361,7 +3366,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       'certificates. Add the mailer address under Settings.</p></div>';
   }
   function pageInner() {
-    var top = headHtml() + switchHtml() + (isAdmin() ? '' : ACCESS_NOTE) + (S.ctxError ? '<div class="tk-note tk-note-crit" role="alert"><p>' + esc(S.ctxError) +
+    var top = headHtml() + switchHtml() + (isAdmin() ? '' : isPreparer() ? PREPARE_NOTE : ACCESS_NOTE) + (S.ctxError ? '<div class="tk-note tk-note-crit" role="alert"><p>' + esc(S.ctxError) +
       ' The settings and the list of officers could not be loaded, so certificates cannot be signed or e-mailed for now.</p>' +
       '<p><button type="button" class="tk-btn tk-btn-primary" data-action="ct.ctx"' + dis() + '>Try again</button></p></div>' : '');
     if (S.view === 'others') return top + othersHtml();
@@ -3375,6 +3380,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       'given Certificates access on the Access page.</b></p>' +
       '<p>Ask a Hub administrator when a certificate needs to be issued or corrected, or when you need access.</p></div></div>';
   }
+  var PREPARE_NOTE = '<div class="tk-note" id="ct-prepare-note"><p><b>Prepare access.</b> You may prepare certificates, plaques, ' +
+    'oaths and letters, preview them and save them as drafts. A Hub administrator or an officer with Issue and e-mail opens your ' +
+    'draft to issue, download and send it.</p></div>';
   var ACCESS_NOTE = '<div class="tk-note" id="ct-access-note"><p><b>Certificates access.</b> You may issue, download and e-mail ' +
     'certificates. Electronic signatures and Settings are reserved for Hub administrators, so the documents you prepare here ' +
     'print blank signature lines for a wet signature, including a certificate downloaded or re-sent again.</p></div>';
@@ -3886,6 +3894,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 
   function oActionsHtml() {
     var n = oPending().length;
+    if (isPreparer()) return '';                    // a preparer saves the list as a draft (above); an issuer issues it
     return '<div class="tk-actions">' +
       '<button type="button" class="tk-btn tk-btn-primary" id="ct-go" data-action="ct.o.ask"' + (n && !S.busy ? '' : ' disabled') + '>' +
       (ready() ? 'Issue &amp; e-mail' : 'Issue') + ' (' + n + ')</button>' +
@@ -4077,7 +4086,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return rows;
   }
   TK.action('ct.o.ask', function () {
-    if (!S.o || S.busy) return null;
+    if (!S.o || S.busy || !canIssue()) return null;
     var rows = oCheck();
     if (!rows) return null;
     var label = typeDef(S.o.type)[1].toLowerCase();
@@ -4800,7 +4809,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       pqField('venue', 'Venue (optional)', { hint: 'For example: the Gladiolus Hotel, As Salamah District, Jeddah, Kingdom of Saudi Arabia' }) + '</div>' +
       (p.doc === 'oath' ? pqOathHtml() : p.doc === 'member' ? pqMemberHtml() : p.doc === 'officers' ? pqOfficersHtml() : pqPlaqueHtml()) +
       '<p class="tk-err" id="ct-p-err" role="alert"></p>' +
-      '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-primary" data-action="ct.p.download"' + dis() + '>Download PDF</button>' +
+      '<div class="tk-actions">' + (isPreparer() ? '' : '<button type="button" class="tk-btn tk-btn-primary" data-action="ct.p.download"' + dis() + '>Download PDF</button>') +
       '<button type="button" class="tk-btn" data-action="ct.p.preview"' + dis() + '>Preview</button></div></section>';
   }
   function pqRedraw() { if (S.view === 'plaques') drawPage(); }
@@ -4910,7 +4919,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return !e.length;
   }
   TK.action('ct.p.download', function () {
-    if (!S.p || S.busy || !pqReady()) return null;
+    if (!S.p || S.busy || !canIssue() || !pqReady()) return null;
     return pqBuild().then(function (x) { x.pdf.save(x.name); return null; }, function (e) { TK.toast(TK.friendlyError(e), 'crit'); return null; });
   });
   TK.action('ct.p.preview', function () {
@@ -4991,11 +5000,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var o = officerById(l.signer), hint = o && !o.has_signature ? '<span class="tk-hint" id="ct-l-sgh">' + esc(NO_ESIG) + '</span>' : '';
     return '<div id="ct-note">' + noticeHtml(S.note) + '</div>' +
       draftBarHtml('letter') +
-      '<section class="tk-card tk-ct-opts" aria-labelledby="ct-l-word-h"><h2 id="ct-l-word-h">Word letterhead</h2>' +
+      (isPreparer() ? '' : '<section class="tk-card tk-ct-opts" aria-labelledby="ct-l-word-h"><h2 id="ct-l-word-h">Word letterhead</h2>' +
       '<p class="tk-mini">A blank letterhead for typing letters in Microsoft Word, with the officers listed on the Hub today in the left ' +
       'column. Seats without a name are left off. Download a new copy whenever the officers change.</p>' +
       '<div class="tk-actions"><button type="button" class="tk-btn" data-action="ct.l.word"' + d + '>Download Word letterhead</button></div>' +
-      '<p class="tk-mini" id="ct-l-wordnote" role="status"></p></section>' +
+      '<p class="tk-mini" id="ct-l-wordnote" role="status"></p></section>') +
       '<section class="tk-card tk-ct-opts" aria-label="Letter on the chapter letterhead">' +
       '<p class="tk-mini">The letter is drawn on the chapter letterhead, with the officers listed on the Hub in the left column. ' +
       'It is not e-mailed or kept as a letter: download it, and use Save draft to keep your work in the Hub.</p>' +
@@ -5011,7 +5020,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<div class="tk-field"><label for="ct-l-sg">Signed by</label><select id="ct-l-sg" data-change="ct.l.sign"' +
         (hint ? ' aria-describedby="ct-l-sgh"' : '') + d + '>' + opts + '</select>' + hint + '</div></div>' +
       '<p class="tk-err" id="ct-l-err" role="alert"></p>' +
-      '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-primary" data-action="ct.l.download"' + d + '>Download PDF</button>' +
+      '<div class="tk-actions">' + (isPreparer() ? '' : '<button type="button" class="tk-btn tk-btn-primary" data-action="ct.l.download"' + d + '>Download PDF</button>') +
       '<button type="button" class="tk-btn" data-action="ct.l.preview"' + d + '>Preview</button></div></section>';
   }
   // ---- the Word letterhead, built from the officers on the Hub at the moment of download (so it is never out of date)
@@ -5079,7 +5088,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (root.setTimeout) root.setTimeout(function () { try { root.URL.revokeObjectURL(url); } catch (e) { /* gone */ } }, 4000);
   }
   TK.action('ct.l.word', function () {
-    if (S.busy) return null;
+    if (S.busy || !canIssue()) return null;
     if (!letterBoard().sections.length) { TK.toast('No officers are listed on the Hub yet.', 'warn'); return null; }
     S.busy = true; drawPage();
     TK.setHTML('ct-l-wordnote', 'Preparing the letterhead…');
@@ -5111,7 +5120,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return !e.length;
   }
   TK.action('ct.l.download', function () {
-    if (!S.l || S.busy || !letterReady()) return null;
+    if (!S.l || S.busy || !canIssue() || !letterReady()) return null;
     return letterBuild().then(function (x) { x.pdf.save(x.name); return null; }, function (e) { TK.toast(TK.friendlyError(e), 'crit'); return null; });
   });
   TK.action('ct.l.preview', function () {
@@ -5331,7 +5340,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       return Promise.resolve(ctx.access || TK.access()).then(function (a) {          // a sign-in or network error shows the shell's error card
         if (mine !== S.seq) return null;
         S.access = a || null;
-        if (!canIssue()) return { html: nonAdminHtml() };
+        if (!canPrepare()) return { html: nonAdminHtml() };
+        if (isPreparer() && (view === 'event' || view === 'register')) view = 'others';   // attendees and the Register: issuers only
         return go();
       });
       function go() {
