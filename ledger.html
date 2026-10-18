@@ -184,6 +184,8 @@ p { margin: 0 0 var(--s3); }
 .btn-good { background: var(--green-700); border-color: var(--green-700); color: var(--on-dark); }
 .btn-danger { background: var(--surface); border-color: var(--crit); color: var(--crit-ink); }
 .btn-small { min-height: 32px; padding: var(--s1) var(--s3); font-size: var(--fs-sm); }
+/* the hidden attribute must win over component display rules such as .field { display: flex } */
+[hidden] { display: none !important; }
 .field { display: flex; flex-direction: column; gap: var(--s1); }
 .field label { font-size: var(--fs-sm); font-weight: 600; color: var(--navy-800); }
 .field input, .field select, .field textarea {
@@ -544,8 +546,12 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     if (!t.account || !t.event || !t.fund || !t.amount) return 'INCOMPLETE';
     if (!s.byName[t.account]) return 'ACCOUNT NOT IN CHART';
     if (!s.events.some(function (e) { return e.code === t.event; })) return 'INVALID EVENT CODE';
-    if (s.funds.indexOf(t.fund) < 0) return 'NOT A CASH FUND';
-    if (s.byName[t.account].subledger === 'officer') {
+    /* the fund is a Cash account, or an officer control account (an entry settled through an officer) */
+    var offFund = !!s.byName[t.fund] && s.byName[t.fund].subledger === 'officer';
+    if (s.funds.indexOf(t.fund) < 0 && !offFund) return 'NOT A CASH FUND';
+    var offAcct = s.byName[t.account].subledger === 'officer';
+    if (offAcct && offFund) return 'OFFICER ON BOTH SIDES';
+    if (offAcct || offFund) {
       if (!t.officer) return 'NO OFFICER';
       if (!s.officers.some(function (o) { return o.name === t.officer; })) return 'OFFICER NOT LISTED';
     } else if (t.officer) {
@@ -766,12 +772,21 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     });
     var unassigned = 0;
     s.approved.forEach(function (t) {
-      if (ctlNames.indexOf(t.account) < 0) return;
+      // an officer account is the entry's account, or its fund (an entry settled through an officer)
+      var onAcct = ctlNames.indexOf(t.account) >= 0, onFund = ctlNames.indexOf(t.fund) >= 0;
+      if (!onAcct && !onFund) return;
       var p = periodOf(s, t.date) - 1;
       if (p < 0 || p > 11) return;       // the TB leaves it out too
       if (!t.officer) { unassigned++; return; }
-      var c = at(t.officer, t.account), amt = post(t);
-      if (t.type === TXN_TYPE.PAYMENT) { c.dr += amt; c.move += amt; } else { c.cr -= amt; c.move -= amt; }
+      var amt = post(t), isPay = t.type === TXN_TYPE.PAYMENT, c;
+      if (onAcct) {           // payment debits the account, receipt credits it
+        c = at(t.officer, t.account);
+        if (isPay) { c.dr += amt; c.move += amt; } else { c.cr -= amt; c.move -= amt; }
+      }
+      if (onFund) {           // the fund side is the mirror: payment credits it, receipt debits it
+        c = at(t.officer, t.fund);
+        if (isPay) { c.cr -= amt; c.move -= amt; } else { c.dr += amt; c.move += amt; }
+      }
     });
 
     var rows = names.map(function (n) {
@@ -954,10 +969,11 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     var bad = s.txns.filter(function (t) { var v = validateTxn(s, t); return v !== 'OK' && v !== ''; }).length;
     var pending = s.txns.filter(function (t) {
       return t.status === TXN_STATUS.DRAFT || t.status === TXN_STATUS.SUBMITTED; }).length;
-    var ap = s.approved;
-    var recTot = ap.filter(function (t) { return t.type === TXN_TYPE.RECEIPT; })
+    /* the cash books: entries settled through an officer (non-cash fund) move no cash and are not in them */
+    var ap = s.approved, cashAp = ap.filter(function (t) { return s.funds.indexOf(t.fund) >= 0; });
+    var recTot = cashAp.filter(function (t) { return t.type === TXN_TYPE.RECEIPT; })
                    .reduce(function (a, t) { return a + post(t); }, 0);
-    var payTot = ap.filter(function (t) { return t.type === TXN_TYPE.PAYMENT; })
+    var payTot = cashAp.filter(function (t) { return t.type === TXN_TYPE.PAYMENT; })
                    .reduce(function (a, t) { return a + post(t); }, 0);
     var unmapped = s.txns.filter(function (t) { return t.account && !s.byName[t.account]; }).length;
     var mxDiff = MX.inc.concat(MX.exp).reduce(function (a, r) { return a + Math.abs(r.diff); }, 0);
@@ -1271,7 +1287,10 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       return 'Enter an amount greater than zero with at most 2 decimal places, for example 1,250.50.';
     },
     LEDGER_FUND_NOT_CASH: function () {
-      return 'The fund must be a cash account: Cash, Scholarship Fund or Community Service Fund.';
+      return 'The fund must be a cash account (such as Cash, Scholarship Fund or Community Service Fund), or an officer when no cash moved.';
+    },
+    LEDGER_OFFICER_BOTH: function () {
+      return 'The account and the fund cannot both be officer accounts. Record it as two entries.';
     },
     LEDGER_ACCOUNT_IS_FUND: function () {
       return "The account and the cash fund can't be the same. For a transfer between funds, pick the other fund as the account.";
@@ -1989,6 +2008,12 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   function isOfficerAccount(id) {
     return officerAccounts().some(function (a) { return a.id === id; });
   }
+  /** One side of an entry as text: 'Plaque', or 'Due to Officers (Aljon)' when that side is an officer account. */
+  function sideText(t, side) {
+    var id = side === 'fund' ? t.fund_id : t.account_id, list = (S.state && S.state.accounts) || [], name = '';
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) { name = list[i].name; break; }
+    return name + (t.officer_id && isOfficerAccount(id) ? ' (' + officerName(t.officer_id) + ')' : '');
+  }
   /** Officer name for an id ('' when none). */
   function officerName(id) {
     if (!id) return '';
@@ -2078,7 +2103,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     saveOpening: saveOpening, deleteOpening: deleteOpening, savePledge: savePledge, deletePledge: deletePledge,
     saveOfficer: saveOfficer, deleteOfficer: deleteOfficer, saveOfficerOpening: saveOfficerOpening,
     deleteOfficerOpening: deleteOfficerOpening, officerAccounts: officerAccounts, isOfficerAccount: isOfficerAccount,
-    officerName: officerName, budgetLinesOf: budgetLinesOf, saveBudgetLines: saveBudgetLines, refreshEvent: refreshEvent,
+    officerName: officerName, sideText: sideText, budgetLinesOf: budgetLinesOf, saveBudgetLines: saveBudgetLines, refreshEvent: refreshEvent,
     touch: touch, views: {}, actions: actions, action: action,
     client: function () { return S.client; },
     get expired() { return S.expired; }
@@ -3629,9 +3654,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       '<td data-label="Document"><div><b>' + esc(t.doc) + '</b><br><span class="muted">' + (t.type === 'RECEIPT' ? 'Receipt' : 'Payment') + '</span>' +
         result + '</div></td>' +
       '<td data-label="Date">' + esc(t.date) + '</td>' +
-      '<td data-label="Entry"><div>' + esc(t.description) + '<br><span class="muted">' + esc(nameOf(s.accounts, t.account_id, 'name')) +
-        (t.officer_id ? ' (' + esc(LD.officerName(t.officer_id)) + ')' : '') +
-        ' · ' + esc(nameOf(s.events, t.event_id, 'code')) + ' · ' + esc(nameOf(s.accounts, t.fund_id, 'name')) + '</span></div></td>' +
+      '<td data-label="Entry"><div>' + esc(t.description) + '<br><span class="muted">' + esc(LD.sideText(t, 'account')) +
+        ' · ' + esc(nameOf(s.events, t.event_id, 'code')) + ' · ' + esc(LD.sideText(t, 'fund')) + '</span></div></td>' +
       '<td class="num" data-label="Amount">' + LD.fmt(t.amount) + '</td>' +
       '<td data-label="Status"><div class="pills">' + badges + '</div></td>' +
       '<td data-label="Entered by">' + esc(LD.who(t.entered_by)) + '</td>' +
@@ -5133,9 +5157,43 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       '<optgroup label="Income statement">' + options(isA, selected, lab) + '</optgroup>' +
       '<optgroup label="Balance sheet">' + options(bsA, selected, lab) + '</optgroup></select>';
   }
-  /* Officer subledger: shown only for Due from / Due to Officers, where it is required. */
-  function officerField(accountId, selected) {
-    var show = LD.isOfficerAccount(accountId);
+  /*
+   * Fund side: a cash fund, or an officer when no cash moved (Due to / Due from Officers). The officer options are
+   * worded for the entry type: a payment the officer made, or money the officer collected.
+   */
+  function officerFundLabel(a, type) {
+    var dueTo = a.normal === 'Cr';
+    if (type === 'PAYMENT') {
+      return dueTo ? 'Officer paid with own money: the chapter owes the officer (' + a.name + ')'
+                   : 'Officer paid from a cash advance (' + a.name + ')';
+    }
+    return dueTo ? 'Officer collected it and keeps it against what the chapter owes them (' + a.name + ')'
+                 : 'Officer collected it and is holding the money (' + a.name + ')';
+  }
+  function fundSelect(type, selected) {
+    var ok = usable(selected), s = state();
+    var cash = s.accounts.filter(function (a) { return ok(a) && a.category === 'Cash'; });
+    var off = s.accounts.filter(function (a) { return ok(a) && a.subledger === 'officer'; });
+    return '<select id="rec-fund" name="fund_id" data-change="record.fundChanged"><option value="">Choose a fund</option>' +
+      '<optgroup label="Cash funds">' + options(cash, selected, function (a) { return a.name; }) + '</optgroup>' +
+      (off.length ? '<optgroup label="No cash moved: through an officer">' + off.map(function (a) {
+        return '<option value="' + esc(a.id) + '" data-normal="' + esc(a.normal) + '" data-name="' + esc(a.name) + '"' +
+          (a.id === selected ? ' selected' : '') + '>' + esc(officerFundLabel(a, type)) + '</option>';
+      }).join('') + '</optgroup>' : '') + '</select>';
+  }
+  function needsOfficer(accountId, fundId) { return LD.isOfficerAccount(accountId) || LD.isOfficerAccount(fundId); }
+  /* Show the officer box when the account or the fund is an officer account; clear it otherwise. */
+  function syncOfficer() {
+    var field = byId('rec-officer-field'), sel = byId('rec-officer'), acc = byId('rec-account'), fund = byId('rec-fund');
+    if (!field) return;
+    var show = needsOfficer(acc ? acc.value : '', fund ? fund.value : '');
+    field.hidden = !show;
+    if (!show && sel) sel.value = '';
+  }
+
+  /* Officer subledger: shown for Due from / Due to Officers (as the account, or as the fund), where it is required. */
+  function officerField(accountId, selected, fundId) {
+    var show = needsOfficer(accountId, fundId);
     var list = (state().officers || []).filter(usable(selected));
     var none = !list.length;
     return '<div class="field" id="rec-officer-field"' + (show ? '' : ' hidden') + '><label for="rec-officer">Officer</label>' +
@@ -5146,12 +5204,15 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
                                         : 'No officers yet. Ask an approver to add them under Officers.')
         : 'Officer balances are kept by officer in the Officers schedule.') + '</span></div>';
   }
-  LD.action('record.accountChanged', function (el) {
-    var field = byId('rec-officer-field'), sel = byId('rec-officer');
-    if (!field) return;
-    var show = LD.isOfficerAccount(el.value);
-    field.hidden = !show;
-    if (!show && sel) sel.value = '';
+  LD.action('record.accountChanged', function () { syncOfficer(); });
+  LD.action('record.fundChanged', function () { syncOfficer(); });
+  /* the officer options of the fund are worded for the type */
+  LD.action('record.typeChanged', function (el) {
+    var fund = byId('rec-fund'), type = el && el.value ? el.value : 'RECEIPT';
+    if (!fund || !fund.querySelectorAll) return;
+    Array.prototype.forEach.call(fund.querySelectorAll('option[data-normal]'), function (o) {
+      o.textContent = officerFundLabel({ normal: o.getAttribute('data-normal'), name: o.getAttribute('data-name') }, type);
+    });
   });
 
   function entry(id) {
@@ -5186,7 +5247,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
           '. Saving your changes returns it to Draft.</p>' : '') +
       '<form class="rec-form" data-submit="record.save" novalidate autocomplete="off">' +
       '<div class="rec-grid">' +
-        '<div class="field"><label for="rec-type">Type</label><select id="rec-type" name="type"' + (before ? ' disabled' : '') + '>' + kinds + '</select></div>' +
+        '<div class="field"><label for="rec-type">Type</label><select id="rec-type" name="type" data-change="record.typeChanged"' + (before ? ' disabled' : '') + '>' + kinds + '</select></div>' +
         '<div class="field"><label for="rec-date">Date</label><input id="rec-date" name="date" type="date" required' +
           ' min="' + esc(st.fy_start || '') + '" max="' + esc(st.fy_end || '') + '" value="' + esc(v.date) + '">' +
           '<span class="hint">Within ' + esc(st.fy_label || 'the financial year') + ': ' + esc(st.fy_start || '') + ' to ' + esc(st.fy_end || '') + '</span></div>' +
@@ -5194,11 +5255,11 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
           (before ? esc(before.doc) : 'assigned on save') + '</div>' +
           '<span class="hint">' + (before ? 'The number stays the same when you edit.' : 'The database numbers it when you save.') + '</span></div>' +
         '<div class="field"><label for="rec-account">Account</label>' + accountSelect(v.account_id) + '</div>' +
-        officerField(v.account_id, v.officer_id || '') +
+        officerField(v.account_id, v.officer_id || '', v.fund_id) +
         '<div class="field"><label for="rec-event">Event</label><select id="rec-event" name="event_id">' +
           options(events, v.event_id, function (e) { return e.code + ' · ' + e.name; }) + '</select></div>' +
-        '<div class="field"><label for="rec-fund">Fund (cash account)</label><select id="rec-fund" name="fund_id">' +
-          '<option value="">Choose a fund</option>' + options(funds, v.fund_id, function (a) { return a.name; }) + '</select></div>' +
+        '<div class="field"><label for="rec-fund">Fund</label>' + fundSelect(v.type, v.fund_id) +
+          '<span class="hint">The cash fund the money went into or out of, or an officer when no cash moved through the chapter.</span></div>' +
         '<div class="field rec-wide"><label for="rec-desc">Description</label><input id="rec-desc" name="description" type="text" ' +
           'maxlength="200" required value="' + esc(v.description) + '"><span class="hint">At least 4 characters.</span></div>' +
         '<div class="field"><label for="rec-amount">Amount (' + esc(st.currency || 'SAR') + ')</label><input id="rec-amount" name="amount" ' +
@@ -5219,7 +5280,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     var st = state().settings, errs = [];
     if (!v.account_id || !v.event_id || !v.fund_id) errs.push('Choose an account, an event and a fund.');
     else if (v.account_id === v.fund_id) errs.push(LD.ERRORS.LEDGER_ACCOUNT_IS_FUND());
-    if (v.account_id && LD.isOfficerAccount(v.account_id) && !v.officer_id) errs.push(LD.ERRORS.LEDGER_OFFICER_REQUIRED());
+    if (v.account_id && LD.isOfficerAccount(v.account_id) && LD.isOfficerAccount(v.fund_id)) errs.push(LD.ERRORS.LEDGER_OFFICER_BOTH());
+    else if (needsOfficer(v.account_id, v.fund_id) && !v.officer_id) errs.push(LD.ERRORS.LEDGER_OFFICER_REQUIRED());
     if (!/^\d{4}-\d{2}-\d{2}$/.test(v.date)) errs.push('Pick a date.');
     else if ((st.fy_start && v.date < st.fy_start) || (st.fy_end && v.date > st.fy_end)) {
       errs.push(LD.ERRORS.LEDGER_OUT_OF_FY({ fyStart: st.fy_start, fyEnd: st.fy_end }));
@@ -5238,7 +5300,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       amount: LD.parseAmount(val(form, 'amount'))
     };
     // only an officer account takes an officer; anything else saves without one (clears it on an edit)
-    v.officer_id = LD.isOfficerAccount(v.account_id) ? (val(form, 'officer_id') || null) : null;
+    v.officer_id = needsOfficer(v.account_id, v.fund_id) ? (val(form, 'officer_id') || null) : null;
     var file = fileOf(form);
     app().banner('');
     errBox('rec-err', []);
@@ -5322,9 +5384,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       '<td data-label="Date">' + esc(t.date) + '</td>' +
       '<td data-label="Document"><div><b>' + esc(t.doc) + '</b><br><span class="muted">' + (t.type === 'RECEIPT' ? 'Receipt' : 'Payment') + '</span></div></td>' +
       '<td data-label="Entry"><div>' + esc(t.description) +
-        '<br><span class="muted">' + esc(nameOf(s.accounts, t.account_id, 'name')) +
-        (t.officer_id ? ' (' + esc(LD.officerName(t.officer_id)) + ')' : '') + ' · ' + esc(nameOf(s.events, t.event_id, 'code')) +
-        ' · ' + esc(nameOf(s.accounts, t.fund_id, 'name')) + '</span>' +
+        '<br><span class="muted">' + esc(LD.sideText(t, 'account')) + ' · ' + esc(nameOf(s.events, t.event_id, 'code')) +
+        ' · ' + esc(LD.sideText(t, 'fund')) + '</span>' +
         (t.status === 'Rejected' && t.note ? '<br><span class="rec-reason">Rejected: ' + esc(t.note) + '</span>' : '') + '</div></td>' +
       '<td class="num" data-label="Amount">' + LD.fmt(t.amount) + '</td>' +
       '<td data-label="Status"><div class="pills">' + badges + '</div></td>' +
