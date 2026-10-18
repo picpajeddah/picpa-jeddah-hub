@@ -548,19 +548,62 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
 .pg-parthead .tk-field { flex: 1 1 auto; margin: 0; }
 .pg-partk { flex: none; margin-bottom: var(--s2); padding: 3px 9px; border-radius: var(--r-sm); background: var(--navy-800); color: #fff;
   font-size: var(--fs-xs); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.pg-item { margin: var(--s3) 0; padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
-.pg-itemhead { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s2); }
+.pg-icons-part { margin-bottom: 6px; }
+.pg-item { margin: var(--s3) 0; padding: var(--s3) var(--s4) var(--s3); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.pg-itemhead { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s1); }
 .pg-no { font-weight: 700; color: var(--navy-800); min-width: 1.6em; }
+.pg-icons { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.pg-step .pg-icons { justify-content: flex-end; }
+.pg-icons-head { margin-left: auto; }
+.pg-ib { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 1px solid transparent;
+  border-radius: 6px; background: transparent; color: var(--ink-3, #64748b); cursor: pointer; }
+.pg-ib:hover { background: var(--bg, #f1f4f9); color: var(--navy-800); border-color: var(--line); }
+.pg-ib:focus-visible { outline: 2px solid var(--navy-500, #2149d6); outline-offset: 1px; }
+.pg-ib-danger:hover { color: var(--crit, #b42318); background: #fdecea; border-color: #f5c2bd; }
+.pg-ib-off { opacity: .3; pointer-events: none; }
+.pg-ib:disabled { opacity: .3; cursor: default; }
 .pg-grid { display: grid; grid-template-columns: 1fr; gap: 0 var(--s3); }
+.pg-itemfoot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); margin-top: var(--s1); }
+.pg-itemfoot .tk-check { margin: 0; }
+.pg-links { display: inline-flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-left: auto; }
+.pg-link { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--navy-500, #2149d6); font: inherit; font-size: var(--fs-sm, 13px); font-weight: 600; cursor: pointer; }
+.pg-link:hover { background: #eef2ff; }
+.pg-link:focus-visible { outline: 2px solid var(--navy-500, #2149d6); outline-offset: 1px; }
+.pg-more { display: grid; grid-template-columns: 1fr; gap: 0 var(--s3); align-items: end; }
+.pg-more .pg-icons { margin-bottom: 10px; }
+.pg-steps { margin-top: var(--s3); border-top: 1px solid var(--line); padding-top: var(--s2); }
+.pg-step { display: grid; grid-template-columns: 24px 1fr auto; gap: 6px var(--s2); align-items: center; padding: 4px 0; }
+.pg-step + .pg-step:not(.pg-step-more) { border-top: 1px dashed var(--line); }
+@media (max-width: 719.98px) {
+  .pg-step .pg-cell { grid-column: 2 / 4; }
+  .pg-step:not(.pg-step-more) > .pg-cell:first-of-type { grid-column: 2 / 3; }
+  .pg-step-more .pg-cell { grid-column: 2 / 3; }
+}
+.pg-step .pg-icons { grid-column: 3; grid-row: 1; }
+.pg-step-head { display: none; }
+.pg-stepno { font-weight: 700; color: var(--ink-3, #64748b); font-size: var(--fs-sm, 13px); text-align: center; }
+.pg-cell input { width: 100%; min-width: 0; border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: 6px 10px; min-height: 38px; background: var(--surface); font-size: 15px; font-family: inherit; color: inherit; }
+.pg-cell input:focus { outline: 2px solid var(--navy-500, #2149d6); outline-offset: -1px; border-color: transparent; }
+.pg-step-more { padding-top: 0; }
+.pg-moretag { display: none; }
+.pg-vh { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.pg-partfoot { margin-top: var(--s3); }
+.pg-addpart { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin: var(--s4) 0; padding: 12px;
+  border: 2px dashed var(--line); border-radius: var(--r-md); background: transparent; color: var(--navy-800); font: inherit; font-weight: 600; cursor: pointer; }
+.pg-addpart:hover { border-color: var(--navy-500, #2149d6); background: #f5f7ff; }
 @media (min-width: 720px) {
   .pg-grid { grid-template-columns: 3fr 1fr; }
   .pg-grid.pg-grid-2 { grid-template-columns: 1fr 1fr; }
-  .pg-grid.pg-grid-3 { grid-template-columns: 4fr 3fr 3fr; }
+  .pg-more { grid-template-columns: 1fr 1fr auto; }
+  .pg-step { grid-template-columns: 24px 5fr 3fr 3fr 128px; }
+  .pg-step .pg-cell { grid-column: auto; }
+  .pg-step .pg-icons { grid-column: auto; grid-row: auto; }
+  .pg-step-head { display: grid; padding: 0 0 2px; }
+  .pg-step-head span { font-size: var(--fs-xs, 12px); font-weight: 600; color: var(--ink-3, #64748b); }
+    .pg-step-more { grid-template-columns: 24px 5fr 3fr 3fr 128px; }
+  .pg-step-more .pg-moretag { display: block; grid-column: 2; font-size: var(--fs-xs, 12px); color: var(--ink-3, #64748b); text-align: right; }
 }
-.pg-subs { margin-top: var(--s2); padding-left: var(--s3); border-left: 2px solid var(--line); }
-.pg-sub { margin-bottom: var(--s2); }
-.pg-tools { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s2); }
-.pg-addpart { margin: var(--s4) 0; }
 .pg-save { display: flex; flex-wrap: wrap; gap: var(--s2); position: sticky; bottom: 0; padding: var(--s3) 0; background: var(--bg, #f5f6f9); }
 #pg-notice:empty { display: none; }
 #pg-notice { margin: 0 0 var(--s3); }
@@ -1580,12 +1623,19 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
   if (doc && typeof doc.addEventListener === 'function') {
     doc.addEventListener('change', function (e) { if (e && e.target && e.target.id) pickOfficer(e.target.id); });
   }
+  /** "details" holds the date and the venue as one line, "date · venue" (older entries used " - "): split it for the two boxes. */
+  function splitDetails(d) {
+    var t = str(d).trim(), m = /^(.*?)\s+[\u00b7\u2013-]\s+(.*)$/.exec(t);
+    return m ? { date: m[1].trim(), venue: m[2].trim() } : { date: t, venue: '' };
+  }
+  function joinDetails(date, venue) { return [str(date).trim(), str(venue).trim()].filter(Boolean).join(' \u00b7 '); }
   /** A tidy working copy of a saved programme (or a blank one). */
   function working(content) {
     var c = content && typeof content === 'object' ? copy(content) : {};
     var parts = Array.isArray(c.parts) ? c.parts : [];
+    var dv = splitDetails(c.details);
     return {
-      event: str(c.event), details: str(c.details), mc: str(c.mc),
+      event: str(c.event), details: str(c.details), date: dv.date, venue: dv.venue, mc: str(c.mc),
       parts: (parts.length ? parts : [blankPart()]).map(function (p) {
         var items = Array.isArray(p && p.items) ? p.items : [];
         return { title: str(p && p.title), items: items.map(function (it) {
@@ -1624,7 +1674,9 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     var c = S.c;
     if (!c) return;
     c.event = readText('pg-event', c.event);
-    c.details = readText('pg-details', c.details);
+    c.date = readText('pg-date', c.date);
+    c.venue = readText('pg-venue', c.venue);
+    c.details = joinDetails(c.date, c.venue);
     c.mc = readText('pg-mc', c.mc);
     c.parts.forEach(function (p, pi) {
       var k = 'pg-p' + pi;
@@ -1652,69 +1704,107 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     return '<div class="tk-field"><label for="' + id + '">' + label + '</label><input id="' + id + '" type="text" value="' + esc(value) + '"' +
       (extra || '') + '></div>';
   }
+  /** A box in a compact row: its label is read by screen readers; the row's heading shows it on screen. */
+  function cell(id, label, value, extra) {
+    return '<div class="pg-cell"><label class="pg-vh" for="' + id + '">' + label + '</label><input id="' + id + '" type="text" value="' + esc(value) + '"' +
+      (extra || '') + '></div>';
+  }
   function btn(action, text, data, cls, label) {
     return '<button type="button" class="tk-btn tk-btn-small' + (cls ? ' ' + cls : '') + '" data-action="' + action + '"' + data +
       (label ? ' aria-label="' + esc(label) + '"' : '') + (S.busy ? ' disabled' : '') + '>' + text + '</button>';
   }
-  /** The further people of an item or step: one row each (person, position, remove). q = the item's or step's id prefix. */
-  function moreHtml(x, q, d) {
+  // small line icons (stroke follows the button colour)
+  var ICONS = {
+    up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+    down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+    del: '<path d="M6 6l12 12M18 6L6 18"/>',
+    person: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5M18 8v6M15 11h6"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>'
+  };
+  function icon(name) {
+    return '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+      'stroke-linejoin="round" aria-hidden="true" focusable="false">' + ICONS[name] + '</svg>';
+  }
+  /** An icon button: the label is its tooltip and what a screen reader says. */
+  function ibtn(action, name, data, label, cls) {
+    return '<button type="button" class="pg-ib' + (cls ? ' ' + cls : '') + '" data-action="' + action + '"' + data +
+      ' aria-label="' + esc(label) + '" title="' + esc(label) + '"' + (S.busy ? ' disabled' : '') + '>' + icon(name) + '</button>';
+  }
+  /** A light text button with an icon (+ Add a person, + Add a step). */
+  function lbtn(action, name, text, data, label) {
+    return '<button type="button" class="pg-link" data-action="' + action + '"' + data + ' aria-label="' + esc(label) + '"' +
+      (S.busy ? ' disabled' : '') + '>' + icon(name) + '<span>' + text + '</span></button>';
+  }
+  var PERSON_BOX = ' maxlength="300" list="pg-officers" autocomplete="off"';
+  /** The further people of an item or step: one compact row each (person, position, remove). q = the owner's id prefix. */
+  function moreHtml(x, q, d, compact) {
     return x.more.map(function (m, k) {
-      var dk = d + ' data-m="' + k + '"';
-      return '<div class="pg-more"><div class="pg-grid pg-grid-2">' +
-        input(q + '-m' + k + '-w', 'Person ' + (k + 2), m.who, ' maxlength="300" list=\"pg-officers\" autocomplete=\"off\"') +
-        input(q + '-m' + k + '-r', 'Position ' + (k + 2) + ' (optional)', m.role, ' maxlength="200"') + '</div>' +
-        '<div class="pg-tools">' + btn('pg.more.del', 'Remove person', dk, 'tk-btn-danger', 'Remove person ' + (k + 2) + (m.who ? ', ' + m.who : '')) + '</div></div>';
+      var dk = d + ' data-m="' + k + '"', rm = ibtn('pg.more.del', 'del', dk, 'Remove person ' + (k + 2) + (m.who ? ', ' + m.who : ''), 'pg-ib-danger');
+      return compact
+        ? '<div class="pg-step pg-step-more"><span class="pg-stepno" aria-hidden="true"></span><span class="pg-moretag">Person ' + (k + 2) + '</span>' +
+          cell(q + '-m' + k + '-w', 'Person ' + (k + 2), m.who, PERSON_BOX + ' placeholder="Person ' + (k + 2) + '"') +
+          cell(q + '-m' + k + '-r', 'Position ' + (k + 2) + ' (optional)', m.role, ' maxlength="200" placeholder="Position ' + (k + 2) + ' (optional)"') + '<span class="pg-icons">' + rm + '</span></div>'
+        : '<div class="pg-more">' + input(q + '-m' + k + '-w', 'Person ' + (k + 2), m.who, PERSON_BOX) +
+          input(q + '-m' + k + '-r', 'Position ' + (k + 2) + ' (optional)', m.role, ' maxlength="200"') + '<span class="pg-icons">' + rm + '</span></div>';
     }).join('');
   }
-  function subHtml(pi, ii, s, si) {
+  function subHtml(pi, ii, s, si, count) {
     var q = 'pg-p' + pi + '-i' + ii + '-s' + si, d = ' data-p="' + pi + '" data-i="' + ii + '" data-s="' + si + '"';
-    return '<div class="pg-sub"><div class="pg-grid pg-grid-3">' +
-      input(q + '-t', 'Step ' + (si + 1), s.title, ' maxlength="200"') +
-      input(q + '-w', 'Person or people (optional)', s.who, ' maxlength="300" list=\"pg-officers\" autocomplete=\"off\"') +
-      input(q + '-r', 'Position (optional)', s.role, ' maxlength="200" placeholder="e.g. President, PPO-WRSA"') + '</div>' +
-      moreHtml(s, q, d) +
-      '<div class="pg-tools">' + btn('pg.more.add', 'Add a person', d, '', 'Add a person to step ' + (si + 1)) +
-      btn('pg.sub.up', 'Move up', d, '', 'Move step ' + (si + 1) + ' up') + btn('pg.sub.down', 'Move down', d, '', 'Move step ' + (si + 1) + ' down') +
-      btn('pg.sub.del', 'Remove step', d, 'tk-btn-danger', 'Remove step ' + (si + 1) + ' of ' + (s.title || 'this item')) + '</div></div>';
+    return '<div class="pg-step"><span class="pg-stepno">' + (si + 1) + '</span>' +
+      cell(q + '-t', 'Step ' + (si + 1), s.title, ' maxlength="200" placeholder="Step"') +
+      cell(q + '-w', 'Person, step ' + (si + 1), s.who, PERSON_BOX + ' placeholder="Person (optional)"') +
+      cell(q + '-r', 'Position, step ' + (si + 1), s.role, ' maxlength="200" placeholder="Position (optional)"') +
+      '<span class="pg-icons">' +
+      ibtn('pg.sub.up', 'up', d, 'Move step ' + (si + 1) + ' up', si === 0 ? 'pg-ib-off' : '') +
+      ibtn('pg.sub.down', 'down', d, 'Move step ' + (si + 1) + ' down', si === count - 1 ? 'pg-ib-off' : '') +
+      ibtn('pg.more.add', 'person', d, 'Add a person to step ' + (si + 1)) +
+      ibtn('pg.sub.del', 'del', d, 'Remove step ' + (si + 1) + ' of ' + (s.title || 'this item'), 'pg-ib-danger') + '</span></div>' +
+      moreHtml(s, q, d, true);
   }
-  function itemHtml(pi, it, ii, no) {
+  function itemHtml(pi, it, ii, no, count) {
     var q = 'pg-p' + pi + '-i' + ii, d = ' data-p="' + pi + '" data-i="' + ii + '"';
     var name = it.title || 'item ' + (ii + 1);
     return '<div class="pg-item" id="' + q + '"><div class="pg-itemhead"><span class="pg-no">' + (no ? esc(String(no)) + '.' : '•') + '</span>' +
-      '<span class="tk-mini">Item ' + (ii + 1) + ' of Part ' + (pi + 1) + '</span></div>' +
+      '<span class="tk-mini">Item ' + (ii + 1) + ' of Part ' + (pi + 1) + '</span><span class="pg-icons pg-icons-head">' +
+      ibtn('pg.item.up', 'up', d, 'Move ' + name + ' up', ii === 0 ? 'pg-ib-off' : '') +
+      ibtn('pg.item.down', 'down', d, 'Move ' + name + ' down', ii === count - 1 ? 'pg-ib-off' : '') +
+      ibtn('pg.item.del', 'del', d, 'Remove ' + name, 'pg-ib-danger') + '</span></div>' +
       '<div class="pg-grid">' +
       input(q + '-t', 'Item', it.title, ' maxlength="200"') +
       '<div class="tk-field"><label for="' + q + '-s">Style</label><select id="' + q + '-s">' + STYLES.map(function (s) {
         return '<option value="' + s[0] + '"' + (s[0] === it.style ? ' selected' : '') + '>' + esc(s[1]) + '</option>';
       }).join('') + '</select></div></div>' +
       '<div class="pg-grid pg-grid-2">' +
-      input(q + '-w', 'Person or people (optional)', it.who, ' maxlength="300" list=\"pg-officers\" autocomplete=\"off\"') +
+      input(q + '-w', 'Person or people (optional)', it.who, PERSON_BOX) +
       input(q + '-r', 'Position (optional)', it.role, ' maxlength="200" placeholder="e.g. President, PPO-WRSA"') + '</div>' +
-      moreHtml(it, q, d) +
-      '<label class="tk-check"><input type="checkbox" id="' + q + '-n"' + (it.num ? ' checked' : '') + '> Numbered</label>' +
-      (it.subs.length ? '<div class="pg-subs"><p class="tk-mini">Steps within this item</p>' +
-        it.subs.map(function (s, si) { return subHtml(pi, ii, s, si); }).join('') + '</div>' : '') +
-      '<div class="pg-tools">' + btn('pg.more.add', 'Add a person', d, '', 'Add a person to ' + name) +
-      btn('pg.sub.add', 'Add a step', d, '', 'Add a step to ' + name) +
-      btn('pg.item.up', 'Move up', d, '', 'Move ' + name + ' up') + btn('pg.item.down', 'Move down', d, '', 'Move ' + name + ' down') +
-      btn('pg.item.del', 'Remove item', d, 'tk-btn-danger', 'Remove ' + name) + '</div></div>';
+      moreHtml(it, q, d, false) +
+      '<div class="pg-itemfoot"><label class="tk-check"><input type="checkbox" id="' + q + '-n"' + (it.num ? ' checked' : '') + '> Numbered</label>' +
+      '<span class="pg-links">' + lbtn('pg.more.add', 'person', 'Add a person', d, 'Add a person to ' + name) +
+      lbtn('pg.sub.add', 'plus', 'Add a step', d, 'Add a step to ' + name) + '</span></div>' +
+      (it.subs.length ? '<div class="pg-steps"><div class="pg-step pg-step-head" aria-hidden="true"><span class="pg-stepno">#</span>' +
+        '<span>Step</span><span>Person (optional)</span><span>Position (optional)</span><span></span></div>' +
+        it.subs.map(function (s, si) { return subHtml(pi, ii, s, si, it.subs.length); }).join('') + '</div>' : '') +
+      '</div>';
   }
   function bodyHtml() {
-    var n = 0;
-    return '<div class="pg-grid pg-grid-2">' +
-      input('pg-event', 'Event title (preview and PDF)', S.c.event, ' maxlength="160" placeholder="e.g. 1st General Membership Meeting & Induction Ceremony"') +
-      input('pg-details', 'Date and venue (preview and PDF)', S.c.details, ' maxlength="200" placeholder="e.g. Friday, 23 October 2026 · Jiwar Almasi Hotel, Jeddah"') + '</div>' +
+    var n = 0, parts = S.c.parts.length;
+    return input('pg-event', 'Event title (preview and PDF)', S.c.event, ' maxlength="160" placeholder="e.g. 1st General Membership Meeting & Induction Ceremony"') +
+      '<div class="pg-grid pg-grid-2">' +
+      input('pg-date', 'Date (preview and PDF)', S.c.date, ' maxlength="80" placeholder="e.g. Friday, 23 October 2026"') +
+      input('pg-venue', 'Venue (preview and PDF)', S.c.venue, ' maxlength="110" placeholder="e.g. Jiwar Almasi Hotel, Jeddah"') + '</div>' +
       input('pg-mc', 'Master of the Ceremony', S.c.mc, ' maxlength="200"') +
       S.c.parts.map(function (p, pi) {
         var d = ' data-p="' + pi + '"';
         return '<section class="tk-card pg-part"><div class="pg-parthead"><span class="pg-partk">Part ' + (pi + 1) + '</span>' +
-          input('pg-p' + pi + '-t', 'Part title', p.title, ' maxlength="120"') + '</div>' +
-          p.items.map(function (it, ii) { return itemHtml(pi, it, ii, it.num ? ++n : 0); }).join('') +
-          '<div class="pg-tools">' + btn('pg.item.add', 'Add an item', d, 'tk-btn-primary', 'Add an item to Part ' + (pi + 1)) +
-          btn('pg.part.up', 'Move part up', d) + btn('pg.part.down', 'Move part down', d) +
-          btn('pg.part.del', 'Remove part', d, 'tk-btn-danger', 'Remove Part ' + (pi + 1)) + '</div></section>';
+          input('pg-p' + pi + '-t', 'Part title', p.title, ' maxlength="120"') +
+          '<span class="pg-icons pg-icons-part">' +
+          ibtn('pg.part.up', 'up', d, 'Move Part ' + (pi + 1) + ' up', pi === 0 ? 'pg-ib-off' : '') +
+          ibtn('pg.part.down', 'down', d, 'Move Part ' + (pi + 1) + ' down', pi === parts - 1 ? 'pg-ib-off' : '') +
+          ibtn('pg.part.del', 'del', d, 'Remove Part ' + (pi + 1), 'pg-ib-danger') + '</span></div>' +
+          p.items.map(function (it, ii) { return itemHtml(pi, it, ii, it.num ? ++n : 0, p.items.length); }).join('') +
+          '<div class="pg-partfoot">' + btn('pg.item.add', '+ Add an item', d, 'tk-btn-primary', 'Add an item to Part ' + (pi + 1)) + '</div></section>';
       }).join('') +
-      '<div class="pg-tools pg-addpart">' + btn('pg.part.add', 'Add a part', '') + '</div>';
+      '<button type="button" class="pg-addpart" data-action="pg.part.add"' + (S.busy ? ' disabled' : '') + '>' + icon('plus') + '<span>Add a part</span></button>';
   }
   function noticeHtml() {
     var n = S.notice;
@@ -1828,6 +1918,7 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     if (S.busy || !S.c) return null;
     sync();
     var content = copy(S.c);
+    delete content.date; delete content.venue;          // saved together as "details"
     S.busy = true;
     S.notice = null;
     var go = byId('pg-go');
@@ -2122,7 +2213,7 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
   });
 
   // test hook (Node only): the in-memory state
-  if (typeof module === 'object' && module.exports) module.exports = { state: S, message: message, working: working, caps: caps, nameRun: nameRun, pdfFit: pdfFit, loadOfficers: loadOfficers, pickOfficer: pickOfficer, shown: shown, previewHtml: previewHtml, pdfOf: pdfOf, pdfName: pdfName };
+  if (typeof module === 'object' && module.exports) module.exports = { state: S, message: message, working: working, caps: caps, splitDetails: splitDetails, joinDetails: joinDetails, nameRun: nameRun, pdfFit: pdfFit, loadOfficers: loadOfficers, pickOfficer: pickOfficer, shown: shown, previewHtml: previewHtml, pdfOf: pdfOf, pdfName: pdfName };
 }(typeof window !== 'undefined' ? window : globalThis));
 </script>
 <script>TK.start();</script>
