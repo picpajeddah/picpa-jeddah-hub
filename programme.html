@@ -554,7 +554,10 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
 .pg-no { font-weight: 700; color: var(--navy-800); min-width: 1.6em; }
 .pg-icons { display: inline-flex; align-items: center; gap: 2px; flex: none; }
 .pg-step .pg-icons { justify-content: flex-end; }
-.pg-icons-head { margin-left: auto; }
+.pg-icons-head { margin-left: auto; gap: 4px; }
+.pg-moveto { height: 30px; max-width: 190px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface);
+  color: var(--ink-2, #334155); font: inherit; font-size: var(--fs-xs, 12px); cursor: pointer; margin-right: 4px; }
+.pg-moveto:hover { border-color: var(--navy-500, #2149d6); }
 .pg-ib { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 1px solid transparent;
   border-radius: 6px; background: transparent; color: var(--ink-3, #64748b); cursor: pointer; }
 .pg-ib:hover { background: var(--bg, #f1f4f9); color: var(--navy-800); border-color: var(--line); }
@@ -1622,7 +1625,12 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     return true;
   }
   if (doc && typeof doc.addEventListener === 'function') {
-    doc.addEventListener('change', function (e) { if (e && e.target && e.target.id) pickOfficer(e.target.id); });
+    doc.addEventListener('change', function (e) {
+      var t = e && e.target;
+      if (!t) return;
+      if (t.getAttribute && t.getAttribute('data-moveto') === '1') { TK.actions['pg.item.to'](t); return; }
+      if (t.id) pickOfficer(t.id);
+    });
   }
   /** "details" holds the date and the venue as one line, "date · venue" (older entries used " - "): split it for the two boxes. */
   function splitDetails(d) {
@@ -1764,11 +1772,18 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
   }
   function itemHtml(pi, it, ii, no, count) {
     var q = 'pg-p' + pi + '-i' + ii, d = ' data-p="' + pi + '" data-i="' + ii + '"';
-    var name = it.title || 'item ' + (ii + 1);
+    var name = it.title || 'item ' + (ii + 1), parts = S.c.parts;
+    var upLabel = ii > 0 ? 'Move ' + name + ' up' : pi > 0 ? 'Move ' + name + ' to the end of Part ' + pi : 'Move ' + name + ' up';
+    var downLabel = ii < count - 1 ? 'Move ' + name + ' down' : pi < parts.length - 1 ? 'Move ' + name + ' to the start of Part ' + (pi + 2) : 'Move ' + name + ' down';
+    var moveTo = parts.length > 1 ? '<select class="pg-moveto" data-moveto="1"' + d + ' aria-label="Move ' + esc(name) + ' to another part" title="Move to another part"' +
+      (S.busy ? ' disabled' : '') + '><option value="" selected>Move to…</option>' + parts.map(function (p, k) {
+        return k === pi ? '' : '<option value="' + k + '">Part ' + (k + 1) + (p.title ? ' · ' + esc(p.title) : '') + '</option>';
+      }).join('') + '</select>' : '';
     return '<div class="pg-item" id="' + q + '"><div class="pg-itemhead"><span class="pg-no">' + (no ? esc(String(no)) + '.' : '•') + '</span>' +
       '<span class="tk-mini">Item ' + (ii + 1) + ' of Part ' + (pi + 1) + '</span><span class="pg-icons pg-icons-head">' +
-      ibtn('pg.item.up', 'up', d, 'Move ' + name + ' up', ii === 0 ? 'pg-ib-off' : '') +
-      ibtn('pg.item.down', 'down', d, 'Move ' + name + ' down', ii === count - 1 ? 'pg-ib-off' : '') +
+      moveTo +
+      ibtn('pg.item.up', 'up', d, upLabel, ii === 0 && pi === 0 ? 'pg-ib-off' : '') +
+      ibtn('pg.item.down', 'down', d, downLabel, ii === count - 1 && pi === parts.length - 1 ? 'pg-ib-off' : '') +
       ibtn('pg.item.del', 'del', d, 'Remove ' + name, 'pg-ib-danger') + '</span></div>' +
       '<div class="pg-grid">' +
       input(q + '-t', 'Item', it.title, ' maxlength="200"') +
@@ -1877,8 +1892,33 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     S.c.parts.splice(i, 1);
   }));
   TK.action('pg.item.add', edit(function (el) { var p = part(el); if (!p) return false; p.items.push(blankItem()); }));
-  TK.action('pg.item.up', edit(function (el) { var p = part(el); return !!p && move(p.items, idx(el, 'data-i'), -1); }));
-  TK.action('pg.item.down', edit(function (el) { var p = part(el); return !!p && move(p.items, idx(el, 'data-i'), 1); }));
+  /** Move item i of part pi up or down; at the edge of a part it goes to the end of the part above / the start of the next. */
+  function moveItem(pi, i, by) {
+    var parts = S.c.parts, p = parts[pi];
+    if (!p || i < 0 || i >= p.items.length) return false;
+    if (move(p.items, i, by)) return true;
+    var q = parts[pi + by];
+    if (!q) return false;
+    var it = p.items.splice(i, 1)[0];
+    if (by < 0) q.items.push(it); else q.items.unshift(it);
+    return true;
+  }
+  /** Move item i of part pi to the end of part to (another part). */
+  function moveItemTo(pi, i, to) {
+    var parts = S.c.parts, p = parts[pi], q = parts[to];
+    if (!p || !q || pi === to || i < 0 || i >= p.items.length) return false;
+    q.items.push(p.items.splice(i, 1)[0]);
+    return true;
+  }
+  TK.action('pg.item.up', edit(function (el) { return moveItem(idx(el, 'data-p'), idx(el, 'data-i'), -1); }));
+  TK.action('pg.item.down', edit(function (el) { return moveItem(idx(el, 'data-p'), idx(el, 'data-i'), 1); }));
+  /** The 'Move to…' menu of an item (a select): its value is the target part's index. */
+  TK.action('pg.item.to', edit(function (el) {
+    var raw = el && typeof el.value === 'string' ? el.value.trim() : '';
+    if (!/^\d+$/.test(raw)) return false;                 // the "Move to…" line itself: nothing to do
+    var to = Number(raw);
+    return moveItemTo(idx(el, 'data-p'), idx(el, 'data-i'), to);
+  }));
   TK.action('pg.item.del', edit(function (el) {
     var p = part(el), i = idx(el, 'data-i');
     if (!p || i < 0 || i >= p.items.length) return false;
@@ -2219,7 +2259,7 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
   });
 
   // test hook (Node only): the in-memory state
-  if (typeof module === 'object' && module.exports) module.exports = { state: S, message: message, working: working, caps: caps, splitDetails: splitDetails, joinDetails: joinDetails, nameRun: nameRun, pdfFit: pdfFit, loadOfficers: loadOfficers, pickOfficer: pickOfficer, shown: shown, previewHtml: previewHtml, pdfOf: pdfOf, pdfName: pdfName };
+  if (typeof module === 'object' && module.exports) module.exports = { state: S, message: message, working: working, caps: caps, moveItem: moveItem, moveItemTo: moveItemTo, splitDetails: splitDetails, joinDetails: joinDetails, nameRun: nameRun, pdfFit: pdfFit, loadOfficers: loadOfficers, pickOfficer: pickOfficer, shown: shown, previewHtml: previewHtml, pdfOf: pdfOf, pdfName: pdfName };
 }(typeof window !== 'undefined' ? window : globalThis));
 </script>
 <script>TK.start();</script>
