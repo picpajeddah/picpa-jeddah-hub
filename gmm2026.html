@@ -203,6 +203,8 @@ body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:ce
     });
   }
   var STYLES = { hl: ' hl', round: ' round', brk: ' brk' };
+  // a year range (2026-2027) never splits across lines: non-breaking hyphen
+  function nb(s) { return String(s == null ? '' : s).replace(/(\d{4})\s*[-\u2013]\s*(\d{2,4})/g, '$1\u2011$2'); }
   // everyone on a line: the first person, then the further people ("more")
   function persons(x) {
     return [{ who: x.who, role: x.role }].concat(Array.isArray(x.more) ? x.more : []).filter(function (m) { return m && (m.who || m.role); });
@@ -220,14 +222,14 @@ body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:ce
             var sl = persons(s);
             var sp = sl.length ? '<span class="tl-sub-p">' + sl.map(function (m) {
               return '<span class="tl-person">' + (m.who ? '<span class="tl-sub-w">' + esc(m.who) + '</span>' : '') +
-                (m.role ? '<span class="tl-sub-r">' + esc(m.role) + '</span>' : '') + '</span>';
+                (m.role ? '<span class="tl-sub-r">' + esc(nb(m.role)) + '</span>' : '') + '</span>';
             }).join('') + '</span>' : '';
             return '<li><span class="tl-sub-t">' + esc(s.title) + '</span>' + sp + '</li>';
           }).join('') + '</ol>' : '';
         }
         var ppl = persons(it).length ? '<div class="tl-people">' + persons(it).map(function (m) {
           return '<div class="tl-person">' + (m.who ? '<div class="tl-who">' + esc(m.who) + '</div>' : '') +
-            (m.role ? '<div class="tl-role">' + esc(m.role) + '</div>' : '') + '</div>';
+            (m.role ? '<div class="tl-role">' + esc(nb(m.role)) + '</div>' : '') + '</div>';
         }).join('') + '</div>' : '';
         // the item's people sit beside its first run of steps without names of their own (centred); a step with its own
         // name keeps its own line; no such run: the people stay on the title line
@@ -265,17 +267,18 @@ body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:ce
 <style id="hub-prog-content-css">
 .tl-subs{list-style:none;margin:6px 0 0;padding:0 0 0 12px;border-left:2px solid var(--line)}
 .tl-subs li{margin:4px 0;font-size:13px;line-height:1.4;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
-.tl-sub-t{font-weight:600;color:var(--ink-2);flex:1 1 50%;min-width:0}
-.tl-sub-p{flex:1 1 50%;text-align:right;min-width:0}
+.tl-sub-t{font-weight:600;color:var(--ink-2);flex:1 1 0;min-width:38%}
+.tl-sub-p{flex:0 1 auto;max-width:62%;text-align:right;min-width:0}
 .tl-sub-w{display:block;color:var(--ink-2)}
 .tl-sub-r{display:block;color:var(--ink-3);font-size:12px}
 .tl-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
-.tl-row .tl-title{flex:1 1 50%;min-width:0}
-.tl-people{flex:1 1 50%;text-align:right;min-width:0}
+.tl-row .tl-title{flex:1 1 0;min-width:38%}
+.tl-people{flex:0 1 auto;max-width:62%;text-align:right;min-width:0}
 .tl-people .tl-who{margin-top:0;font-size:13px}
 .tl-role{font-size:12px;color:var(--ink-3);margin-top:1px}
 .tl-person{display:block}.tl-person+.tl-person{margin-top:6px}
-.tl-beside{align-items:center}.tl-beside>.tl-subs{flex:1 1 50%;min-width:0}
+.tl-beside{align-items:center}.tl-beside>.tl-subs{flex:1 1 0;min-width:38%}
+@media (max-width:480px){.tl-row .tl-title,.tl-sub-t,.tl-beside>.tl-subs{min-width:48%}.tl-people,.tl-sub-p{max-width:52%}}
 </style>
 <script id="hub-officers-live">
 (function () {
