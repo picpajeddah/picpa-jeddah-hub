@@ -617,6 +617,7 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
 .pv-event { margin: 0; font-family: "Archivo Black", "Arial Black", sans-serif; font-weight: 400; font-size: 18px; line-height: 1.15;
   color: #021d6b; }
 .pv-details { margin: 6px 0 0; font-size: 13px; }
+.pv-details span { display: block; }
 .pv-part { display: flex; align-items: center; gap: 8px; margin: var(--s4) 0 var(--s2); }
 .pv-k { flex: none; background: #021d6b; color: #fff; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
   padding: 3px 7px; border-radius: 2px; }
@@ -1991,7 +1992,9 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
   function previewHtml(c) {
     var n = 0;
     var h = '<div class="pv"><div class="pv-head"><p class="pv-name">Philippine Institute of Certified Public Accountants<br>Western Region · Jeddah Chapter</p>' +
-      '<h2 class="pv-event">' + esc(caps(c.event || 'Programme')) + '</h2>' + (c.details ? '<p class="pv-details">' + esc(c.details) + '</p>' : '') + '</div>';
+      '<h2 class="pv-event">' + esc(caps(c.event || 'Programme')) + '</h2>' + (c.details ? '<p class="pv-details">' + [splitDetails(c.details).date, splitDetails(c.details).venue].filter(Boolean).map(function (l) {
+        return '<span>' + esc(l) + '</span>';
+      }).join('') + '</p>' : '') + '</div>';
     c.parts.forEach(function (p, pi) {
       h += '<div class="pv-part"><span class="pv-k">Part ' + (pi + 1) + '</span><h3>' + esc(caps(p.title || 'Untitled part')) + '</h3></div><ol class="pv-tl">';
       p.items.forEach(function (it) {
@@ -2040,7 +2043,10 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     wrap(caps(c.event || 'Programme'), W - 2 * M).forEach(function (l) { d.text(l, W / 2, y, { align: 'center' }); y += 17 * LH; });
     if (c.details) {
       y += k; font(SANS, 'normal', 10.5, INK);
-      wrap(c.details, W - 2 * M).forEach(function (l) { d.text(l, W / 2, y, { align: 'center' }); y += 10.5 * LH; });
+      var dv = splitDetails(c.details);                 // the date on one line, the venue on the next
+      [dv.date, dv.venue].filter(Boolean).forEach(function (line) {
+        wrap(line, W - 2 * M).forEach(function (l) { d.text(l, W / 2, y, { align: 'center' }); y += 10.5 * LH; });
+      });
     }
     y += 2 * k; fill(GOLD); d.rect(W / 2 - 14, y, 28, 0.9, 'F'); y += 10 * k;
 
