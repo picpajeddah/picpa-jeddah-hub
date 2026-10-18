@@ -591,6 +591,8 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
 .pv-people { flex: 1 1 50%; display: flex; flex-direction: column; gap: 4px; text-align: right; min-width: 0; }
 .pv-person { display: flex; flex-direction: column; }
 .pg-more { margin-top: var(--s2); padding-left: var(--s3); border-left: 2px solid var(--line); }
+.pv-beside { align-items: center; margin-top: 4px; }
+.pv-beside > .pv-subs { flex: 1 1 50%; min-width: 0; margin-top: 0; }
 .pv-t { font-weight: 700; font-size: 14px; }
 .pv-hl .pv-t { color: #021d6b; }
 .pv-brk .pv-t { color: #4a5570; font-weight: 600; }
@@ -1522,7 +1524,7 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
   var STYLES = [['', 'Normal'], ['hl', 'Highlighted'], ['round', 'Ceremony'], ['brk', 'Break or meal']];
 
   // in memory only: me = hub_my_permissions(); data = the last answer of the server; c = the programme being edited
-  var S = { me: null, page: 'gmm2026.html', data: null, c: null, notice: null, busy: false };
+  var S = { me: null, page: 'gmm2026.html', data: null, c: null, notice: null, busy: false, officers: [] };
 
   function byId(id) { return doc && doc.getElementById ? doc.getElementById(id) : null; }
   function copy(v) { return v == null ? v : JSON.parse(JSON.stringify(v)); }
@@ -1538,6 +1540,45 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     var p = '';
     try { p = m ? decodeURIComponent(m[1]) : ''; } catch (e) { p = ''; }
     return PAGE_RE.test(p) ? p : 'gmm2026.html';
+  }
+  /** The Hub officers of the latest term, [{name, position, term}] in the Hub's order (officers: signed-in read). Never rejects:
+   *  without the list the Person boxes are typed as before. */
+  function loadOfficers() {
+    var c;
+    try { c = TK.client(); } catch (e) { return Promise.resolve([]); }
+    if (!c || typeof c.from !== 'function') return Promise.resolve([]);
+    return Promise.resolve().then(function () { return c.from('officers').select('full_name, position, term, sort_order'); }).then(function (r) {
+      var rows = r && !r.error && Array.isArray(r.data) ? r.data : [];
+      rows = rows.filter(function (o) { return o && /[A-Za-z]/.test(str(o.full_name)); });
+      var terms = rows.map(function (o) { return str(o.term).trim(); }).filter(Boolean).sort();
+      var latest = terms.length ? terms[terms.length - 1] : '';
+      return rows.filter(function (o) { return !latest || str(o.term).trim() === latest; }).sort(function (a, b) {
+        var x = Number(a.sort_order), y = Number(b.sort_order);
+        x = isFinite(x) && a.sort_order !== null ? x : 9999; y = isFinite(y) && b.sort_order !== null ? y : 9999;
+        return x - y || str(a.full_name).localeCompare(str(b.full_name));
+      }).map(function (o) { return { name: str(o.full_name).trim(), position: str(o.position).trim(), term: str(o.term).trim() }; });
+    }, function () { return []; });
+  }
+  function officersHtml() {
+    return '<datalist id="pg-officers">' + S.officers.map(function (o) {
+      return '<option value="' + esc(o.name) + '">' + esc(o.position + (o.term ? ', ' + o.term : '')) + '</option>';
+    }).join('') + '</datalist>';
+  }
+  function officerNamed(name) {
+    var n = str(name).trim().toLowerCase();
+    for (var i = 0; i < S.officers.length; i++) if (n && S.officers[i].name.toLowerCase() === n) return S.officers[i];
+    return null;
+  }
+  /** A Person box (id ending -w) now holds an officer's name: fill its Position box (-r) when that is still empty. */
+  function pickOfficer(id) {
+    if (!/^pg-[A-Za-z0-9-]+-w$/.test(String(id || ''))) return false;
+    var w = byId(id), r = byId(String(id).replace(/-w$/, '-r')), o = w ? officerNamed(w.value) : null;
+    if (!o || !r || str(r.value).trim()) return false;
+    r.value = o.position + (o.term ? ', ' + o.term : '');
+    return true;
+  }
+  if (doc && typeof doc.addEventListener === 'function') {
+    doc.addEventListener('change', function (e) { if (e && e.target && e.target.id) pickOfficer(e.target.id); });
   }
   /** A tidy working copy of a saved programme (or a blank one). */
   function working(content) {
@@ -1620,7 +1661,7 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     return x.more.map(function (m, k) {
       var dk = d + ' data-m="' + k + '"';
       return '<div class="pg-more"><div class="pg-grid pg-grid-2">' +
-        input(q + '-m' + k + '-w', 'Person ' + (k + 2), m.who, ' maxlength="300"') +
+        input(q + '-m' + k + '-w', 'Person ' + (k + 2), m.who, ' maxlength="300" list=\"pg-officers\" autocomplete=\"off\"') +
         input(q + '-m' + k + '-r', 'Position ' + (k + 2) + ' (optional)', m.role, ' maxlength="200"') + '</div>' +
         '<div class="pg-tools">' + btn('pg.more.del', 'Remove person', dk, 'tk-btn-danger', 'Remove person ' + (k + 2) + (m.who ? ', ' + m.who : '')) + '</div></div>';
     }).join('');
@@ -1629,10 +1670,11 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     var q = 'pg-p' + pi + '-i' + ii + '-s' + si, d = ' data-p="' + pi + '" data-i="' + ii + '" data-s="' + si + '"';
     return '<div class="pg-sub"><div class="pg-grid pg-grid-3">' +
       input(q + '-t', 'Step ' + (si + 1), s.title, ' maxlength="200"') +
-      input(q + '-w', 'Person or people (optional)', s.who, ' maxlength="300"') +
+      input(q + '-w', 'Person or people (optional)', s.who, ' maxlength="300" list=\"pg-officers\" autocomplete=\"off\"') +
       input(q + '-r', 'Position (optional)', s.role, ' maxlength="200" placeholder="e.g. President, PPO-WRSA"') + '</div>' +
       moreHtml(s, q, d) +
       '<div class="pg-tools">' + btn('pg.more.add', 'Add a person', d, '', 'Add a person to step ' + (si + 1)) +
+      btn('pg.sub.up', 'Move up', d, '', 'Move step ' + (si + 1) + ' up') + btn('pg.sub.down', 'Move down', d, '', 'Move step ' + (si + 1) + ' down') +
       btn('pg.sub.del', 'Remove step', d, 'tk-btn-danger', 'Remove step ' + (si + 1) + ' of ' + (s.title || 'this item')) + '</div></div>';
   }
   function itemHtml(pi, it, ii, no) {
@@ -1646,7 +1688,7 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
         return '<option value="' + s[0] + '"' + (s[0] === it.style ? ' selected' : '') + '>' + esc(s[1]) + '</option>';
       }).join('') + '</select></div></div>' +
       '<div class="pg-grid pg-grid-2">' +
-      input(q + '-w', 'Person or people (optional)', it.who, ' maxlength="300"') +
+      input(q + '-w', 'Person or people (optional)', it.who, ' maxlength="300" list=\"pg-officers\" autocomplete=\"off\"') +
       input(q + '-r', 'Position (optional)', it.role, ' maxlength="200" placeholder="e.g. President, PPO-WRSA"') + '</div>' +
       moreHtml(it, q, d) +
       '<label class="tk-check"><input type="checkbox" id="' + q + '-n"' + (it.num ? ' checked' : '') + '> Numbered</label>' +
@@ -1688,7 +1730,9 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     return '<div class="pg"><h1>Event programme</h1>' +
       '<p class="tk-muted">Order of proceedings of <a href="' + esc(SITE + S.page) + '" target="_blank" rel="noopener">' + esc(S.page) + '</a>. ' +
       esc(stateLine()) + '</p>' +
-      '<p class="tk-mini">Numbers follow the order of the numbered items. "Steps" appear under an item, for example the two parts of the Induction Proper.</p>' +
+      '<p class="tk-mini">Numbers follow the order of the numbered items. "Steps" appear under an item, for example the two parts of the Induction Proper. ' +
+      'In a Person box, type a name or choose an officer from the list; choosing an officer also fills an empty Position.</p>' +
+      '<div id="pg-officers-wrap">' + officersHtml() + '</div>' +
       '<div id="pg-notice">' + noticeHtml() + '</div>' +
       '<form class="tk-form" id="pg-form" data-action="pg.save" novalidate><div id="pg-body">' + bodyHtml() + '</div>' +
       '<div class="pg-save"><button type="submit" class="tk-btn tk-btn-primary" id="pg-go"' + (S.busy ? ' disabled' : '') + '>' +
@@ -1772,6 +1816,8 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
     if (!x || k < 0 || k >= x.more.length) return false;
     x.more.splice(k, 1);
   }));
+  TK.action('pg.sub.up', edit(function (el) { var it = item(el); return !!it && move(it.subs, idx(el, 'data-s'), -1); }));
+  TK.action('pg.sub.down', edit(function (el) { var it = item(el); return !!it && move(it.subs, idx(el, 'data-s'), 1); }));
   TK.action('pg.sub.del', edit(function (el) {
     var it = item(el), i = idx(el, 'data-s');
     if (!it || i < 0 || i >= it.subs.length) return false;
@@ -1851,8 +1897,10 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
         var subs = it.subs.length ? '<ol class="pv-subs">' + it.subs.map(function (s) {
           return '<li class="pv-row"><span class="pv-st">' + esc(s.title) + '</span>' + people(s) + '</li>';
         }).join('') + '</ol>' : '';
+        var beside = it.subs.length && persons(it).length;    // the people of an item with steps sit beside the steps
         h += '<li class="pv-item' + (PV_STYLE[it.style] || '') + '"><span class="pv-no">' + (it.num ? String(++n) : '') + '</span><div class="pv-body">' +
-          '<div class="pv-row"><span class="pv-t">' + esc(it.title) + '</span>' + people(it) + '</div>' + subs + '</div></li>';
+          (beside ? '<div class="pv-row"><span class="pv-t">' + esc(it.title) + '</span></div><div class="pv-row pv-beside">' + subs + people(it) + '</div>'
+            : '<div class="pv-row"><span class="pv-t">' + esc(it.title) + '</span>' + people(it) + '</div>' + subs) + '</div></li>';
       });
       h += '</ol>';
     });
@@ -1892,6 +1940,15 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
 
     var n = 0, X = M + 12, TW = W - M - X, GAP = 6;
     var LW = TW * 0.56, RW = TW - LW - GAP, RX = W - M;      // title column | names column (right-aligned at the margin)
+    /** The width the names column needs for these people (names at 10 pt, positions at 9 pt), in mm. */
+    function needW(list) {
+      var w = 0;
+      list.forEach(function (m) {
+        if (m.who) { font(SANS, 'normal', 10, INK); w = Math.max(w, d.getTextWidth(m.who)); }
+        if (m.role) { font(SANS, 'normal', 9, INK); w = Math.max(w, d.getTextWidth(m.role)); }
+      });
+      return w + 0.5;
+    }
     c.parts.forEach(function (p, pi) {
       need(22);
       var tag = 'PART ' + (pi + 1);
@@ -1903,43 +1960,47 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
       pl.forEach(function (l, i) { d.text(l, M + tw + 4, y + i * 11.5 * LH); });
       y += pl.length * 11.5 * LH + 4;
       p.items.forEach(function (it) {
-        var ppl = persons(it), tw0 = ppl.length ? LW : TW;
+        var allP = persons(it).concat.apply(persons(it), it.subs.map(function (s) { return persons(s); }));
+        var RWi = Math.min(Math.max(RW, needW(allP)), TW * 0.62), LWi = TW - RWi - GAP;
+        var ppl = persons(it), beside = !!(ppl.length && it.subs.length), tw0 = ppl.length && !beside ? LWi : TW;
         font(SANS, 'bold', 11, INK); var title = wrap(it.title, tw0);
         var cells = ppl.map(function (m) {
-          font(SANS, 'normal', 10, INK); var w = m.who ? wrap(m.who, RW) : [];
-          font(SANS, 'normal', 9, INK); var r = m.role ? wrap(m.role, RW) : [];
+          font(SANS, 'normal', 10, INK); var w = m.who ? wrap(m.who, RWi) : [];
+          font(SANS, 'normal', 9, INK); var r = m.role ? wrap(m.role, RWi) : [];
           return { w: w, r: r };
         });
         var hPeople = cells.reduce(function (a, c, i) { return a + c.w.length * 10 * LH + c.r.length * 9 * LH + (i ? 1.5 : 0); }, 0);
         var subs = it.subs.map(function (s) {
           var sp = persons(s);
-          font(SANS, 'bold', 10, INK); var t = wrap(s.title, sp.length ? LW - 5 : TW - 5);
+          font(SANS, 'bold', 10, INK); var t = wrap(s.title, sp.length || beside ? LWi - 5 : TW - 5);
           var sc = sp.map(function (m) {
-            font(SANS, 'normal', 9, INK); var w = m.who ? wrap(m.who, RW) : [];
-            font(SANS, 'normal', 8.5, INK); var r = m.role ? wrap(m.role, RW) : [];
+            font(SANS, 'normal', 9, INK); var w = m.who ? wrap(m.who, RWi) : [];
+            font(SANS, 'normal', 8.5, INK); var r = m.role ? wrap(m.role, RWi) : [];
             return { w: w, r: r };
           });
           var hp = sc.reduce(function (a, c, i) { return a + c.w.length * 9 * LH + c.r.length * 8.5 * LH + (i ? 1.2 : 0); }, 0);
           return { t: t, cells: sc, h: Math.max(t.length * 10 * LH, hp) + 1.5 };
         });
-        var hHead = Math.max(title.length * 11 * LH, hPeople);
+        var hHead = beside ? title.length * 11 * LH : Math.max(title.length * 11 * LH, hPeople);
         var hSubs = subs.reduce(function (a, s) { return a + s.h; }, subs.length ? 1 : 0);
-        need(Math.min(hHead + hSubs + 3.5, 60));
+        need(Math.min(hHead + (beside ? Math.max(hSubs, hPeople + 1) : hSubs) + 3.5, 60));
+        function drawPeople(ry) {
+          cells.forEach(function (c, i) {
+            if (i) ry += 1.5;
+            font(SANS, 'normal', 10, INK); c.w.forEach(function (l) { d.text(l, RX, ry, { align: 'right' }); ry += 10 * LH; });
+            font(SANS, 'normal', 9, SUBTLE); c.r.forEach(function (l) { d.text(l, RX, ry, { align: 'right' }); ry += 9 * LH; });
+          });
+        }
         var top = y;
         if (it.num) { font(SANS, 'bold', 11, GOLDTXT); d.text(String(++n), M + 1, y); }
         else { fill(it.style === 'round' ? GOLD : (it.style === 'brk' ? SUBTLE : NAVY)); d.circle(M + 2.6, y - 1.3, 0.9, 'F'); }
         font(SANS, 'bold', 11, it.style === 'brk' ? MUTED : (it.style === 'hl' ? NAVY : INK));
         title.forEach(function (l, i) { d.text(l, X, y + i * 11 * LH); });
-        var ry = y;
-        cells.forEach(function (c, i) {
-          if (i) ry += 1.5;
-          font(SANS, 'normal', 10, INK); c.w.forEach(function (l) { d.text(l, RX, ry, { align: 'right' }); ry += 10 * LH; });
-          font(SANS, 'normal', 9, SUBTLE); c.r.forEach(function (l) { d.text(l, RX, ry, { align: 'right' }); ry += 9 * LH; });
-        });
+        if (!beside) drawPeople(y);
         y += hHead;
         if (subs.length) {
           y += 1;
-          var sTop = y - 3.5;
+          var sTop = y - 3.5, sFirst = y;
           subs.forEach(function (s) {
             font(SANS, 'bold', 10, MUTED); s.t.forEach(function (l, i) { d.text(l, X + 5, y + i * 10 * LH); });
             var sy = y;
@@ -1951,6 +2012,11 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
             y += s.h;
           });
           d.setDrawColor(LINE[0], LINE[1], LINE[2]); d.setLineWidth(0.6); d.line(X + 1, Math.max(sTop, top), X + 1, y - 3.5);
+          if (beside) {                                  // centred on the steps (never above the first one)
+            var span = y - sFirst - 1.5;
+            drawPeople(sFirst + Math.max(0, (span - hPeople) / 2));
+            y = Math.max(y, sFirst + hPeople + 1.5);
+          }
         }
         y += 3.5;
       });
@@ -2014,6 +2080,10 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
         return TK.rpc('hub_programme_get', { p_page: S.page }).then(function (d) {
           S.data = d && typeof d === 'object' ? d : {};
           S.c = working(S.data.content);
+          loadOfficers().then(function (list) {
+            S.officers = list;
+            var w = byId('pg-officers-wrap'); if (w) w.innerHTML = officersHtml();
+          });
           return pageHtml();
         });
       });
@@ -2021,7 +2091,7 @@ body[data-page="programme"] .tk-view { max-width: 980px; }
   });
 
   // test hook (Node only): the in-memory state
-  if (typeof module === 'object' && module.exports) module.exports = { state: S, message: message, working: working, caps: caps, shown: shown, previewHtml: previewHtml, pdfOf: pdfOf, pdfName: pdfName };
+  if (typeof module === 'object' && module.exports) module.exports = { state: S, message: message, working: working, caps: caps, loadOfficers: loadOfficers, pickOfficer: pickOfficer, shown: shown, previewHtml: previewHtml, pdfOf: pdfOf, pdfName: pdfName };
 }(typeof window !== 'undefined' ? window : globalThis));
 </script>
 <script>TK.start();</script>

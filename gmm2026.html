@@ -222,13 +222,16 @@ body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:ce
           }).join('') + '</span>' : '';
           return '<li><span class="tl-sub-t">' + esc(s.title) + '</span>' + sp + '</li>';
         }).join('') + '</ol>' : '';
+        var ppl = persons(it).length ? '<div class="tl-people">' + persons(it).map(function (m) {
+          return '<div class="tl-person">' + (m.who ? '<div class="tl-who">' + esc(m.who) + '</div>' : '') +
+            (m.role ? '<div class="tl-role">' + esc(m.role) + '</div>' : '') + '</div>';
+        }).join('') + '</div>' : '';
+        // an item with steps: its people sit beside the steps (centred), not on the title line
+        var beside = !!(subs && ppl);
         html += '<li class="tl-item' + (STYLES[it.style] || '') + '"><span class="tl-dot"></span><span class="tl-time">' +
           (it.num === true ? '<b>' + (++n) + '</b>' : '') + '</span><div class="tl-body"><div class="tl-row"><div class="tl-title">' + esc(it.title) + '</div>' +
-          (persons(it).length ? '<div class="tl-people">' + persons(it).map(function (m) {
-            return '<div class="tl-person">' + (m.who ? '<div class="tl-who">' + esc(m.who) + '</div>' : '') +
-              (m.role ? '<div class="tl-role">' + esc(m.role) + '</div>' : '') + '</div>';
-          }).join('') + '</div>' : '') + '</div>' +
-          subs + '<span class="tl-now">Happening now</span></div></li>';
+          (beside ? '</div><div class="tl-row tl-beside">' + subs + ppl + '</div>' : ppl + '</div>' + subs) +
+          '<span class="tl-now">Happening now</span></div></li>';
       });
       html += '</ol>';
     });
@@ -264,6 +267,7 @@ body.hub-prog-locked #hub-prog-lock{display:flex;min-height:100vh;align-items:ce
 .tl-people .tl-who{margin-top:0;font-size:13px}
 .tl-role{font-size:12px;color:var(--ink-3);margin-top:1px}
 .tl-person{display:block}.tl-person+.tl-person{margin-top:6px}
+.tl-beside{align-items:center}.tl-beside>.tl-subs{flex:1 1 50%;min-width:0}
 </style>
 
 <header class="top">
