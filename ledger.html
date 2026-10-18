@@ -1573,13 +1573,39 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       if (!ses) throw LedgerError('LEDGER_SIGNED_OUT');
       var user = { id: ses.user.id, email: ses.user.email || '', name: '' };
       return rpc('ledger_my_role').then(function (role) {
-        if (!role) throw LedgerError('LEDGER_NO_ACCESS', { unlisted: true });
-        return load(user, role);
+        if (role) return load(user, role);
+        // no ledger role: an officer linked to this Hub login may still file reimbursement requests
+        return soft(rpc('ledger_reimb_context'), null).then(function (ctx) {
+          if (!ctx || !ctx.officer) throw LedgerError('LEDGER_NO_ACCESS', { unlisted: true });
+          return loadRequester(user, ctx);
+        });
+      });
+    });
+  }
+
+  /**
+   * A requester (an officer with a Hub login and no ledger role): the reimbursement screens only. The state carries
+   * empty ledger lists so shared code that looks at them keeps working.
+   */
+  function loadRequester(user, ctx) {
+    var st = { user: user, role: 'requester', myOfficer: ctx.officer,
+               settings: { fy_label: ctx.fy_label || '', fy_start: ctx.fy_start || '', fy_end: ctx.fy_end || '', currency: ctx.currency || 'SAR' },
+               settingRows: [], accounts: [], events: (ctx.events || []).map(function (e) { return { id: e.id, code: e.code, name: e.name, active: true }; }),
+               openings: [], pledges: [], txns: [], users: [], officers: [], officerOpenings: [], budgetLines: [], reimbursements: [],
+               myReimb: [], names: {} };
+    return reloadMine(st).then(function () {
+      return loadNames([user.id]).then(function (profiles) {
+        profiles.forEach(function (p) { if (p.full_name) st.names[p.id] = p.full_name; });
+        user.name = st.names[user.id] || ctx.officer.name || '';
+        S.state = st;
+        touch();
+        return st;
       });
     });
   }
 
   function load(user, role) {
+    var ids = [user.id];
     return Promise.all([
       select('ledger_settings'),
       select('ledger_accounts', function (q) { return q.order('code'); }),
@@ -1597,12 +1623,17 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         soft(select('ledger_officers', function (q) { return q.order('name'); }), []),
         soft(select('ledger_officer_openings', function (q) { return q.eq('fy_label', fy); }), []),
         // itemized event budgets (06-event-budget-lines.sql); empty if the database does not have them yet
-        soft(select('ledger_budget_lines'), [])
+        soft(select('ledger_budget_lines'), []),
+        // reimbursement requests (09-reimbursements.sql); the caller's own officer, if linked to this login
+        soft(select('ledger_reimbursements', function (q) { return q.order('requested_at', { ascending: false }); }), []),
+        soft(rpc('ledger_my_officer'), [])
       ]).then(function (rest) {
+        var mine = [].concat(rest[8] || [])[0];
         var st = { user: user, role: role, settings: settings, settingRows: ref[0], accounts: ref[1], events: ref[2],
                    openings: rest[0], pledges: rest[1], txns: rest[2], users: rest[3], officers: rest[4],
-                   officerOpenings: rest[5], budgetLines: rest[6], names: {} };
-        var ids = [user.id];
+                   officerOpenings: rest[5], budgetLines: rest[6], reimbursements: rest[7],
+                   myOfficer: mine ? { id: mine.officer_id, name: mine.name } : null, myReimb: [], names: {} };
+        (st.reimbursements || []).forEach(function (r) { ids.push(r.requested_by); });
         st.txns.forEach(function (t) { ids.push(t.entered_by, t.approved_by); });
         st.users.forEach(function (u) { ids.push(u.user_id); });
         return loadNames(ids).then(function (profiles) {
@@ -1897,7 +1928,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     ledger_events: { list: 'events', keys: ['id'], cols: EVENT_COLS,
       sort: function (a, b) { return a.code < b.code ? -1 : a.code > b.code ? 1 : 0; } },
     ledger_openings: { list: 'openings', keys: ['account_id', 'fy_label'], cols: ['opening', 'ppa', 'prior_year'] },
-    ledger_officers: { list: 'officers', keys: ['id'], cols: ['name', 'active'],
+    ledger_officers: { list: 'officers', keys: ['id'], cols: ['name', 'active', 'profile_id'],
       sort: function (a, b) { return String(a.name).localeCompare(String(b.name)); } },
     ledger_officer_openings: { list: 'officerOpenings', keys: ['officer_id', 'account_id', 'fy_label'],
       cols: ['opening', 'ppa', 'prior_year'] },
@@ -1986,7 +2017,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   }
   /** An officer of the subledger: {id?, name, active}. Approvers only; the database keeps names unique. */
   function saveOfficer(row) {
-    var r = { id: row.id, name: row.name === undefined ? undefined : String(row.name).trim(), active: row.active };
+    var r = { id: row.id, name: row.name === undefined ? undefined : String(row.name).trim(), active: row.active,
+              profile_id: row.profile_id };
     var known = r.id && findBy(S.state.officers || [], ['id'], r);
     return writeRow('ledger_officers', r, 'The officer ' + ((known && known.name) || r.name || ''));
   }
@@ -2065,6 +2097,59 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     });
   }
 
+  // ===================================================================== reimbursement requests
+  /** The signed-in officer's own requests (any role). */
+  function reloadMine(st) {
+    st = st || S.state;
+    return soft(rpc('ledger_reimb_mine'), []).then(function (rows) { st.myReimb = rows || []; touch(); return st.myReimb; });
+  }
+  /** All requests (ledger users only; RLS hides them from anyone else). */
+  function reloadReimb() {
+    return select('ledger_reimbursements', function (q) { return q.order('requested_at', { ascending: false }); })
+      .then(function (rows) { S.state.reimbursements = rows; touch(); return rows; });
+  }
+  /** A receipt goes to the officer's own folder of the private bucket: reimb/<user id>/<stamp>-<rand>_<name>. */
+  function reimbPath(filename, d) {
+    d = d || new Date();
+    var stamp = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) +
+      pad(d.getSeconds()) + '-' + pad(d.getMilliseconds(), 3), rand = '';
+    while (rand.length < 4) rand += Math.floor(Math.random() * 36).toString(36);
+    var name = String(filename || 'receipt');
+    if (name.normalize) name = name.normalize('NFKD');
+    name = name.replace(/[^\w.-]+/g, '_').replace(/_+/g, '_').slice(-80) || 'receipt';
+    return 'reimb/' + S.state.user.id + '/' + stamp + '-' + rand + '_' + name;
+  }
+  /** File a request: upload the receipt, then submit. f = {event_id, description, spent_on, amount, file, filename}. */
+  function reimbSubmit(f) {
+    if (!f || !f.file) return Promise.reject(LedgerError('LEDGER_RECEIPT_REQUIRED'));
+    if (!(f.file.size <= MAX_FILE)) return Promise.reject(LedgerError('LEDGER_FILE_TYPE'));
+    if (!moneyOk(f.amount)) return Promise.reject(LedgerError('LEDGER_AMOUNT'));
+    var p = reimbPath(f.filename || f.file.name);
+    return exec(function () {
+      return client().storage.from(BUCKET).upload(p, f.file, { upsert: false, contentType: f.file.type });
+    }).then(function (r) {
+      data(r);
+      return rpc('ledger_reimb_submit', { p_event_id: f.event_id, p_description: f.description, p_spent_on: f.spent_on,
+        p_amount: typeof f.amount === 'string' ? parseAmount(f.amount) : f.amount, p_attachment_path: p });
+    }).then(function (row) { return reloadMine().then(function () { return row; }); });
+  }
+  function reimbCancel(id) {
+    return rpc('ledger_reimb_cancel', { p_id: id }).then(function (row) { return reloadMine().then(function () { return row; }); });
+  }
+  /** Approver: approve (with the expense account, optionally another event) or reject (with a reason). */
+  function reimbDecide(id, action, accountId, eventId, note) {
+    return rpc('ledger_reimb_decide', { p_id: id, p_action: action, p_account_id: accountId || null, p_event_id: eventId || null,
+      p_note: note || null }).then(function (row) {
+      return Promise.all([reloadReimb(), reloadTxns()]).then(function () { return row; });
+    });
+  }
+  /** Approver: record the payout from a cash fund; it waits for another approver in the approval queue. */
+  function reimbPay(id, fundId, date) {
+    return rpc('ledger_reimb_pay', { p_id: id, p_fund_id: fundId, p_date: date }).then(function (row) {
+      return Promise.all([reloadReimb(), reloadTxns()]).then(function () { return row; });
+    });
+  }
+
   /** A pledge: the database assigns doc (PL-NNN) on insert and it never changes, so it is never sent. */
   function savePledge(row) {
     var r = {};
@@ -2103,7 +2188,8 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     saveOpening: saveOpening, deleteOpening: deleteOpening, savePledge: savePledge, deletePledge: deletePledge,
     saveOfficer: saveOfficer, deleteOfficer: deleteOfficer, saveOfficerOpening: saveOfficerOpening,
     deleteOfficerOpening: deleteOfficerOpening, officerAccounts: officerAccounts, isOfficerAccount: isOfficerAccount,
-    officerName: officerName, sideText: sideText, budgetLinesOf: budgetLinesOf, saveBudgetLines: saveBudgetLines, refreshEvent: refreshEvent,
+    officerName: officerName, sideText: sideText, reloadMine: reloadMine, reloadReimb: reloadReimb, reimbPath: reimbPath,
+    reimbSubmit: reimbSubmit, reimbCancel: reimbCancel, reimbDecide: reimbDecide, reimbPay: reimbPay, budgetLinesOf: budgetLinesOf, saveBudgetLines: saveBudgetLines, refreshEvent: refreshEvent,
     touch: touch, views: {}, actions: actions, action: action,
     client: function () { return S.client; },
     get expired() { return S.expired; }
@@ -2677,7 +2763,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     var accts = LD.officerAccounts(), bal = balances();
     var rows = list().map(function (o) {
       var id = esc(o.id), act = isActive(o), b = bal[o.name];
-      var buttons = '<button type="button" class="btn btn-small" data-action="admin.officerEdit" data-id="' + id + '">Rename</button> ' +
+      var buttons = '<button type="button" class="btn btn-small" data-action="admin.officerEdit" data-id="' + id + '">Edit</button> ' +
         '<button type="button" class="btn btn-small" data-action="admin.officerToggle" data-id="' + id + '">' + (act ? 'Deactivate' : 'Activate') + '</button>' +
         (unused(o.id) ? ' <button type="button" class="btn btn-small btn-danger" data-action="admin.officerDeleteAsk" data-id="' + id + '">Delete</button>' : '');
       return '<tr data-officer="' + esc(o.name) + '"' + (act ? '' : ' class="is-inactive"') + '>' +
@@ -2686,6 +2772,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
           return '<td class="num" data-label="' + esc(a.name) + '">' + LD.fmt(b ? b.cells[i] ? b.cells[i].close : 0 : 0) + '</td>';
         }).join('') +
         '<td class="num" data-label="Entries">' + entries(o.id) + '</td>' +
+        '<td data-label="Hub login">' + (o.profile_id ? esc(hubLabel(o.profile_id)) : '<span class="muted">Not linked</span>') + '</td>' +
         '<td data-label="Status">' + X.pill(act ? 'Active' : 'Inactive', act ? 'pill pill-good' : 'pill pill-warn') + '</td>' +
         '<td data-label="Actions"><div class="btn-row">' + buttons + '</div></td></tr>';
     }).join('') || '<tr><td colspan="' + (accts.length + 4) + '" class="muted">No officers yet. Add the officers who receive advances from, or pay on behalf of, the chapter.</td></tr>';
@@ -2697,26 +2784,52 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       (accts.length ? '' : '<p class="note note-warn">There is no officer account in the chart of accounts yet.</p>') +
       '<div class="table-wrap"><table class="grid stack"><thead><tr><th scope="col">Officer</th>' +
       accts.map(function (a) { return '<th scope="col" class="num">' + esc(a.name) + '</th>'; }).join('') +
-      '<th scope="col" class="num">Entries</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<th scope="col" class="num">Entries</th><th scope="col">Hub login</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<p class="muted"><b>Hub login:</b> an officer linked to their Hub login can request reimbursements from the ledger page, ' +
+      'even without a ledger role. They see only their own requests.</p>' +
       '<p class="muted">Balances: debits positive, credits negative. Opening balances by officer are entered under <a href="#/admin/openings">Opening balances</a>.</p></section>';
   };
 
+  /* Hub logins (ledger_list_hub_users), read once when an officer form first opens. */
+  var hubUsers = null;
+  function hubLabel(id) {
+    var u = (hubUsers || []).filter(function (x) { return x.id === id; })[0];
+    if (u) return u.full_name || u.email || 'a Hub member';
+    return LD.who(id);
+  }
+  function loadHubUsers() {
+    if (hubUsers) return Promise.resolve(hubUsers);
+    return LD.rpc('ledger_list_hub_users').then(function (rows) { hubUsers = rows || []; return hubUsers; }, function () { return []; });
+  }
   function form(o) {
-    X.app().modal('<h2>' + (o ? 'Rename ' + esc(o.name) : 'New officer') + '</h2>' +
+    var taken = {};
+    list().forEach(function (x) { if (x.profile_id && (!o || x.id !== o.id)) taken[x.profile_id] = x.name; });
+    var opts = '<option value="">Not linked</option>' + (hubUsers || []).map(function (u) {
+      var label = (u.full_name || u.email || 'a Hub member') + (u.full_name && u.email ? ' (' + u.email + ')' : '');
+      return '<option value="' + esc(u.id) + '"' + (o && o.profile_id === u.id ? ' selected' : '') + (taken[u.id] ? ' disabled' : '') + '>' +
+        esc(label + (taken[u.id] ? ': already ' + taken[u.id] : '')) + '</option>';
+    }).join('');
+    X.app().modal('<h2>' + (o ? 'Edit ' + esc(o.name) : 'New officer') + '</h2>' +
       '<form class="rec-form" data-submit="admin.officerSave" novalidate autocomplete="off"><div class="rec-grid">' +
       '<div class="field rec-wide"><label for="off-name">Name</label><input id="off-name" name="name" type="text" maxlength="80" value="' + esc(o ? o.name : '') + '">' +
       '<span class="hint">As it should appear in the schedule, for example Mr. Juan Dela Cruz. Must be unique.</span></div>' +
+      '<div class="field rec-wide"><label for="off-hub">Hub login</label><select id="off-hub" name="profile_id">' + opts + '</select>' +
+      '<span class="hint">Lets this officer request reimbursements from the ledger page with their own Hub login.</span></div>' +
       '</div><div id="off-err" aria-live="assertive"></div>' +
       '<div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Close</button>' +
-      '<button type="submit" id="off-save" class="btn btn-primary">Save officer</button></div></form>', { label: o ? 'Rename officer' : 'New officer' });
+      '<button type="submit" id="off-save" class="btn btn-primary">Save officer</button></div></form>', { label: o ? 'Edit officer' : 'New officer' });
   }
-  LD.action('admin.officerNew', function () { if (X.deny()) return; editing = null; form(null); });
+  LD.action('admin.officerNew', function () {
+    if (X.deny()) return Promise.resolve();
+    editing = null;
+    return loadHubUsers().then(function () { form(null); });
+  });
   LD.action('admin.officerEdit', function (el) {
-    if (X.deny()) return;
+    if (X.deny()) return Promise.resolve();
     var o = find(X.idOf(el));
-    if (!o) return;
+    if (!o) return Promise.resolve();
     editing = o.id;
-    form(o);
+    return loadHubUsers().then(function () { form(o); });
   });
 
   LD.action('admin.officerSave', function (f) {
@@ -2731,10 +2844,11 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       X.errBox('off-err', errs);
       if (errs.length) return false;
       X.setBusy('off-save', true);
-      var row = before ? { id: before.id, name: name } : { name: name, active: true };
+      var hub = X.val(f, 'profile_id') || null;
+      var row = before ? { id: before.id, name: name, profile_id: hub } : { name: name, active: true, profile_id: hub };
       return LD.saveOfficer(row).then(function (saved) {
         X.app().closeModal();
-        X.app().toast((before ? 'Renamed to ' : 'Added ') + saved.name + '.', 'good');
+        X.app().toast((before ? 'Saved ' : 'Added ') + saved.name + '.', 'good');
         X.app().render();
         return true;
       }, function (e) {
@@ -5704,6 +5818,326 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   LD.views.record = R;
 }(typeof self !== 'undefined' ? self : this));
 
+// ---- views/reimb.js
+/**
+ * views/reimb.js — officer reimbursement requests (sql/09-reimbursements.sql). Registers LD.views.reimb =
+ * {mine(), queue()} and the 'reimb.*' handlers.
+ *
+ *  mine()   An officer linked to the signed-in Hub login (with or without a ledger role) files a request: event,
+ *           what was bought, the date, the amount and a receipt. They follow its status and may cancel it while it
+ *           waits for a decision.
+ *  queue()  Ledger users see every request. An Approver who is not the requester approves (choosing the expense
+ *           account; this books "officer paid with own money") or rejects with a reason, then records the payout
+ *           from a cash fund, which a second Approver checks in the approval queue.
+ * The database owns every rule; this file only hides what the caller cannot do and words the result.
+ */
+(function (root) {
+  'use strict';
+  var LD = root.LD, esc = LD.esc;
+  var ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.heic,.heif,.pdf';
+  var S = { decide: null, pay: null };
+
+  function app() { return root.LedgerApp; }
+  function state() { return LD.state; }
+  function byId(id) { return root.document.getElementById(id); }
+  function field(form, name) { return form && form.querySelector ? form.querySelector('[name="' + name + '"]') : null; }
+  function val(form, name) { var f = field(form, name); return f && f.value != null ? String(f.value) : ''; }
+  function idOf(el) { return el && el.getAttribute ? el.getAttribute('data-id') : null; }
+  function today() { return LD.localISO(new Date()); }
+  function pill(text, cls) { return '<span class="' + cls + '">' + esc(text) + '</span>'; }
+  function errBox(id, msgs) {
+    var el = byId(id);
+    if (!el) return;
+    msgs = [].concat(msgs);
+    el.innerHTML = msgs.length ? '<div class="note note-crit" role="alert">' + (msgs.length === 1 ? esc(msgs[0])
+      : '<ul class="note-list">' + msgs.map(function (m) { return '<li>' + esc(m) + '</li>'; }).join('') + '</ul>') + '</div>' : '';
+  }
+  function setBusy(id, on) { var b = byId(id); if (b) b.disabled = !!on; }
+  function nameOf(list, id, key) {
+    for (var i = 0; i < (list || []).length; i++) if (list[i].id === id) return list[i][key];
+    return '';
+  }
+  function txn(id) { return id ? (state().txns || []).filter(function (t) { return t.id === id; })[0] || null : null; }
+
+  /** Where a request stands, in plain words: {label, cls, detail}. payout = the payout entry's status. */
+  function standing(status, payout, note) {
+    if (status === 'Submitted') return { label: 'Waiting for approval', cls: 'pill pill-warn' };
+    if (status === 'Rejected') return { label: 'Rejected', cls: 'pill pill-crit', detail: note ? 'Reason: ' + note : '' };
+    if (status === 'Cancelled') return { label: 'Cancelled', cls: 'pill' };
+    if (status === 'Approved') return { label: 'Approved, to be paid', cls: 'pill pill-info' };
+    if (status === 'Paid') {
+      if (payout === 'Approved') return { label: 'Paid', cls: 'pill pill-good' };
+      if (payout === 'Rejected' || payout === 'Cancelled') {
+        return { label: 'Approved, to be paid', cls: 'pill pill-info', detail: 'The recorded payout was not accepted; it will be recorded again.' };
+      }
+      return { label: 'Payout recorded, being checked', cls: 'pill pill-info' };
+    }
+    return { label: status, cls: 'pill' };
+  }
+
+  // ------------------------------------------------------------------ the officer's screen
+  function mineList() {
+    var rows = state().myReimb || [];
+    if (!rows.length) return '<p class="muted">You have not requested a reimbursement yet.</p>';
+    return '<div class="table-wrap"><table class="grid stack"><thead><tr><th scope="col">Request</th><th scope="col">Event</th>' +
+      '<th scope="col">What for</th><th scope="col" class="num">Amount</th><th scope="col">Status</th><th scope="col"></th></tr></thead><tbody>' +
+      rows.map(function (r) {
+        var s = standing(r.status, r.payout_status, r.note);
+        return '<tr data-ref="' + esc(r.ref) + '"><td data-label="Request"><b>' + esc(r.ref) + '</b><br><span class="muted">Spent ' + esc(r.spent_on) + '</span></td>' +
+          '<td data-label="Event">' + esc(r.event_code) + '</td><td data-label="What for">' + esc(r.description) + '</td>' +
+          '<td class="num" data-label="Amount">' + LD.fmt(r.amount) + '</td>' +
+          '<td data-label="Status">' + pill(s.label, s.cls) + (s.detail ? '<br><span class="mini muted">' + esc(s.detail) + '</span>' : '') + '</td>' +
+          '<td data-label="">' + (r.status === 'Submitted' ? '<button type="button" class="btn btn-small btn-danger" data-action="reimb.cancelAsk" data-id="' +
+            esc(r.id) + '">Cancel</button>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  function mine() {
+    var st = state(), me = st.myOfficer, set = st.settings;
+    if (!me) {
+      return '<section class="card"><p class="note note-warn" role="alert">Your Hub login is not linked to an officer, so you cannot request a ' +
+        'reimbursement here. Ask an approver to link you under Admin, Officers.</p></section>';
+    }
+    var events = (st.events || []).filter(function (e) { return e.active !== false; });
+    var max = set.fy_end && set.fy_end < today() ? set.fy_end : today();
+    var html = '<section class="card rec-card"><h2>Request a reimbursement</h2>' +
+      '<p class="muted">For chapter costs you paid with your own money. Requested by <b>' + esc(me.name) + '</b>. ' +
+      'An approver checks the receipt; once approved the chapter owes you the amount, and you are told when it has been paid.</p>' +
+      '<form class="rec-form" data-submit="reimb.submit" novalidate autocomplete="off"><div class="rec-grid">' +
+      '<div class="field"><label for="rr-event">Event</label><select id="rr-event" name="event_id">' +
+        events.map(function (e) { return '<option value="' + esc(e.id) + '">' + esc(e.code + ' · ' + e.name) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="field"><label for="rr-date">Date paid</label><input id="rr-date" name="spent_on" type="date" min="' + esc(set.fy_start || '') +
+        '" max="' + esc(max) + '" value="' + esc(max) + '"><span class="hint">Within ' + esc(set.fy_label || 'the financial year') + ', not in the future.</span></div>' +
+      '<div class="field"><label for="rr-amount">Amount (' + esc(set.currency || 'SAR') + ')</label><input id="rr-amount" name="amount" type="text" ' +
+        'inputmode="decimal" placeholder="0.00"><span class="hint">As on the receipt.</span></div>' +
+      '<div class="field rec-wide"><label for="rr-desc">What was paid for</label><input id="rr-desc" name="description" type="text" maxlength="200" ' +
+        'placeholder="For example: plaques for the induction, 12 pieces"><span class="hint">At least 4 characters.</span></div>' +
+      '<div class="field rec-wide"><label for="rr-file">Receipt (required)</label><input id="rr-file" name="receipt" type="file" accept="' + ACCEPT + '">' +
+        '<span class="hint">Photo (JPEG, PNG, HEIC) or PDF, up to 9 MB.</span></div>' +
+      '</div><div id="rr-err" aria-live="assertive"></div>' +
+      '<div class="btn-row"><button type="submit" id="rr-save" class="btn btn-primary">Submit request</button></div></form></section>' +
+      '<section class="card"><h2>My requests</h2><div id="rr-mine">' + mineList() + '</div></section>';
+    return {
+      html: html,
+      mount: function () {
+        return LD.reloadMine().then(function () { var el = byId('rr-mine'); if (el) el.innerHTML = mineList(); }, function () {});
+      }
+    };
+  }
+
+  function fileOf(form) {
+    var f = field(form, 'receipt');
+    return f && f.files && f.files[0] ? f.files[0] : null;
+  }
+  LD.action('reimb.submit', function (form) {
+    return LD.guard('reimb.submit', function () {
+      var set = state().settings, errs = [];
+      var v = { event_id: val(form, 'event_id'), spent_on: val(form, 'spent_on'), description: val(form, 'description').trim(),
+                amount: LD.parseAmount(val(form, 'amount')), file: fileOf(form) };
+      if (!v.event_id) errs.push('Choose the event.');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v.spent_on)) errs.push('Pick the date you paid.');
+      else if ((set.fy_start && v.spent_on < set.fy_start) || (set.fy_end && v.spent_on > set.fy_end) || v.spent_on > today()) {
+        errs.push('The date must be within ' + (set.fy_label || 'the financial year') + ' and not in the future.');
+      }
+      if (v.description.length < 4) errs.push(LD.ERRORS.LEDGER_DESC_SHORT());
+      if (v.amount === null) errs.push(LD.ERRORS.LEDGER_AMOUNT());
+      if (!v.file) errs.push('Attach the receipt.');
+      errBox('rr-err', errs);
+      if (errs.length) return false;
+      setBusy('rr-save', true);
+      return LD.reimbSubmit(v).then(function (row) {
+        app().toast('Request ' + row.ref + ' sent for approval.', 'good');
+        app().render();
+        return true;
+      }, function (e) {
+        errBox('rr-err', LD.friendlyError(e));
+        setBusy('rr-save', false);
+        return false;
+      });
+    });
+  });
+  LD.action('reimb.cancelAsk', function (el) {
+    var r = (state().myReimb || []).filter(function (x) { return x.id === idOf(el); })[0];
+    if (!r) return;
+    app().modal('<h2>Cancel ' + esc(r.ref) + '?</h2><p>' + esc(r.description) + ' · ' + LD.fmt(r.amount) + '</p>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Keep it</button>' +
+      '<button type="button" class="btn btn-danger" data-action="reimb.cancelDo" data-id="' + esc(r.id) + '">Cancel the request</button></div>',
+      { label: 'Cancel ' + r.ref });
+  });
+  LD.action('reimb.cancelDo', function (el) {
+    var id = idOf(el);
+    return LD.guard('reimb.cancel:' + id, function () {
+      return LD.reimbCancel(id).then(function (row) {
+        app().closeModal();
+        app().toast(row.ref + ' is cancelled.', 'good');
+        app().render();
+      }, function (e) { app().closeModal(); app().toast(LD.friendlyError(e), 'crit'); });
+    });
+  });
+
+  // ------------------------------------------------------------------ the approvers' screen
+  function officerName(r) { return nameOf(state().officers, r.officer_id, 'name') || 'an officer'; }
+  function rowHtml(r, mode) {
+    var st = state(), me = st.user.id, appr = st.role === 'approver';
+    var pay = txn(r.payout_txn_id), exp = txn(r.expense_txn_id);
+    var s = standing(r.status, pay ? pay.status : null, r.note);
+    var acts = '<button type="button" class="btn btn-small" data-action="reimb.receipt" data-id="' + esc(r.id) + '">Receipt</button>';
+    if (appr && mode === 'decide') {
+      acts += r.requested_by === me ? ' <span class="mini muted">You requested this; another approver decides.</span>'
+        : ' <button type="button" class="btn btn-small btn-good" data-action="reimb.approveAsk" data-id="' + esc(r.id) + '">Approve</button>' +
+          ' <button type="button" class="btn btn-small btn-danger" data-action="reimb.rejectAsk" data-id="' + esc(r.id) + '">Reject</button>';
+    }
+    if (appr && mode === 'pay') {
+      acts += ' <button type="button" class="btn btn-small btn-primary" data-action="reimb.payAsk" data-id="' + esc(r.id) + '">Mark as paid</button>';
+    }
+    var books = (exp ? 'Expense ' + exp.doc : '') + (pay ? (exp ? ' · ' : '') + 'Payout ' + pay.doc + ' (' + pay.status + ')' : '');
+    return '<tr data-ref="' + esc(r.ref) + '"><td data-label="Request"><b>' + esc(r.ref) + '</b><br><span class="muted">' + esc(LD.whenText(r.requested_at)) + '</span></td>' +
+      '<td data-label="Officer">' + esc(officerName(r)) + (r.requested_by !== me ? '' : ' <span class="mini muted">(you)</span>') + '</td>' +
+      '<td data-label="Event">' + esc(nameOf(st.events, r.event_id, 'code')) + '</td>' +
+      '<td data-label="What for">' + esc(r.description) + '<br><span class="muted">Paid ' + esc(r.spent_on) +
+        (r.account_id ? ' · ' + esc(nameOf(st.accounts, r.account_id, 'name')) : '') + '</span>' +
+        (books ? '<br><span class="mini muted">' + esc(books) + '</span>' : '') + '</td>' +
+      '<td class="num" data-label="Amount">' + LD.fmt(r.amount) + '</td>' +
+      '<td data-label="Status">' + pill(s.label, s.cls) + (s.detail ? '<br><span class="mini muted">' + esc(s.detail) + '</span>' : '') + '</td>' +
+      '<td data-label="Actions"><div class="btn-row">' + acts + '</div></td></tr>';
+  }
+  function block(title, rows, mode, empty) {
+    return '<section class="card"><h2>' + esc(title) + ' <span class="muted">(' + rows.length + ')</span></h2>' + (rows.length
+      ? '<div class="table-wrap"><table class="grid stack"><thead><tr><th scope="col">Request</th><th scope="col">Officer</th><th scope="col">Event</th>' +
+        '<th scope="col">What for</th><th scope="col" class="num">Amount</th><th scope="col">Status</th><th scope="col">Actions</th></tr></thead><tbody>' +
+        rows.map(function (r) { return rowHtml(r, mode); }).join('') + '</tbody></table></div>'
+      : '<p class="muted">' + esc(empty) + '</p>') + '</section>';
+  }
+  function queueBody() {
+    var all = state().reimbursements || [];
+    var payoutDead = function (r) { var p = txn(r.payout_txn_id); return r.status === 'Paid' && p && (p.status === 'Rejected' || p.status === 'Cancelled'); };
+    var decide = all.filter(function (r) { return r.status === 'Submitted'; });
+    var toPay = all.filter(function (r) { return r.status === 'Approved' || payoutDead(r); });
+    var paid = all.filter(function (r) { return r.status === 'Paid' && !payoutDead(r); });
+    var closed = all.filter(function (r) { return r.status === 'Rejected' || r.status === 'Cancelled'; });
+    var mineLink = state().myOfficer ? '<p><a class="btn" href="#/reimb/mine">Request a reimbursement for yourself</a></p>' : '';
+    return mineLink + block('Waiting for a decision', decide, 'decide', 'Nothing is waiting for a decision.') +
+      block('Approved, to be paid', toPay, 'pay', 'Nothing is waiting to be paid.') +
+      block('Paid', paid, 'view', 'Nothing paid yet.') +
+      (closed.length ? '<details class="card"><summary><b>Rejected and cancelled (' + closed.length + ')</b></summary>' +
+        block('Rejected and cancelled', closed, 'view', '') + '</details>' : '');
+  }
+  function queue() {
+    return {
+      html: '<div id="rr-queue">' + queueBody() + '</div>',
+      mount: function () {
+        return Promise.all([LD.reloadReimb(), LD.reloadTxns()]).then(function () {
+          var el = byId('rr-queue'); if (el) el.innerHTML = queueBody();
+        }, function (e) { app().toast(LD.friendlyError(e), 'crit'); });
+      }
+    };
+  }
+  function find(id) { return (state().reimbursements || []).filter(function (r) { return r.id === id; })[0] || null; }
+
+  LD.action('reimb.receipt', function (el) {
+    var r = find(idOf(el));
+    if (!r) return Promise.resolve();
+    return LD.signedUrl(r.attachment_path).then(function (url) {
+      app().modal('<h2>Receipt for ' + esc(r.ref) + '</h2><p>' + esc(r.description) + ' · ' + LD.fmt(r.amount) + '</p>' +
+        '<p><a class="btn btn-primary" href="' + esc(url) + '" target="_blank" rel="noopener">Open the receipt</a></p>' +
+        '<p class="muted">The link works for 5 minutes.</p><div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Close</button></div>',
+        { label: 'Receipt for ' + r.ref });
+    }, function (e) { app().toast(LD.friendlyError(e), 'crit'); });
+  });
+
+  LD.action('reimb.approveAsk', function (el) {
+    var r = find(idOf(el)), st = state();
+    if (!r) return;
+    S.decide = r.id;
+    var exp = st.accounts.filter(function (a) { return a.fs === 'Income Statement' && a.normal === 'Dr' && a.active !== false; });
+    app().modal('<h2>Approve ' + esc(r.ref) + '</h2><p>' + esc(officerName(r)) + ' · ' + esc(r.description) + ' · <b>' + LD.fmt(r.amount) + '</b></p>' +
+      '<form class="rec-form" data-submit="reimb.approveDo" novalidate><div class="rec-grid">' +
+      '<div class="field"><label for="rr-acc">Expense account</label><select id="rr-acc" name="account_id"><option value="">Choose the account</option>' +
+        exp.map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.name) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="field"><label for="rr-ev">Event</label><select id="rr-ev" name="event_id">' +
+        st.events.filter(function (e) { return e.active !== false || e.id === r.event_id; }).map(function (e) {
+          return '<option value="' + esc(e.id) + '"' + (e.id === r.event_id ? ' selected' : '') + '>' + esc(e.code + ' · ' + e.name) + '</option>';
+        }).join('') + '</select></div>' +
+      '<div class="field rec-wide"><label for="rr-note">Note (optional)</label><input id="rr-note" name="note" type="text" maxlength="200"></div>' +
+      '</div><p class="muted">Approving books the expense now, as paid by the officer: the chapter owes ' + esc(officerName(r)) + ' ' +
+        LD.fmt(r.amount) + ' until you mark it as paid.</p><div id="rr-dec-err" aria-live="assertive"></div>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Close</button>' +
+      '<button type="submit" id="rr-dec-save" class="btn btn-good">Approve</button></div></form>', { label: 'Approve ' + r.ref });
+  });
+  LD.action('reimb.approveDo', function (form) {
+    var id = S.decide, r = find(id);
+    if (!r) return Promise.resolve(false);
+    return LD.guard('reimb.decide:' + id, function () {
+      var acc = val(form, 'account_id');
+      if (!acc) { errBox('rr-dec-err', 'Choose the expense account.'); return false; }
+      setBusy('rr-dec-save', true);
+      return LD.reimbDecide(id, 'approve', acc, val(form, 'event_id'), val(form, 'note').trim()).then(function (row) {
+        app().closeModal();
+        app().toast('Approved ' + row.ref + '. The expense is booked; mark it as paid when the officer is reimbursed.', 'good');
+        app().render();
+        return true;
+      }, function (e) { errBox('rr-dec-err', LD.friendlyError(e)); setBusy('rr-dec-save', false); return false; });
+    });
+  });
+
+  LD.action('reimb.rejectAsk', function (el) {
+    var r = find(idOf(el));
+    if (!r) return;
+    S.decide = r.id;
+    app().modal('<h2>Reject ' + esc(r.ref) + '</h2><p>' + esc(officerName(r)) + ' · ' + esc(r.description) + ' · ' + LD.fmt(r.amount) + '</p>' +
+      '<form class="rec-form" data-submit="reimb.rejectDo" novalidate><div class="field"><label for="rr-why">Reason (the officer sees it)</label>' +
+      '<input id="rr-why" name="note" type="text" maxlength="200"></div><div id="rr-dec-err" aria-live="assertive"></div>' +
+      '<div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Close</button>' +
+      '<button type="submit" id="rr-dec-save" class="btn btn-danger">Reject</button></div></form>', { label: 'Reject ' + r.ref });
+  });
+  LD.action('reimb.rejectDo', function (form) {
+    var id = S.decide;
+    return LD.guard('reimb.decide:' + id, function () {
+      var why = val(form, 'note').trim();
+      if (!why) { errBox('rr-dec-err', 'Give a reason; the officer sees it.'); return false; }
+      setBusy('rr-dec-save', true);
+      return LD.reimbDecide(id, 'reject', null, null, why).then(function (row) {
+        app().closeModal();
+        app().toast('Rejected ' + row.ref + '.', 'good');
+        app().render();
+        return true;
+      }, function (e) { errBox('rr-dec-err', LD.friendlyError(e)); setBusy('rr-dec-save', false); return false; });
+    });
+  });
+
+  LD.action('reimb.payAsk', function (el) {
+    var r = find(idOf(el)), st = state();
+    if (!r) return;
+    S.pay = r.id;
+    var funds = st.accounts.filter(function (a) { return a.category === 'Cash' && a.active !== false; });
+    var set = st.settings, d = set.fy_end && set.fy_end < today() ? set.fy_end : today();
+    app().modal('<h2>Mark ' + esc(r.ref) + ' as paid</h2><p>Pay <b>' + esc(officerName(r)) + ' ' + LD.fmt(r.amount) + '</b> for ' + esc(r.description) + '.</p>' +
+      '<form class="rec-form" data-submit="reimb.payDo" novalidate><div class="rec-grid">' +
+      '<div class="field"><label for="rr-fund">Paid from</label><select id="rr-fund" name="fund_id">' +
+        funds.map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.name) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="field"><label for="rr-pdate">Date paid</label><input id="rr-pdate" name="date" type="date" min="' + esc(set.fy_start || '') +
+        '" max="' + esc(set.fy_end || '') + '" value="' + esc(d) + '"></div></div>' +
+      '<p class="muted">This records the payout as an entry that another approver checks in the approval queue.</p>' +
+      '<div id="rr-pay-err" aria-live="assertive"></div><div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Close</button>' +
+      '<button type="submit" id="rr-pay-save" class="btn btn-primary">Record the payout</button></div></form>', { label: 'Mark ' + r.ref + ' as paid' });
+  });
+  LD.action('reimb.payDo', function (form) {
+    var id = S.pay;
+    return LD.guard('reimb.pay:' + id, function () {
+      var fund = val(form, 'fund_id'), d = val(form, 'date');
+      if (!fund || !/^\d{4}-\d{2}-\d{2}$/.test(d)) { errBox('rr-pay-err', 'Choose the fund and the date.'); return false; }
+      setBusy('rr-pay-save', true);
+      return LD.reimbPay(id, fund, d).then(function (row) {
+        app().closeModal();
+        app().toast('Payout of ' + row.ref + ' recorded. Another approver approves it in the approval queue.', 'good');
+        app().render();
+        return true;
+      }, function (e) { errBox('rr-pay-err', LD.friendlyError(e)); setBusy('rr-pay-save', false); return false; });
+    });
+  });
+
+  LD.views.reimb = { mine: mine, queue: queue, standing: standing };
+}(typeof self !== 'undefined' ? self : this));
+
 // ---- views/statements.js
 /**
  * views/statements.js — the financial statements: trial balance, balance sheet, income statement,
@@ -5982,8 +6416,11 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   }
 
   var ORG = 'Philippine Institute of Certified Public Accountants';
-  var ROLE_LABEL = { viewer: 'Viewer', encoder: 'Encoder', approver: 'Approver' };
+  var ROLE_LABEL = { viewer: 'Viewer', encoder: 'Encoder', approver: 'Approver', requester: 'Officer' };
   var ALL = ['viewer', 'encoder', 'approver'], WRITE = ['encoder', 'approver'], APPR = ['approver'];
+  /* 'requester': an officer linked to a Hub login with no ledger role; sees only their reimbursement requests */
+  var EVERYONE = ALL.concat(['requester']);
+  function isOfficerUser(st) { return !!st && (st.role === 'requester' || !!st.myOfficer); }
 
   /*
    * Sidebar groups. Items inherit the group's roles; nav:false = routable, not listed. An item with `covers` (a route
@@ -6003,6 +6440,9 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       { id: 'admin/pledges', title: 'Pledges', view: 'admin.pledges' }] },
     { group: 'Approve', roles: APPR, items: [
       { id: 'approve', title: 'Approval queue', view: 'approve.queue' }] },
+    { group: 'Reimbursements', roles: EVERYONE, items: [
+      { id: 'reimb/mine', title: 'My reimbursements', view: 'reimb.mine', when: isOfficerUser },
+      { id: 'reimb/queue', title: 'Reimbursement requests', view: 'reimb.queue', roles: ALL }] },
     { group: 'Reports', items: [
       { id: 'st/tb', title: 'Financial statements', view: 'statements.render', args: ['tb'], covers: 'st/' },
       { id: 'st/bs', title: 'Balance sheet', view: 'statements.render', args: ['bs'], nav: false },
@@ -6038,7 +6478,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   var HOME = ROUTES[0];
 
   function role() { return LD.state ? LD.state.role : null; }
-  function allowed(it, r) { return it.roles.indexOf(r) >= 0; }
+  function allowed(it, r) { return it.roles.indexOf(r) >= 0 && (!it.when || !!it.when(LD.state)); }
 
   /** Match 'a/b/:x?' against 'a/b/c' -> ['c'] (params), or null. */
   function matchPattern(pattern, path) {
@@ -6074,6 +6514,10 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         }
         return { id: it.id, title: it.title, item: it, args: (it.args || []).concat(m), path: path };
       }
+    }
+    if (r === 'requester') {                              // an officer without a ledger role: their requests are home
+      var mine = ROUTES.filter(function (x) { return x.id === 'reimb/mine'; })[0];
+      return { id: mine.id, title: mine.title, item: mine, args: [], path: mine.id, fallback: path !== 'home' && path !== mine.id };
     }
     return { id: HOME.id, title: HOME.title, item: HOME, args: [], path: 'home', fallback: path !== 'home' };
   }
