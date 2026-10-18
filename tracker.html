@@ -760,12 +760,9 @@ function cloudBoot(){
     var ses=r&&r.data&&r.data.session;
     if(!ses){gate('<p>Sign in to the Jeddah Chapter Hub first, then open the tracker again.</p>'+hubLink("Go to the Hub sign-in"));return;}
     CUSER=ses.user.email||"";
-    SB.rpc("ticketing_my_access").then(function(p){
+    SB.from("profiles").select("is_admin").eq("id",ses.user.id).maybeSingle().then(function(p){
       if(p.error){gate('<p>Could not check your access: '+h(p.error.message)+'</p>');return;}
-      // the Access page's Tracker module (2026-10-15): admins and "Edit" change it, "View" reads it
-      var a=p.data||{},t=a.hub_admin===true?"edit":(a.tracker==="edit"||a.tracker==="view"?a.tracker:"none");
-      if(t==="none"){gate('<p>The chapter tracker is open to the officers a chapter admin has given access to (Officer tools, Access). You are signed in as <b>'+h(CUSER)+'</b>.</p>'+hubLink("Back to the Hub"));return;}
-      if(t==="view"){MODE="readonly";banner={kind:"info",text:"View only: you can read the tracker but not change it."};}
+      if(!p.data||!p.data.is_admin){gate('<p>The chapter tracker is for Hub admins only. You are signed in as <b>'+h(CUSER)+'</b>.</p>'+hubLink("Back to the Hub"));return;}
       cloudLoad(true);ledgerRole();
     });
   },function(){gate('<p>Sign-in check failed. Reload the page to try again.</p>');});
@@ -1923,6 +1920,28 @@ function patchGmmMeeting1(){
   S.activities.forEach(function(a){if(!a.date&&/hub database/i.test(a.title||"")&&/gmm/i.test(a.title||"")){a.date=g.date;a.month=g.date.slice(0,7);}});
   return true;
 }
+/* EMPOWER framework v2 (Oct 2026): reclassify projects and renumber their IDs */
+function patchEmpower2(){
+  if(S.patchEmpower2)return false;
+  var N={E1:"E — Engagement",M:"M — Mentorship",P:"P — Practical Knowledge",O:"O — Opportunities",W:"W — Well-being & Fellowship",E2:"E — Empowerment Through Technology",R:"R — Responsibility & Community Impact"};
+  var LIST=[N.E1,N.M,N.P,N.O,N.W,N.E2,N.R];
+  var OLD={"E — Excellence":N.P,"M — Mentorship":N.M,"P — People & Community":N.E1,"O — Opportunities":N.O,"W — Wisdom Sharing":N.P,"E — Empowerment through Technology":N.E2,"R — Responsibility & Impact":N.R};
+  function pick(p){var n=p.name||"";
+    if(/general membership|\bgmm\b|courtesy call/i.test(n)||(/\bhub\b/i.test(n)&&!/knowledge/i.test(n)))return N.E1;
+    if(/quiz bee|mentor|student|career guidance/i.test(n))return N.M;
+    if(/kapehan|knowledge hub|knowledge sharing|brain olympics|intellectual fest|template|guide/i.test(n))return N.P;
+    if(/mobile legends|pickle|year.end|recognition|fellowship|sport|bowling league/i.test(n)&&!/for a cause/i.test(n))return N.W;
+    if(/\bai\b|power bi|technology|excel|analytics|automation/i.test(n))return N.E2;
+    if(/for a cause|tabulation|outreach|financial literacy|charit|community/i.test(n))return N.R;
+    if(/career|partnership|certification|opportunit/i.test(n))return N.O;
+    return OLD[p.category]||(LIST.indexOf(p.category)>=0?p.category:N.E1);}
+  S.lists.projectCategories=LIST.slice();
+  S.projects.forEach(function(p){p.category=pick(p);});
+  // two passes so new codes (ME, ET…) never collide with IDs that are still old
+  S.projects.slice().forEach(function(p,i){renameProject(p.id,"TMP-"+i+"-"+p.id);});
+  S.projects.slice().forEach(function(p){renameProject(p.id,nextProjId(p.category));});
+  S.patchEmpower2=true;return true;
+}
 function normalize(){
   S.settings=S.settings||{};S.lists=S.lists||{pillars:[],categories:[],meetingTypes:[]};
   var OLDCATS=["Flagship initiative","Program (recurring)","Event","Competition","Outreach / CSR","Chapter operations"];
@@ -1984,6 +2003,7 @@ function normalize(){
   if(patchEvents2())PATCHED=true;
   if(patchHubFirst2())PATCHED=true;
   if(patchGmmMeeting1())PATCHED=true;
+  if(patchEmpower2())PATCHED=true;
   if(!S.patchApproved5){var m5=meeting("M01");if(m5)m5.showApproved=false;S.patchApproved5=true;PATCHED=true;}
   if(!S.settings.themeV2){if(!S.settings.tagline||S.settings.tagline==="Empowering CPAs. Enabling Excellence. Creating Impact.")S.settings.tagline="Elevating the Filipino CPA Towards Ethical Leadership and Global Excellence";S.settings.themeV2=true;PATCHED=true;}
   if(!S.patchAdjourn4){var m4=meeting("M01");if(m4&&!m4.adjournTime)m4.adjournTime="20:56";S.patchAdjourn4=true;PATCHED=true;}
