@@ -376,5 +376,11 @@ PERFORMANCE OF THIS SOFTWARE.
   .hub-side > .stats{grid-template-columns:1fr;margin-top:0}
 }
 </style>
+<style id="hub-auth-tap">
+/* sign-in / sign-up (2026-10-20): the decorative glows stay behind the card and never take a tap (on phones the
+   bottom glow covered the Create account button) */
+.auth-wrap:before,.auth-wrap:after{pointer-events:none;z-index:0}
+.auth-card{z-index:1}
+</style>
 </body>
 </html>
