@@ -1470,8 +1470,18 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     participation: { of: 'PARTICIPATION', intro: 'This certificate is proudly presented to', sentence: function (r) { return 'for actively participating as ' + r + ' in the'; } },
     appreciation:  { of: 'APPRECIATION',  intro: 'This certificate is proudly presented to', sentence: function (r) { return 'in grateful appreciation of their invaluable support and contribution as ' + r + ' to the'; } },
     recognition:   { of: 'RECOGNITION',   intro: 'This certificate is proudly presented to', sentence: function (r) { return 'in recognition of their outstanding service as ' + r + ' in the'; } },
-    achievement:   { of: 'ACHIEVEMENT',   intro: 'This certificate is proudly presented to', sentence: function () { return 'for outstanding achievement in the'; }, award: true }
+    achievement:   { of: 'ACHIEVEMENT',   intro: 'This certificate is proudly presented to', sentence: function () { return 'for outstanding achievement in the'; }, award: true },
+    // the Certificate of Membership (2026-10-20): the chapter's name in place of the event, then the fiscal year and the year of joining
+    membership:    { of: 'MEMBERSHIP',    intro: 'This is to certify that', sentence: function () { return 'is a bona fide member in good standing of the'; }, member: true }
   };
+  var CHAPTER_NAME = 'Philippine Institute of Certified Public Accountants – Western Region – Jeddah Chapter';
+  /** The membership line: "for the fiscal year 2026–2027, and a member of the Chapter since 2019." (either part may be absent). */
+  function memberLine(title, since) {
+    var fy = String(title || '').trim().replace(/^fiscal year\s*/i, '').replace(/-/g, '–'), y = /^\d{4}$/.test(String(since || '').trim()) ? String(since).trim() : '';
+    if (fy && y) return 'for the fiscal year ' + fy + ', and a member of the Chapter since ' + y + '.';
+    if (fy) return 'for the fiscal year ' + fy + '.';
+    return y ? 'A member of the Chapter since ' + y + '.' : '';
+  }
   var TAGLINE = 'Elevating the Filipino CPA Towards Ethical Leadership and Global Excellence';
   // The chapter seal's rim: the founding year, never a term, so the seal is the same on every document of every year
   // (officers' advice, 2026-10-15). The signatories' lines already carry the term.
@@ -1869,10 +1879,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return {
       layout: cert.layout === 'modern' ? 'modern' : 'formal', type: type,
       fullName: fullName(cert.name, cert.postNominals),
-      role: type === 'achievement' ? '' : (String(cert.role || '').trim() || 'participant'),
-      award: String(cert.award || '').trim(),
-      eventTitle: String(cert.eventTitle || '').trim(),
-      heldLine: heldLine(cert.eventDate, String(cert.venue || '').trim()),
+      role: type === 'achievement' || type === 'membership' ? '' : (String(cert.role || '').trim() || 'participant'),
+      award: type === 'membership' ? '' : String(cert.award || '').trim(),
+      eventTitle: type === 'membership' ? CHAPTER_NAME : String(cert.eventTitle || '').trim(),
+      heldLine: type === 'membership' ? memberLine(cert.eventTitle, cert.award) : heldLine(cert.eventDate, String(cert.venue || '').trim()),
       givenLine: givenLine(cert.issuedDate),
       certNo: String(cert.certNo || ''),
       term: term,
@@ -2603,10 +2613,18 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     ['participation', 'Participation', 'Contestants and others who took part', 'Contestant'],
     ['appreciation', 'Appreciation', 'Sponsors, speakers, teachers and volunteers', 'Sponsor'],
     ['recognition', 'Recognition', 'Facilitators, hosts and committee members', 'Facilitator'],
-    ['achievement', 'Achievement', 'Winners of a contest; add each person’s award, for example 1st place', 'Contestant']
+    ['achievement', 'Achievement', 'Winners of a contest; add each person’s award, for example 1st place', 'Contestant'],
+    // the Certificate of Membership (president 2026-10-20): good standing for a fiscal year, and each member's year of joining
+    ['membership', 'Membership', 'Members of the Chapter in good standing; add each member’s year of joining, for example 2019', 'Member']
   ];
+  /** Types with one value per person (achievement: the award; membership: the year of joining) and no role. */
+  function hasDetail(t) { return t === 'achievement' || t === 'membership'; }
+  function detailLabel(t) { return t === 'membership' ? 'Member since' : 'Award'; }
+  /** The membership certificate's title: the fiscal year, as "Fiscal year 2026–2027". */
+  function fyTitle(v) { v = sq(v).replace(/-/g, '–'); return !v || /^fiscal year/i.test(v) ? v : 'Fiscal year ' + v; }
+  var THIS_YEAR = new Date().getFullYear();
   var TYPE_LABEL = { attendance: 'Attendance', participation: 'Participation', appreciation: 'Appreciation',
-    recognition: 'Recognition', achievement: 'Achievement' };
+    recognition: 'Recognition', achievement: 'Achievement', membership: 'Membership' };
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
   // in memory only. rows[i] = {key, name, letters, email, cert (cert_event certificate or null), sel, sending}
@@ -3014,17 +3032,17 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var type = own(TYPE_LABEL, c.cert_type) ? c.cert_type : 'attendance', ev = c.announcement_id ? evById(c.announcement_id) : null;
     var sig = sigData(c);
     return { layout: baseOf(c.layout), theme: themeOf(c.layout), type: type, name: c.recipient_name || '',
-      postNominals: c.post_nominals || '', role: type === 'attendance' || type === 'achievement' ? '' : c.recipient_role || '',
-      award: type === 'achievement' ? c.detail || '' : '', eventTitle: c.event_title || '',
+      postNominals: c.post_nominals || '', role: type === 'attendance' || hasDetail(type) ? '' : c.recipient_role || '',
+      award: hasDetail(type) ? c.detail || '' : '', eventTitle: c.event_title || '',
       eventDate: ev ? jDate(ev.event_date) : '', venue: ev ? ev.venue || '' : '', issuedDate: c.issued_date || '',
       certNo: c.ref || '', signatories: sig, term: sig[0] && sig[0].term ? sig[0].term : '' };
   }
   /** A row of the "Other certificates" list: what is on screen until it is issued, then its certificate. */
   function otherData(r) {
     if (r.cert) return fromCert(r.cert);
-    var o = S.o, x = oClean(r), ev = o.link ? evById(o.link) : null, sig = sigData(null), ach = o.type === 'achievement';
+    var o = S.o, x = oClean(r), ev = o.link ? evById(o.link) : null, sig = sigData(null), ach = hasDetail(o.type);
     return { layout: baseOf(o.layout), theme: themeOf(o.layout), type: o.type, name: x.name, postNominals: x.letters, role: ach ? '' : sq(o.role),
-      award: ach ? x.award : '', eventTitle: oTitle(), eventDate: ev ? jDate(ev.event_date) : '', venue: ev ? ev.venue || '' : '',
+      award: ach ? x.award : '', eventTitle: o.type === 'membership' ? fyTitle(oTitle()) : oTitle(), eventDate: ev ? jDate(ev.event_date) : '', venue: ev ? ev.venue || '' : '',
       issuedDate: o.date, certNo: '', signatories: sig, term: sig[0] && sig[0].term ? sig[0].term : '' };
   }
   /** One page per row, in order. */
@@ -3845,13 +3863,17 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (x.letters.length > MAX.letters || !LETTERS_RE.test(x.letters)) return LETTERS_HELP;
     if (x.email && (x.email.length > MAX.email || !EMAIL_RE.test(x.email))) return 'Enter a valid e-mail address, or leave it empty.';
     if (S.o.type === 'achievement' && x.award.length > MAX.award) return 'The award is too long (up to 60 characters).';
+    if (S.o.type === 'membership' && x.award && (!/^\d{4}$/.test(x.award) || +x.award < 1992 || +x.award > THIS_YEAR)) {
+      return 'Enter the year of joining as four digits, from 1992 to ' + THIS_YEAR + ', or leave it empty.';
+    }
     return '';
   }
   /** The problems with the type, role, event and date (one sentence each). */
   function oFormErrors() {
     var o = S.o, out = [];
-    if (o.type !== 'achievement' && (!sq(o.role) || sq(o.role).length > MAX.role)) out.push('Enter the role, for example Sponsor (up to 80 characters).');
-    if (!oTitle()) out.push('Enter the event or project, or link a Hub event.');
+    if (!hasDetail(o.type) && (!sq(o.role) || sq(o.role).length > MAX.role)) out.push('Enter the role, for example Sponsor (up to 80 characters).');
+    if (!oTitle() && o.type === 'membership') out.push('Enter the fiscal year, for example 2026–2027.');
+    else if (!oTitle()) out.push('Enter the event or project, or link a Hub event.');
     else if (oTitle().length > MAX.title) out.push('The event or project is too long (up to 200 characters).');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(o.date || '')) out.push('Enter the date on the certificate.');
     if (signError()) out.push(signError());
@@ -3874,9 +3896,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return out;
   }
   function issueOthers(rows) {
-    var o = S.o, ach = o.type === 'achievement';
-    return TK.rpc('cert_issue_others', { p_cert_type: o.type, p_role: ach ? typeDef('achievement')[3] : sq(o.role),
-      p_event_title: sq(o.title), p_announcement: o.link || null, p_issued_date: o.date || null, p_layout: o.layout,
+    var o = S.o, ach = hasDetail(o.type), mem = o.type === 'membership';
+    return TK.rpc('cert_issue_others', { p_cert_type: o.type, p_role: ach ? typeDef(o.type)[3] : sq(o.role),
+      p_event_title: mem ? fyTitle(o.title) : sq(o.title), p_announcement: mem ? null : o.link || null, p_issued_date: o.date || null, p_layout: o.layout,
       p_items: rows.map(function (r) {
         var x = oClean(r);
         return { name: x.name, letters: x.letters, email: x.email, award: ach ? x.award : '' };
@@ -3913,21 +3935,25 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     }).join('');
     return '<section class="tk-card tk-ct-opts" aria-label="What to issue">' +
       '<div class="tk-ct-optrow">' + types +
-      (o.type === 'achievement' ? '' : '<div class="tk-field"><label for="ct-o-role">Role</label><input id="ct-o-role" type="text" maxlength="' +
+      (hasDetail(o.type) ? '' : '<div class="tk-field"><label for="ct-o-role">Role</label><input id="ct-o-role" type="text" maxlength="' +
         MAX.role + '" autocomplete="off" value="' + esc(o.role) + '" data-change="ct.o.field" data-f="role" aria-describedby="ct-o-roleh"' + lk +
         '><span class="tk-hint" id="ct-o-roleh">Printed in the sentence, for example “as ' + esc(typeDef(o.type)[3]) + '”.</span></div>') +
-      '<div class="tk-field tk-ct-title"><label for="ct-o-title">Event or project</label><input id="ct-o-title" type="text" maxlength="' + MAX.title +
-        '" autocomplete="off" value="' + esc(o.title) + '" data-change="ct.o.field" data-f="title"' + lk + '></div>' +
-      '<div class="tk-field"><label for="ct-o-link">Link to a Hub event (optional)</label><select id="ct-o-link" data-change="ct.o.link"' + lk + '>' +
-        '<option value=""' + (o.link && linked ? '' : ' selected') + '>Not linked</option>' + evs + '</select></div>' +
+      (o.type === 'membership' ?
+        '<div class="tk-field"><label for="ct-o-title">Fiscal year</label><input id="ct-o-title" type="text" maxlength="40" autocomplete="off" value="' +
+          esc(o.title) + '" data-change="ct.o.field" data-f="title" aria-describedby="ct-o-titleh"' + lk + '><span class="tk-hint" id="ct-o-titleh">' +
+          'Printed as “… in good standing for the fiscal year 2026–2027”.</span></div>' :
+        '<div class="tk-field tk-ct-title"><label for="ct-o-title">Event or project</label><input id="ct-o-title" type="text" maxlength="' + MAX.title +
+          '" autocomplete="off" value="' + esc(o.title) + '" data-change="ct.o.field" data-f="title"' + lk + '></div>' +
+        '<div class="tk-field"><label for="ct-o-link">Link to a Hub event (optional)</label><select id="ct-o-link" data-change="ct.o.link"' + lk + '>' +
+          '<option value=""' + (o.link && linked ? '' : ' selected') + '>Not linked</option>' + evs + '</select></div>') +
       '</div><div class="tk-ct-optrow">' + layoutDateHtml(o) + '</div>' + signHtml() + '</section>';
   }
   function oRowHtml(r, i) {
-    var d = dis(), x = oClean(r), label = x.name || 'this person', ach = S.o.type === 'achievement';
+    var d = dis(), x = oClean(r), label = x.name || 'this person', ach = hasDetail(S.o.type), dl = detailLabel(S.o.type);
     var off = r.cert ? ' disabled' : d, err = r.showErr && !r.cert ? oRowError(r) : '';
     function input(f, type, max, aria) {
       var bad = err && ((f === 'email' && /e-mail/.test(err)) || (f === 'name' && /name/.test(err)) || (f === 'letters' && /^Letters/.test(err)) ||
-        (f === 'award' && /award/.test(err)));
+        (f === 'award' && /award|year of joining/.test(err)));
       return '<input type="' + type + '" id="ct-' + f + '-' + i + '" value="' + esc(r[f]) + '" maxlength="' + max + '" autocomplete="off"' +
         ' data-change="ct.o.edit" data-k="' + i + '" data-f="' + f + '" aria-label="' + esc(aria + ' for ' + label) + '"' +
         ' aria-describedby="ct-err-' + i + '"' + (bad ? ' aria-invalid="true"' : '') + off + '>';
@@ -3943,19 +3969,19 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<td data-label="Name">' + input('name', 'text', MAX.name, 'Name') + '<span class="tk-err" id="ct-err-' + i + '" role="alert">' + esc(err) + '</span></td>' +
       '<td data-label="Letters">' + input('letters', 'text', MAX.letters, 'Letters after the name') + '</td>' +
       '<td data-label="E-mail (optional)">' + input('email', 'email', MAX.email, 'E-mail') + '</td>' +
-      (ach ? '<td data-label="Award">' + input('award', 'text', MAX.award, 'Award') + '</td>' : '') +
+      (ach ? '<td data-label="' + dl + '">' + input('award', 'text', S.o.type === 'membership' ? 4 : MAX.award, dl) + '</td>' : '') +
       '<td data-label="Certificate no." class="tk-nowrap">' + (r.cert ? esc(r.cert.ref) : '—') + '</td>' +
       '<td data-label="Status">' + statusHtml(r) + '</td>' +
       '<td data-label="Actions"><div class="tk-actions">' + acts + '</div></td></tr>';
   }
   function oTableHtml() {
-    var o = S.o, d = dis(), ach = o.type === 'achievement', issued = o.rows.some(function (r) { return r.cert; });
+    var o = S.o, d = dis(), ach = hasDetail(o.type), issued = o.rows.some(function (r) { return r.cert; });
     var tools = '<div class="tk-actions tk-ct-tools">' +
       '<button type="button" class="tk-btn" data-action="ct.o.add"' + d + '>+ Add person</button>' +
       '<button type="button" class="tk-btn" data-action="ct.o.pasteAsk"' + d + '>Paste a list</button>' +
       (issued ? '<button type="button" class="tk-btn" data-action="ct.o.reset"' + d + '>Start a new list</button>' : '') + '</div>';
     return '<div class="tk-table-wrap"><table class="tk-grid tk-stack tk-ct-table"><thead><tr>' +
-      '<th>Name</th><th>Letters</th><th>E-mail (optional)</th>' + (ach ? '<th>Award</th>' : '') +
+      '<th>Name</th><th>Letters</th><th>E-mail (optional)</th>' + (ach ? '<th>' + detailLabel(o.type) + '</th>' : '') +
       '<th>Certificate no.</th><th>Status</th><th>Actions</th></tr></thead><tbody>' +
       o.rows.map(oRowHtml).join('') + '</tbody></table></div>' + tools +
       (issued ? '<p class="tk-mini">Issued rows are locked. To correct one, open the Register.</p>' : '');
@@ -3974,6 +4000,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     // the role follows the type until the officer types their own
     var defaults = TYPES.map(function (t) { return t[3]; });
     if (!sq(o.role) || defaults.indexOf(sq(o.role)) >= 0) o.role = typeDef(v)[3];
+    if (v === 'membership') {
+      o.link = '';
+      var term = officers()[0] && officers()[0].term ? String(officers()[0].term).trim().replace(/-/g, '–') : '';
+      if (!sq(o.title) && term) o.title = term;
+    }
     o.type = v;
     drawPage();
     return null;
@@ -4065,7 +4096,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var bad = list.length ? S.o.rows.slice(-list.length).filter(oRowError).length : 0;
     var lines = [plural(list.length, 'person was', 'people were') + ' added to the list.'];
     if (bad) lines.push(plural(bad, 'line needs', 'lines need') + ' a fix; see the message under the name.');
-    if (S.o.type !== 'achievement' && list.some(function (p) { return p.award; })) lines.push('Awards print only on Achievement certificates.');
+    if (!hasDetail(S.o.type) && list.some(function (p) { return p.award; })) lines.push('Awards print only on Achievement certificates.');
     S.note = { kind: bad ? 'warn' : 'good', lines: lines };
     drawPage();
     return null;
@@ -4092,7 +4123,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var label = typeDef(S.o.type)[1].toLowerCase();
     var noMail = rows.filter(function (r) { return !oClean(r).email; }).length, toSend = rows.length - noMail;
     var body = '<h2>Issue ' + esc(plural(rows.length, 'certificate', 'certificates')) + '?</h2>' +
-      '<p>' + esc(plural(rows.length, 'person', 'people')) + ' will get a certificate of ' + esc(label) + ' for ' + esc(oTitle()) + '.</p>' +
+      '<p>' + esc(plural(rows.length, 'person', 'people')) + ' will get a certificate of ' + esc(label) + ' for ' + esc(S.o.type === 'membership' ? 'the ' + fyTitle(oTitle()).replace(/^Fiscal/, 'fiscal') : oTitle()) + '.</p>' +
       '<p>' + esc('Signed by ' + signersText() + '.') + '</p>';
     if (ready()) {
       body += (noMail ? '<p>' + esc(plural(noMail, 'person has', 'people have')) + ' no e-mail address: those certificates are issued for download only.</p>' : '') +
@@ -4159,6 +4190,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
   function roleText(c) {
     if (c.cert_type === 'achievement') return c.detail || '';
+    if (c.cert_type === 'membership') return c.detail ? 'Member since ' + c.detail : 'Member';
     if (c.cert_type === 'attendance') return '';
     return c.recipient_role || '';
   }
@@ -4178,7 +4210,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     (rows || []).forEach(function (r) {
       var c = r.cert || r;
       lines.push([c.ref, c.recipient_name, c.post_nominals || '', TYPE_LABEL[c.cert_type] || c.cert_type,
-        c.cert_type === 'attendance' || c.cert_type === 'achievement' ? '' : c.recipient_role, c.cert_type === 'achievement' ? c.detail || '' : '',
+        c.cert_type === 'attendance' || hasDetail(c.cert_type) ? '' : c.recipient_role, hasDetail(c.cert_type) ? c.detail || '' : '',
         c.event_title, c.issued_date, statusWord(c)].map(csvCell).join(','));
     });
     return '﻿' + lines.join('\r\n');
@@ -4297,7 +4329,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       field('ct-e-letters', 'letters', 'Letters after the name', c.post_nominals, MAX.letters) +
       field('ct-e-email', 'email', 'E-mail', c.recipient_email, MAX.email, 'email', 'If you change it, press Send afterwards to e-mail the new address.') +
       (hasRole ? field('ct-e-role', 'role', 'Role', c.recipient_role, MAX.role) : '') +
-      (t === 'achievement' ? field('ct-e-award', 'award', 'Award', c.detail, MAX.award) : '') +
+      (hasDetail(t) ? field('ct-e-award', 'award', detailLabel(t), c.detail, t === 'membership' ? 4 : MAX.award) : '') +
       '<div class="tk-field"><label for="ct-e-lay">Design</label><select id="ct-e-lay" name="layout">' + DESIGNS.map(function (l) {
         return '<option value="' + l[0] + '"' + (normLayout(c.layout) === l[0] ? ' selected' : '') + '>' + l[1] + '</option>';
       }).join('') + '</select></div>' +
@@ -4322,7 +4354,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       letters.length > MAX.letters || !LETTERS_RE.test(letters) ? LETTERS_HELP :
       email && (email.length > MAX.email || !EMAIL_RE.test(email)) ? 'Enter a valid e-mail address, or leave it empty.' :
       hasRole && (!role || role.length > MAX.role) ? 'Enter the role (up to 80 characters).' :
-      t === 'achievement' && award.length > MAX.award ? 'The award is too long (up to 60 characters).' : '';
+      t === 'achievement' && award.length > MAX.award ? 'The award is too long (up to 60 characters).' :
+      t === 'membership' && award && (!/^\d{4}$/.test(award) || +award < 1992 || +award > THIS_YEAR) ?
+        'Enter the year of joining as four digits, from 1992 to ' + THIS_YEAR + ', or leave it empty.' : '';
     // Signed by (when the form has it): a change, or a certificate without a saved choice, is saved with cert_set_signatories
     var els = form && form.elements, hasSign = !!(els && els.namedItem && els.namedItem('s1'));
     var pair = hasSign ? [val('s1'), val('s2')] : null, pairIds = pair ? pair.filter(Boolean) : null;
@@ -4334,7 +4368,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (go && go.setAttribute) go.setAttribute('disabled', 'disabled');
     var before = c.recipient_email || '', mine = S.seq;
     return TK.rpc('cert_update', { p_cert: c.id, p_name: name, p_letters: letters, p_email: email,
-      p_award: t === 'achievement' ? award : null, p_role: hasRole ? role : null, p_layout: normLayout(lay) }).then(function (out) {
+      p_award: hasDetail(t) ? award : null, p_role: hasRole ? role : null, p_layout: normLayout(lay) }).then(function (out) {
       if (mine !== S.seq) return null;
       if (out && out.id) r.cert = out;
       if (!signChange) return null;
