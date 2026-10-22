@@ -1630,13 +1630,14 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     T(doc, cx, yBottom + s * 1.05, text, s, 500, color, { anchor: 'middle' });
   }
   // boxH: the tallest the e-signature may be (the space above the line differs per design)
-  function signatory(doc, x, ln, s, anchor, boxH) {
-    var x1 = anchor === 'start' ? x : x - 34, x2 = anchor === 'start' ? x + 68 : x + 34;
-    if (s.signature) signatureImage(doc, (x1 + x2) / 2, ln, s.signature, boxH || 15, s.base);
+  function signatory(doc, x, ln, s, anchor, boxH, w) {
+    w = w || 68;                                // the column (and line) width; three signatories use narrower columns
+    var x1 = anchor === 'start' ? x : x - w / 2, x2 = anchor === 'start' ? x + w : x + w / 2;
+    if (s.signature) placeSignature(doc, s.signature, (x1 + x2) / 2, ln, Math.min(46, w - 6), boxH || 15, s.base, 3.2, 2);
     line(doc, x1, ln, x2, ln, COL.ink, 0.25);
     // the name sits 6 mm under the line (was 5): room for a signature's tail between the line and the name
-    T(doc, x, ln + 6, s.name, 3.3, 700, COL.ink, { anchor: anchor, ls: 0.12 });
-    T(doc, x, ln + 10.3, s.position, 2.8, 400, COL.muted, { anchor: anchor });
+    T(doc, x, ln + 6, s.name, fitSize(doc, s.name, 700, SANS, 3.3, w + 4, 2.4, 0.12), 700, COL.ink, { anchor: anchor, ls: 0.12 });
+    T(doc, x, ln + 10.3, s.position, fitSize(doc, s.position, 400, SANS, 2.8, w + 4, 2, 0), 400, COL.muted, { anchor: anchor });
   }
   // An officer's electronic signature (data URI, PNG or JPEG), centred above the signature line, fitted into
   // a 46 mm x boxH box with its aspect ratio kept, its bottom 2 mm below the line. A bad image is skipped (the line stays).
@@ -1734,7 +1735,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     L.forEach(function (l) { y += l[4] + l[1] * 1.15; T(doc, M, y, l[0], l[1], l[2], l[3], { anchor: 'middle', ls: l[5] }); y += l[1] * 0.4; });
 
     T(doc, M, 152, c.givenLine, 3.3, 400, COL.subtle, { anchor: 'middle' });
-    if (c.signatories.length === 1 && THEME === 'action') {
+    if (c.signatories.length >= 3) {
+      // three signatories: evenly across the foot; the seal steps aside (as on the plaques with three)
+      [-88, 0, 88].forEach(function (dx, i) { signatory(doc, M + dx, 174, c.signatories[i], 'middle', 15, 66); });
+    } else if (c.signatories.length === 1 && THEME === 'action') {
       signatory(doc, M, 174, c.signatories[0], 'middle');     // no seal: the one signature sits in the centre
     } else if (c.signatories.length === 1) {
       // one signatory: seal on the left, signature on the right (keeps the foot balanced)
@@ -1803,8 +1807,12 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       y += l[4] + l[1] * 1.15; T(doc, X, y, l[0], l[1], l[2], col, { ls: l[5] }); y += l[1] * 0.4;
     });
     T(doc, X, 156, c.givenLine, 3.2, 400, COL.subtle);
-    if (c.signatories[0]) signatory(doc, X, 174, c.signatories[0], 'start', 11);
-    if (c.signatories[1]) signatory(doc, X + 86, 174, c.signatories[1], 'start', 11);
+    if (c.signatories.length >= 3) {
+      [0, 1, 2].forEach(function (i) { signatory(doc, X + i * 57, 174, c.signatories[i], 'start', 11, 51); });
+    } else {
+      if (c.signatories[0]) signatory(doc, X, 174, c.signatories[0], 'start', 11);
+      if (c.signatories[1]) signatory(doc, X + 86, 174, c.signatories[1], 'start', 11);
+    }
     T(doc, X, 196, 'Certificate no. ' + c.certNo, 2.4, 500, COL.subtle, { ls: 0.15 });
     T(doc, R, 196, 'PICPA Western Region  ·  Jeddah Chapter', 2.4, 500, COL.subtle, { anchor: 'end', ls: 0.15 });
   }
@@ -1837,9 +1845,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     L.forEach(function (l) { y += l[4] + l[1] * 1.15; T(doc, X, y, l[0], l[1], l[2], l[3], { ls: l[5] }); y += l[1] * 0.4; });
 
     T(doc, X, 154, c.givenLine, 3.3, 400, COL.subtle);
-    if (c.signatories[0]) signatory(doc, X, 168, c.signatories[0], 'start', 11);
-    if (c.signatories[1]) signatory(doc, X + 86, 168, c.signatories[1], 'start', 11);
-    seal(doc, 273 - 19 - 1, 162, 19, c.sealText);
+    if (c.signatories.length >= 3) {
+      [0, 1, 2].forEach(function (i) { signatory(doc, X + i * 84, 168, c.signatories[i], 'start', 11, 72); });   // the seal steps aside
+    } else {
+      if (c.signatories[0]) signatory(doc, X, 168, c.signatories[0], 'start', 11);
+      if (c.signatories[1]) signatory(doc, X + 86, 168, c.signatories[1], 'start', 11);
+      seal(doc, 273 - 19 - 1, 162, 19, c.sealText);
+    }
     footer(doc, c.certNo);
   }
 
@@ -1869,7 +1881,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
               issuedDate, certNo, signatories: [{ full_name, position, term }], term } */
   function normalise(cert) {
     var type = TYPES[cert.type] ? cert.type : 'participation';
-    var sigs = (cert.signatories || []).slice(0, 2).map(function (s) {
+    var sigs = (cert.signatories || []).slice(0, 3).map(function (s) {     // up to three (2026-10-22)
       var pos = String(s.position || '').trim(), term = String(s.term || cert.term || '').trim();
       return { name: String(s.full_name || '').toUpperCase(), position: term ? pos + ', ' + term : pos,
                signature: typeof s.signature === 'string' && s.signature ? s.signature : null,
@@ -2676,7 +2688,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function offLabel(o) { return (o.full_name || '') + ' - ' + (o.position || ''); }
   /** 'Paula President, CPA' -> 'Paula President' (the register's short form). */
   function shortName(n) { return String(n || '').split(',')[0].trim(); }
-  /** A chooser pair as officer ids: Signatory 1, then Signatory 2 when chosen (unknown or repeated ids left out). */
+  /** The chooser as officer ids: Signatory 1, then 2 and 3 when chosen (unknown or repeated ids left out; up to three, 2026-10-22). */
   function chosenIds(pair) {
     var out = [];
     (pair || S.sign || []).forEach(function (id) { if (id && officerById(id) && out.indexOf(id) < 0) out.push(id); });
@@ -2688,12 +2700,14 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (!pair[0] || !officerById(pair[0])) return 'Choose who signs the certificates (Signatory 1).';
     if (pair[1] && pair[1] === pair[0]) return 'Choose two different people, or None for Signatory 2.';
     if (pair[1] && !officerById(pair[1])) return 'Choose Signatory 2 again, or None.';
+    if (pair[2] && (pair[2] === pair[0] || pair[2] === pair[1])) return 'Choose a different person for Signatory 3, or None.';
+    if (pair[2] && !officerById(pair[2])) return 'Choose Signatory 3 again, or None.';
     return '';
   }
   /** cert_context().default_signatories as a chooser pair. */
   function defaultPair() {
     var d = (S.ctx && Array.isArray(S.ctx.default_signatories) ? S.ctx.default_signatories : []).filter(officerById);
-    return [d[0] || '', d[1] && d[1] !== d[0] ? d[1] : ''];
+    return [d[0] || '', d[1] && d[1] !== d[0] ? d[1] : '', ''];
   }
   /** A certificate's snapshot of who signed it, or null (none saved: it prints with the chooser's choice). */
   function snapOf(c) { return c && Array.isArray(c.signatories) && c.signatories.length ? c.signatories : null; }
@@ -2703,7 +2717,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function signersOf(c) {
     var snap = snapOf(c);
     if (snap) {
-      return snap.slice(0, 2).map(function (s) {
+      return snap.slice(0, 3).map(function (s) {
         s = s || {};
         return { id: s.officer_id || '', full_name: s.full_name || '', position: s.position || '', term: s.term || '' };
       });
@@ -2727,7 +2741,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   /** 'Paula President and Sam Officer' for the confirmation. */
   function signersText() {
     var n = signersOf(null).map(function (s) { return s.full_name; });
-    return n.join(' and ');
+    return n.length > 2 ? n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1] : n.join(' and ');
   }
   /** The officer ids whose e-signature the rows need and that are not loaded yet (only officers that have one). */
   function needIds(rows) {
@@ -3180,7 +3194,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         '<select id="' + id + '" name="s' + (n + 1) + '"' + (action ? ' data-change="' + action + '" data-n="' + n + '"' : '') +
         (hint ? ' aria-describedby="' + id + 'h"' : '') + d + '>' + opts + '</select>' + hint + '</div>';
     }
-    return one(0) + one(1);
+    return one(0) + one(1) + one(2);
   }
   /** "Signed by": the chooser of the view on screen (shared by the three flows). */
   function signHtml() {
@@ -3189,7 +3203,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       return '<div class="tk-note tk-note-warn"><p>No officers are listed on the Hub yet, so nobody can sign the certificates.</p></div>';
     }
     var err = signError();
-    return '<fieldset class="tk-ct-signers"><legend>Signed by</legend><div class="tk-ct-optrow">' + signSelects('ct-sg', S.sign || ['', ''], 'ct.sign', dis()) +
+    return '<fieldset class="tk-ct-signers"><legend>Signed by</legend><div class="tk-ct-optrow">' + signSelects('ct-sg', S.sign || ['', '', ''], 'ct.sign', dis()) +
       '</div><p class="tk-err" id="ct-sg-err" role="alert">' + esc(err) + '</p></fieldset>';
   }
   /** A choice as a dropdown: list = [[value, label], ...]; action = the data-change action; d = ' disabled' or ''. */
@@ -3524,8 +3538,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   });
   TK.action('ct.sign', function (el) {
     var n = Number(el && el.getAttribute ? el.getAttribute('data-n') : NaN), v = el && typeof el.value === 'string' ? el.value : '';
-    if (S.busy || (n !== 0 && n !== 1) || (v && !officerById(v))) return null;
-    S.sign = (S.sign || ['', '']).slice();
+    if (S.busy || !(n === 0 || n === 1 || n === 2) || (v && !officerById(v))) return null;
+    S.sign = (S.sign || ['', '', '']).slice();
     S.sign[n] = v;
     drawPage();
     return null;
@@ -4333,7 +4347,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<div class="tk-field"><label for="ct-e-lay">Design</label><select id="ct-e-lay" name="layout">' + DESIGNS.map(function (l) {
         return '<option value="' + l[0] + '"' + (normLayout(c.layout) === l[0] ? ' selected' : '') + '>' + l[1] + '</option>';
       }).join('') + '</select></div>' +
-      (officers().length ? '<fieldset class="tk-ct-signers"><legend>Signed by</legend>' + signSelects('ct-e-s', snapIds(c) || S.sign || ['', ''], '', '') +
+      (officers().length ? '<fieldset class="tk-ct-signers"><legend>Signed by</legend>' + signSelects('ct-e-s', snapIds(c) || S.sign || ['', '', ''], '', '') +
         '<span class="tk-hint">' + (snapOf(c) ? '' : 'Not saved for this certificate yet; it prints with the people chosen here. ') +
         'After a change, press Send to e-mail the new version.</span></fieldset>' : '') +
       '<p class="tk-ferr" id="ct-e-err" role="alert"></p>' +
@@ -4359,7 +4373,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         'Enter the year of joining as four digits, from 1992 to ' + THIS_YEAR + ', or leave it empty.' : '';
     // Signed by (when the form has it): a change, or a certificate without a saved choice, is saved with cert_set_signatories
     var els = form && form.elements, hasSign = !!(els && els.namedItem && els.namedItem('s1'));
-    var pair = hasSign ? [val('s1'), val('s2')] : null, pairIds = pair ? pair.filter(Boolean) : null;
+    var pair = hasSign ? [val('s1'), val('s2'), val('s3')] : null, pairIds = pair ? pair.filter(Boolean) : null;
     var signChange = !!pair && !sameIds(snapIds(c), pairIds);
     if (!msg && signChange) msg = signError(pair);
     if (msg) { TK.setHTML('ct-e-err', esc(msg)); return null; }
@@ -5225,7 +5239,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       o.link = typeof data.link === 'string' && evById(data.link) ? data.link : '';
       o.date = /^\d{4}-\d{2}-\d{2}$/.test(String(data.date || '')) ? data.date : o.date;
       o.layout = normLayout(data.layout);
-      if (Array.isArray(data.sign)) S.sign = [0, 1].map(function (i) { return data.sign[i] && officerById(data.sign[i]) ? data.sign[i] : ''; });
+      if (Array.isArray(data.sign)) S.sign = [0, 1, 2].map(function (i) { return data.sign[i] && officerById(data.sign[i]) ? data.sign[i] : ''; });
       var rows = Array.isArray(data.rows) ? data.rows.slice(0, MAX.batch) : [];
       if (rows.length) o.rows = [];
       rows.forEach(function (x) {
