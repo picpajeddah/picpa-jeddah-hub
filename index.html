@@ -453,7 +453,9 @@ PERFORMANCE OF THIS SOFTWARE.
     if (dm) { r.d = +dm[1]; r.m = monthIndex(dm[2]); r.y = +dm[3]; r.time = dm[4] || ''; }
     if (/^12:00\s*AM$/i.test(r.time)) r.time = ''; // midnight means no start time was set
     var vm = /📍\s*([^\n]+)/.exec(meta);
-    if (vm) r.venue = vm[1].trim();
+    if (vm) r.venue = vm[1].split(/💳|🎓|🎟/)[0].trim();
+    var fm = /💳\s*([^\n📍🗓🎓]+)/.exec(meta);
+    if (fm) r.fee = fm[1].trim();
     if (!r.y) { // month-only items (chapter projects): "Scheduled for March 2027" or "during Ramadan 2027"
       var mm = new RegExp('\\b(' + MONL.join('|') + ')\\s+(20\\d\\d)\\b').exec(desc);
       if (mm) { r.m = MONL.indexOf(mm[1]) + 1; r.y = +mm[2]; r.note = 'Date to be announced'; }
@@ -485,7 +487,7 @@ PERFORMANCE OF THIS SOFTWARE.
     function rows(list) {
       return list.map(function (r) {
         var i = items.indexOf(r);
-        var when = [r.time, r.venue].filter(Boolean).join(', ');
+        var when = [r.time, r.venue, r.fee].filter(Boolean).join(', ');
         return '<button type="button" class="mv-row' + (r.hidden ? ' is-hidden' : '') + '" data-mv="' + i + '">' +
           '<span class="mv-day' + (r.d ? '' : ' tbd') + '"><b>' + (r.d || '—') + '</b><small>' + MON[r.m - 1] + '</small></span>' +
           '<span class="mv-main"><span class="mv-kind">' + esc(r.kind || 'Chapter event') +
@@ -522,8 +524,8 @@ PERFORMANCE OF THIS SOFTWARE.
     host._items = items;
   }
 
-  function apply(content) {
-    var on = mode() === 'month';
+  function apply(content, only) { // only: show a view this time without changing the saved choice
+    var on = (only || mode()) === 'month';
     content.classList.toggle('mv-on', on);
     var sw = content.querySelector('.mv-switch');
     if (sw) [].forEach.call(sw.querySelectorAll('button'), function (b) {
@@ -565,7 +567,7 @@ PERFORMANCE OF THIS SOFTWARE.
       host.addEventListener('click', function (e) {
         var b = e.target.closest('.mv-row'); if (!b || !host._items) return;
         var r = host._items[+b.getAttribute('data-mv')]; if (!r) return;
-        setMode('feed'); apply(content);
+        apply(content, 'feed');
         r.card.scrollIntoView({ behavior: 'smooth', block: 'center' });
         r.card.classList.add('mv-flash'); setTimeout(function () { r.card.classList.remove('mv-flash'); }, 2200);
       });
