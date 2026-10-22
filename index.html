@@ -382,5 +382,209 @@ PERFORMANCE OF THIS SOFTWARE.
 .auth-wrap:before,.auth-wrap:after{pointer-events:none;z-index:0}
 .auth-card{z-index:1}
 </style>
+<style id="hub-month-view">
+/* Hub add-on: "By month" view for Programs & Events (uses the Hub's own design tokens, with fallbacks) */
+.mv-switch{display:inline-flex;gap:6px;margin-left:12px;padding-left:12px;border-left:1px solid var(--line,#e3e7ef)}
+.content.mv-on .feed{display:none!important}
+.content:not(.mv-on) .mv-host{display:none}
+.mv-host{display:flex;flex-direction:column;gap:22px;max-width:760px}
+.mv-month h3{display:flex;align-items:baseline;gap:10px;margin:0 0 8px;font-size:var(--t-h3,18px);color:var(--navy-800,#101E5A)}
+.mv-month h3 span{font-size:var(--t-sm,13px);font-weight:500;color:var(--muted,#6b7488)}
+.mv-list{display:flex;flex-direction:column;background:var(--surface,#fff);border:1px solid var(--line,#e3e7ef);border-radius:var(--r-lg,14px);overflow:hidden}
+.mv-row{appearance:none;display:grid;grid-template-columns:56px 1fr auto;gap:14px;align-items:center;text-align:left;width:100%;padding:12px 16px;
+  background:none;border:0;border-top:1px solid var(--line,#e3e7ef);font:inherit;color:inherit;cursor:pointer}
+.mv-row:first-child{border-top:0}
+.mv-row:hover{background:var(--bg-soft,#f6f8fc)}
+.mv-row:focus-visible{outline:3px solid var(--navy-500,#2149D6);outline-offset:-3px}
+.mv-day{display:flex;flex-direction:column;align-items:center;line-height:1;color:var(--navy-800,#101E5A)}
+.mv-day b{font-size:24px;font-weight:800;font-variant-numeric:tabular-nums}
+.mv-day small{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted,#6b7488);margin-top:3px}
+.mv-day.tbd b{color:var(--muted,#9aa3b5)}
+.mv-main{display:flex;flex-direction:column;gap:2px;min-width:0}
+.mv-kind{font-size:12px;font-weight:600;color:var(--green-700,#1E6B22)}
+.mv-hidden{font-style:normal;font-weight:600;color:var(--warn-ink,#8a5a00);background:var(--warn-bg,#fdf3d7);border-radius:999px;padding:1px 8px;margin-left:6px}
+.mv-row.is-hidden .mv-title{color:var(--muted,#6b7488)}
+.mv-title{font-weight:700;font-size:15px;color:var(--text,#141a2b)}
+.mv-when{font-size:13px;color:var(--muted,#6b7488)}
+.mv-open{font-size:13px;font-weight:600;color:var(--navy-500,#2149D6)}
+.mv-empty{color:var(--muted,#6b7488)}
+.mv-past summary{cursor:pointer;font-weight:600;color:var(--navy-500,#2149D6);margin-bottom:10px}
+.mv-past .mv-month{margin-top:14px;opacity:.75}
+.card.post.mv-flash{box-shadow:0 0 0 3px var(--green-500,#3FA62B)!important;transition:box-shadow .3s}
+@media (max-width:860px){.mv-switch{margin-left:0;padding-left:0;border-left:0;margin-top:8px}.mv-row{grid-template-columns:44px 1fr}.mv-open{display:none}}
+@media (prefers-reduced-motion:reduce){.card.post.mv-flash{transition:none}}
+</style>
+<script id="hub-month-view-js">
+/* Hub add-on: "By month" view for Programs & Events.
+   Reads the post cards the Hub already rendered (.content .feed .card.post) and shows them grouped by month.
+   No network calls, no Hub data changes; the Hub's own feed stays in the page and is one click away. */
+(function () {
+  'use strict';
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var MONL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var KEY = 'hub-month-view-mode';
+  // Ramadan 2027 is expected from about 8 Feb to 9 Mar 2027; month-only Ramadan items are filed under February.
+  var RAMADAN = { 2027: 2, 2028: 1 };
+
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function mode() { try { return localStorage.getItem(KEY) || 'month'; } catch (e) { return 'month'; } }
+  function setMode(m) { try { localStorage.setItem(KEY, m); } catch (e) {} }
+  function monthIndex(word) {
+    var w = String(word).slice(0, 3).toLowerCase();
+    for (var i = 0; i < 12; i++) if (MON[i].toLowerCase() === w) return i + 1;
+    return 0;
+  }
+
+  // One card -> {y, m, d (0 if month only), time, venue, title, kind, note, card}
+  function readCard(card) {
+    var bd = card.querySelector('.bd');
+    var title = bd && bd.querySelector('h4') ? bd.querySelector('h4').textContent.trim() : '';
+    var metaEl = bd && bd.querySelector('.meta');
+    var meta = metaEl ? metaEl.innerText : '';
+    var desc = bd && bd.querySelector('.desc') ? bd.querySelector('.desc').innerText : '';
+    var kindEl = metaEl && metaEl.querySelector('.pill, .tag, .chip, [class*="cat"]');
+    var kind = kindEl ? kindEl.textContent.trim() : '';
+    if (!kind) { var km = /^([A-Za-z /&]+?)\s*(?:\n|🗓|$)/.exec(meta.trim()); kind = km ? km[1].trim() : ''; }
+    var r = { title: title, kind: kind, card: card, y: 0, m: 0, d: 0, time: '', venue: '', note: '' };
+    var dm = /(\d{1,2})\s+([A-Z][a-z]{2,8})\s+(\d{4})(?:\s*[·•]\s*(\d{1,2}:\d{2}\s*[AP]M))?/.exec(meta);
+    if (dm) { r.d = +dm[1]; r.m = monthIndex(dm[2]); r.y = +dm[3]; r.time = dm[4] || ''; }
+    if (/^12:00\s*AM$/i.test(r.time)) r.time = ''; // midnight means no start time was set
+    var vm = /📍\s*([^\n]+)/.exec(meta);
+    if (vm) r.venue = vm[1].trim();
+    if (!r.y) { // month-only items (chapter projects): "Scheduled for March 2027" or "during Ramadan 2027"
+      var mm = new RegExp('\\b(' + MONL.join('|') + ')\\s+(20\\d\\d)\\b').exec(desc);
+      if (mm) { r.m = MONL.indexOf(mm[1]) + 1; r.y = +mm[2]; r.note = 'Date to be announced'; }
+      var rm = /\bRamadan\s+(20\d\d)\b/i.exec(desc);
+      if (!mm && rm && RAMADAN[+rm[1]]) { r.y = +rm[1]; r.m = RAMADAN[r.y]; r.note = 'During Ramadan, dates to be announced'; }
+    }
+    // officers also see unpublished posts; the Hub then offers "Publish" instead of "Unpublish"
+    r.hidden = [].some.call(card.querySelectorAll('.actions button'), function (b) { return b.textContent.trim() === 'Publish'; });
+    return r;
+  }
+
+  function todayYm() {
+    var j = new Date(Date.now() + 3 * 3600 * 1000); // Jeddah, UTC+3
+    return { y: j.getUTCFullYear(), m: j.getUTCMonth() + 1, d: j.getUTCDate() };
+  }
+
+  function render(content) {
+    var feed = content.querySelector('.feed');
+    var host = content.querySelector('.mv-host');
+    if (!feed || !host) return;
+    var items = [].slice.call(feed.querySelectorAll('.card.post')).map(readCard);
+    var t = todayYm(), tk = t.y * 100 + t.m, td = tk * 100 + t.d;
+    var dated = items.filter(function (r) { return r.y; });
+    var other = items.filter(function (r) { return !r.y; });
+    dated.sort(function (a, b) { return (a.y * 10000 + a.m * 100 + (a.d || 99)) - (b.y * 10000 + b.m * 100 + (b.d || 99)); });
+    var up = dated.filter(function (r) { return r.y * 100 + r.m > tk || (r.y * 100 + r.m === tk && (!r.d || r.y * 10000 + r.m * 100 + r.d >= td)); });
+    var past = dated.filter(function (r) { return up.indexOf(r) < 0; }).reverse();
+
+    function rows(list) {
+      return list.map(function (r) {
+        var i = items.indexOf(r);
+        var when = [r.time, r.venue].filter(Boolean).join(', ');
+        return '<button type="button" class="mv-row' + (r.hidden ? ' is-hidden' : '') + '" data-mv="' + i + '">' +
+          '<span class="mv-day' + (r.d ? '' : ' tbd') + '"><b>' + (r.d || '—') + '</b><small>' + MON[r.m - 1] + '</small></span>' +
+          '<span class="mv-main"><span class="mv-kind">' + esc(r.kind || 'Chapter event') +
+          (r.hidden ? ' <em class="mv-hidden">Hidden from members</em>' : '') + '</span>' +
+          '<span class="mv-title">' + esc(r.title) + '</span>' +
+          '<span class="mv-when">' + esc(when || r.note || '') + '</span></span>' +
+          '<span class="mv-open" aria-hidden="true">View</span></button>';
+      }).join('');
+    }
+    function months(list) {
+      var out = '', cur = '';
+      list.forEach(function (r, k) {
+        var key = r.y + '-' + r.m;
+        if (key !== cur) {
+          if (cur) out += '</div></section>';
+          cur = key;
+          var n = list.filter(function (x) { return x.y + '-' + x.m === key; }).length;
+          out += '<section class="mv-month"><h3>' + MONL[r.m - 1] + ' ' + r.y + '<span>' + n + (n === 1 ? ' item' : ' items') + '</span></h3><div class="mv-list">';
+        }
+        out += rows([r]);
+      });
+      return cur ? out + '</div></section>' : '';
+    }
+    var html = up.length ? months(up) : '<p class="mv-empty">No upcoming programmes match this filter.</p>';
+    if (other.length) html += '<section class="mv-month mv-other"><h3>Other posts<span>' + other.length + '</span></h3><div class="mv-list">' +
+      other.map(function (r) {
+        var i = items.indexOf(r);
+        return '<button type="button" class="mv-row" data-mv="' + i + '"><span class="mv-day tbd"><b>•</b><small>Post</small></span>' +
+          '<span class="mv-main"><span class="mv-kind">' + esc(r.kind || 'Post') + '</span><span class="mv-title">' + esc(r.title) + '</span></span>' +
+          '<span class="mv-open" aria-hidden="true">View</span></button>';
+      }).join('') + '</div></section>';
+    if (past.length) html += '<details class="mv-past"><summary>Past programmes (' + past.length + ')</summary>' + months(past) + '</details>';
+    host.innerHTML = html;
+    host._items = items;
+  }
+
+  function apply(content) {
+    var on = mode() === 'month';
+    content.classList.toggle('mv-on', on);
+    var sw = content.querySelector('.mv-switch');
+    if (sw) [].forEach.call(sw.querySelectorAll('button'), function (b) {
+      var a = b.getAttribute('data-view') === (on ? 'month' : 'feed');
+      b.classList.toggle('on', a); b.setAttribute('aria-pressed', String(a));
+    });
+    if (on) render(content);
+  }
+
+  function setup() {
+    var h2 = [].slice.call(document.querySelectorAll('h2')).filter(function (h) { return h.textContent.trim() === 'Programs & Events'; })[0];
+    if (!h2) { // any other Hub page: leave no trace
+      [].forEach.call(document.querySelectorAll('.mv-on'), function (el) { el.classList.remove('mv-on'); });
+      [].forEach.call(document.querySelectorAll('.mv-host, .mv-switch'), function (el) { el.remove(); });
+      return;
+    }
+    var content = document.querySelector('.content');
+    var toolbar = content && content.querySelector('.toolbar');
+    var feed = content && content.querySelector('.feed');
+    if (!toolbar || !feed) return;
+    var fresh = false;
+    if (!toolbar.querySelector('.mv-switch')) {
+      fresh = true;
+      var sw = document.createElement('div');
+      sw.className = 'mv-switch'; sw.setAttribute('role', 'group'); sw.setAttribute('aria-label', 'View');
+      sw.innerHTML = '<button type="button" class="chip" data-view="month">By month</button><button type="button" class="chip" data-view="feed">All posts</button>';
+      var chips = toolbar.querySelector('.chips');
+      if (chips && chips.nextSibling) toolbar.insertBefore(sw, chips.nextSibling); else toolbar.appendChild(sw);
+      sw.addEventListener('click', function (e) {
+        var b = e.target.closest('button[data-view]'); if (!b) return;
+        setMode(b.getAttribute('data-view')); apply(content);
+      });
+    }
+    if (!content.querySelector('.mv-host')) {
+      fresh = true;
+      var host = document.createElement('div');
+      host.className = 'mv-host';
+      feed.parentNode.insertBefore(host, feed.nextSibling);
+      host.addEventListener('click', function (e) {
+        var b = e.target.closest('.mv-row'); if (!b || !host._items) return;
+        var r = host._items[+b.getAttribute('data-mv')]; if (!r) return;
+        setMode('feed'); apply(content);
+        r.card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        r.card.classList.add('mv-flash'); setTimeout(function () { r.card.classList.remove('mv-flash'); }, 2200);
+      });
+    }
+    if (!feed._mvObs) {
+      fresh = true;
+      feed._mvObs = new MutationObserver(function () { if (content.classList.contains('mv-on')) render(content); });
+      feed._mvObs.observe(feed, { childList: true, subtree: true, characterData: true });
+    }
+    if (fresh) apply(content);
+  }
+
+  var pending = false;
+  new MutationObserver(function () {
+    if (pending) return; pending = true;
+    setTimeout(function () { pending = false; try { setup(); } catch (e) { /* never break the Hub */ } }, 120);
+  }).observe(document.documentElement, { childList: true, subtree: true });
+  try { setup(); } catch (e) {}
+})();
+</script>
 </body>
 </html>
