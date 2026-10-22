@@ -11,6 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.5.2/qrcode.min.js" integrity="sha512-c3HC2N32Up+KwxhFN2dZkoDWSdxWqwzDJCnroUffjS/HBQHf5Ou1uFpqIT0rOIJ5fW8TxHmUpCDndH2A6xNhpQ==" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js" integrity="sha512-plOdviVmws4Y3JAvbnpfKb2hVxKM1lCwsi3vmElYRj+tiDLffZ4FVUj5a8vyKJ9pIgl8JCAHEJ4D1iUKBecswg==" crossorigin="anonymous" referrerpolicy="no-referrer" defer></script>
 <style id="tk-style">
 /* tk.css — styles of the ticketing pages on Hub v2.2 tokens. Colours appear ONLY in the :root token block.
@@ -538,6 +539,20 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   .tk-ct-offrow input[data-f="position"] { grid-column: 2 / 4; grid-row: 2; }
   .tk-ct-offrow input[data-f="term"] { grid-column: 2 / 4; grid-row: 3; }
 }
+/* verify.html: the public certificate check (2026-10-22) */
+.tk-vwrap { max-width: 640px; margin: 0 auto; }
+.tk-vwrap h1 { margin-bottom: 4px; }
+.tk-vbanner { margin: 16px 0; }
+.tk-vcard { padding: 20px; }
+.tk-vkind { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.tk-vname { margin: 6px 0 14px; font-size: 24px; line-height: 1.25; overflow-wrap: anywhere; }
+.tk-vlist { margin: 0 0 16px; }
+.tk-vrow { display: grid; grid-template-columns: 130px 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.tk-vrow dt { color: var(--muted); font-size: 14px; }
+.tk-vrow dd { margin: 0; overflow-wrap: anywhere; }
+.tk-vsigners { display: flex; flex-direction: column; gap: 8px; }
+.tk-vsigner { display: flex; flex-direction: column; }
+@media (max-width: 480px) { .tk-vrow { grid-template-columns: 1fr; gap: 2px; } .tk-vname { font-size: 21px; } }
 </style>
 </head>
 <body data-page="certificates">
@@ -1613,8 +1628,40 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     doc.setDrawColor(COL.navy[0], COL.navy[1], COL.navy[2]); doc.setLineWidth(1.2); doc.rect(7, 7, 283, 196, 'S');
     doc.setDrawColor(COL.gold5[0], COL.gold5[1], COL.gold5[2]); doc.setLineWidth(0.35); doc.rect(10, 10, 277, 190, 'S');
   }
-  function footer(doc, certNo) {
+  function footer(doc, certNo, verifyUrl, right) {
+    // the QR in a bottom corner: left on Formal (clear of the first signature's text), right on Modern (under the seal)
+    if (verifyUrl && right && qrBlock(doc, 253, 178, 22, verifyUrl)) { qrCaption(doc, 250, 192.5, certNo, COL.subtle, true); return; }
+    if (verifyUrl && !right && qrBlock(doc, 12, 176.5, 22, verifyUrl)) { qrCaption(doc, 36, 190.5, certNo, COL.subtle); return; }
     T(doc, 24, 194.5, 'Certificate no. ' + certNo, 2.5, 500, COL.subtle, { ls: 0.15 });
+  }
+  /* Online verification (2026-10-22): the certificate's public link (verify.html?c=<random code>) as a QR code of side `size` mm
+     at (x, y): a white square with a 4-module quiet zone and the dark modules as filled rectangles, so it stays crisp and
+     scannable at any print size (about 0.45 mm a module at 20 mm). Needs the qrcode-generator library (the global qrcode,
+     the same pinned version as the ticket page); without it, or without a link, nothing is drawn and false is returned. */
+  function qrBlock(doc, x, y, size, url) {
+    var g = typeof globalThis !== 'undefined' ? globalThis : root;
+    var lib = root && typeof root.qrcode === 'function' ? root.qrcode : g && typeof g.qrcode === 'function' ? g.qrcode : null;
+    if (!lib || !url) return false;
+    var q;
+    try { q = lib(0, 'M'); q.addData(String(url)); q.make(); } catch (e) { return false; }
+    var n = q.getModuleCount(), m = size / (n + 8);
+    rectFill(doc, x, y, size, size, COL.white);
+    doc.setFillColor(COL.ink[0], COL.ink[1], COL.ink[2]);
+    for (var r = 0; r < n; r++) {
+      for (var c = 0; c < n; c++) {
+        if (!q.isDark(r, c)) continue;
+        var c0 = c;
+        while (c + 1 < n && q.isDark(r, c + 1)) c++;
+        doc.rect(x + (4 + c0) * m, y + (4 + r) * m, (c - c0 + 1) * m + 0.01, m + 0.01, 'F');   // a hair of overlap: no seams
+      }
+    }
+    return true;
+  }
+  /** Beside the QR: the certificate number and how to check it. */
+  function qrCaption(doc, x, y, certNo, col, end) {
+    var o = end ? { anchor: 'end' } : {};
+    T(doc, x, y, 'Certificate no. ' + certNo, 2.5, 700, col, Object.assign({ ls: 0.15 }, o));
+    T(doc, x, y + 3.6, 'Scan the code to verify this certificate online.', 2.3, 400, col, o);
   }
   /* The theme's line belongs to the theme's logo, not to the chapter or its seal: EMPOWER's tagline, or ACTION with
      I.M.P.A.C.T.'s values. It is set as part of the logo (a lockup, as in the official artwork): exactly the logo's width,
@@ -1750,7 +1797,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       if (c.signatories[1]) signatory(doc, M + gx, 174, c.signatories[1], 'middle');
       seal(doc, M, 172, 16, c.sealText);
     }
-    footer(doc, c.certNo);
+    footer(doc, c.certNo, c.verifyUrl);
   }
 
   // ---------- ACTION with I.M.P.A.C.T. MODERN: navy side panel with a rising edge, the six values as the acronym ----------
@@ -1780,6 +1827,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       if (i < ACT_VALUES.length - 1) line(doc, 14, y + 6.4, edge(y + 6.4) - 12, y + 6.4, AC.navyLine, 0.25);
     });
     if (c.term) T(doc, 14, 194, 'FISCAL YEAR ' + c.term.replace(/-/g, '–'), 2.5, 700, AC.greenLit, { ls: 0.7 });
+    var qrOn = !!c.verifyUrl && qrBlock(doc, 13, 164.5, 24, c.verifyUrl);
+    if (qrOn) T(doc, 40, 182, 'SCAN TO VERIFY', 2.2, 700, AC.soft, { ls: 0.5 });
     // the certificate, on white
     var X = 112, R = 277, maxW = R - X;
     T(doc, X, 22, 'PHILIPPINE INSTITUTE OF CERTIFIED PUBLIC ACCOUNTANTS', 3, 700, AC.navy, { ls: 0.35 });
@@ -1813,7 +1862,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       if (c.signatories[0]) signatory(doc, X, 174, c.signatories[0], 'start', 11);
       if (c.signatories[1]) signatory(doc, X + 86, 174, c.signatories[1], 'start', 11);
     }
-    T(doc, X, 196, 'Certificate no. ' + c.certNo, 2.4, 500, COL.subtle, { ls: 0.15 });
+    T(doc, X, 196, 'Certificate no. ' + c.certNo + (qrOn ? '  ·  verified online by the code on the left' : ''), 2.4, 500, COL.subtle, { ls: 0.15 });
     T(doc, R, 196, 'PICPA Western Region  ·  Jeddah Chapter', 2.4, 500, COL.subtle, { anchor: 'end', ls: 0.15 });
   }
 
@@ -1850,9 +1899,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     } else {
       if (c.signatories[0]) signatory(doc, X, 168, c.signatories[0], 'start', 11);
       if (c.signatories[1]) signatory(doc, X + 86, 168, c.signatories[1], 'start', 11);
-      seal(doc, 273 - 19 - 1, 162, 19, c.sealText);
+      seal(doc, 273 - 19 - 1, c.verifyUrl ? 157 : 162, 19, c.sealText);   // a little higher when the QR sits under it
     }
-    footer(doc, c.certNo);
+    footer(doc, c.certNo, c.verifyUrl, true);
   }
 
   // ---------- data ----------
@@ -1897,6 +1946,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       heldLine: type === 'membership' ? memberLine(cert.eventTitle, cert.award) : heldLine(cert.eventDate, String(cert.venue || '').trim()),
       givenLine: givenLine(cert.issuedDate),
       certNo: String(cert.certNo || ''),
+      verifyUrl: /^https?:\/\/\S+$/.test(String(cert.verifyUrl || '')) ? String(cert.verifyUrl) : '',
       term: term,
       signatories: sigs,
       sealText: SEAL_TEXT
@@ -2284,13 +2334,12 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   /* oath = { name, position, term, given (e.g. '23rd day of October 2026 at ...'), inducting: {full_name, title, signature, base},
               logo, member (true: the Oath of Membership of a new member, sworn in before the inducting officer and witnessed by
               witness: {full_name, title, signature, base}) } */
-  function drawOath(doc, o) {
-    if (!ASSETS) throw new Error('CertRender.setup() first');
+  /** The A4 portrait page of the oaths and the induction scripts: the double frame, the chapter and theme marks (logo layout). */
+  function docHead(doc, logoLayout) {
     var P = pal(false), M = OATH_W / 2, W = OATH_W, H = OATH_H;
-    var term = String(o.term || '').trim().replace(/-/g, '–');
     doc.setDrawColor(COL.navy[0], COL.navy[1], COL.navy[2]); doc.setLineWidth(1.2); doc.rect(8, 8, W - 16, H - 16, 'S');
     doc.setDrawColor(COL.gold5[0], COL.gold5[1], COL.gold5[2]); doc.setLineWidth(0.35); doc.rect(11, 11, W - 22, H - 22, 'S');
-    var LAY = layoutOf(o.logo), L2 = 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  KINGDOM OF SAUDI ARABIA  ·  FOUNDED 1992';
+    var LAY = layoutOf(logoLayout), L2 = 'WESTERN REGION  ·  JEDDAH CHAPTER  ·  KINGDOM OF SAUDI ARABIA  ·  FOUNDED 1992';
     if (LAY === 'header') {
       headerRowCentred(doc, M, 38, 168, 21, [
         ['PHILIPPINE INSTITUTE OF', 3.2, 700, P('navy'), 0.2], ['CERTIFIED PUBLIC ACCOUNTANTS', 3.2, 700, P('navy'), 0.2],
@@ -2316,6 +2365,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       T(doc, M, 56.4, L2, 2.55, 500, P('green7'), { anchor: 'middle', ls: 0.4 });
     }
     if (LAY !== 'crest') rectFill(doc, M - 14, 61, 28, 0.6, P('gold5'));
+    return LAY;
+  }
+  function drawOath(doc, o) {
+    if (!ASSETS) throw new Error('CertRender.setup() first');
+    var P = pal(false), M = OATH_W / 2, W = OATH_W, H = OATH_H;
+    var term = String(o.term || '').trim().replace(/-/g, '–');
+    var LAY = docHead(doc, o.logo);
     var MEM = o.member === true, title = MEM ? 'OATH OF MEMBERSHIP' : 'OATH OF OFFICE';
     T(doc, M, 80, title, fitSize(doc, title, 400, DISP, 13, 172, 9, 0.4), 400, P('navy'), { fam: DISP, anchor: 'middle', ls: 0.4 });
     rectFill(doc, M - 14, 86, 28, 0.6, P('gold5'));
@@ -2365,6 +2421,44 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     sealOf(doc, M - 58, ln - 1, 13, SEAL_TEXT, false);
     sigBlock(doc, M + 52, ln, { name: String(ind.full_name || '').toUpperCase(), position: String(ind.title || 'Inducting Officer'),
       signature: typeof ind.signature === 'string' && ind.signature ? ind.signature : null }, 3.3, 74, 14, P);
+  }
+
+  /* An induction script (2026-10-23, after the PPO-WRSA ceremony sheets, the organisation changed to the Chapter): one A4
+     page per script in the oath's dress. s = { title, logo, blocks: [[kind, text]...] } where kind is 'note' (the stage
+     direction, small and muted), 'head' (who speaks, in the display face), 'quote' (what is said, justified) or 'p' (plain
+     paragraph, justified). Long scripts shrink a step (never below 3.4 mm) rather than run off the page. */
+  function drawScript(doc, s) {
+    if (!ASSETS) throw new Error('CertRender.setup() first');
+    var P = pal(false), M = OATH_W / 2, X = 25, CW = OATH_W - 50;
+    docHead(doc, s.logo);
+    var title = String(s.title || '').toUpperCase(), tl = balanced(doc, title, 400, 9, 160);
+    tl.forEach(function (l, i) {
+      T(doc, M, 76 + i * 11.5, l, fitSize(doc, l, 400, DISP, 9, 160, 6.5, 0.4), 400, P('navy'), { fam: DISP, anchor: 'middle', ls: 0.4 });
+    });
+    var top = 76 + (tl.length - 1) * 11.5;
+    rectFill(doc, M - 14, top + 6, 28, 0.6, P('gold5'));
+    top += 18;
+    var size = 4.2, lh;
+    function lay(sz) {
+      var out = [], y = top, L = sz * 1.52;
+      (s.blocks || []).forEach(function (b) {
+        var kind = b[0], text = String(b[1] || '').trim();
+        if (!text) return;
+        if (kind === 'head') { y += 3; out.push({ k: 'head', y: y, t: text, s: sz * 1.05 }); y += L + 1; return; }
+        var sm = kind === 'note' ? sz * 0.88 : sz, w = kind === 'quote' ? CW - 10 : CW, x = kind === 'quote' ? X + 5 : X;
+        var jl = justLines(doc, text, kind === 'quote' ? 500 : 400, sm, w);
+        jl.forEach(function (l, i) { out.push({ k: kind, y: y, t: l, s: sm, x: x, w: w, last: i === jl.length - 1 }); y += sm * 1.52; });
+        y += L * 0.55;
+      });
+      return { lines: out, end: y };
+    }
+    for (;;) { lh = lay(size); if (lh.end <= 258 || size <= 3.4) break; size -= 0.1; }
+    lh.lines.forEach(function (l) {
+      if (l.k === 'head') T(doc, M, l.y, l.t.toUpperCase(), l.s, 400, P('green7'), { fam: DISP, anchor: 'middle', ls: 0.3 });
+      else if (l.k === 'note') justified(doc, l.x, l.y, l.t, l.w, l.s, 400, P('muted'), l.last);
+      else justified(doc, l.x, l.y, l.t, l.w, l.s, l.k === 'quote' ? 500 : 400, P('ink'), l.last);
+    });
+    sealOf(doc, M, 272, 8.5, SEAL_TEXT, false);      // the chapter seal closes the page, 5 mm clear of the frame
   }
 
   // ================================================================ letterhead (A4 portrait) and letters
@@ -2515,7 +2609,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   }
 
   var api = { setup: setup, drawLetterhead: drawLetterhead, drawLetter: drawLetter, draw: draw, normalise: normalise, givenLine: givenLine, heldLine: heldLine, fullName: fullName, TYPES: Object.keys(TYPES),
-              drawPlaque: drawPlaque, drawOath: drawOath, OATH_TEXT: OATH_TEXT, MEMBER_OATH_TEXT: MEMBER_OATH_TEXT, LOGO_LAYOUTS: LOGO_LAYOUTS.slice(),
+              drawPlaque: drawPlaque, drawOath: drawOath, drawScript: drawScript, OATH_TEXT: OATH_TEXT, MEMBER_OATH_TEXT: MEMBER_OATH_TEXT, LOGO_LAYOUTS: LOGO_LAYOUTS.slice(),
               PLAQUE_SIZE: [PLAQUE_W, PLAQUE_H], OATH_SIZE: [OATH_W, OATH_H] };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.CertRender = api;
@@ -3031,6 +3125,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     R.setup(d, A);
     return d;
   }
+  /** The certificate's public check (2026-10-22): verify.html?c=<its random code>, next to this page; '' when it has none yet. */
+  function verifyUrl(c) {
+    var code = c && c.verify_code ? String(c.verify_code) : '';
+    if (!/^[0-9A-Z]{8,16}$/.test(code)) return '';
+    var href = String((root.location && root.location.href) || '').split(/[?#]/)[0];
+    return /^https?:\/\//.test(href) ? href.replace(/[^/]*$/, '') + 'verify.html?c=' + code : '';
+  }
   /** The renderer's data for any row: attendance rows (this event), "Other certificates" rows, register rows. */
   function certData(r) {
     if (r && r.kind === 'other') return otherData(r);
@@ -3038,7 +3139,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var e = evInfo(), x = clean(r), sig = sigData(r.cert);
     return { layout: baseOf(S.layout), theme: themeOf(S.layout), type: 'attendance', name: x.name, postNominals: x.letters, eventTitle: e.title || '',
       eventDate: jDate(e.event_date), venue: e.venue || '', issuedDate: S.date, certNo: r.cert ? r.cert.ref || '' : '',
-      signatories: sig, term: sig[0] && sig[0].term ? sig[0].term : '' };
+      verifyUrl: verifyUrl(r.cert), signatories: sig, term: sig[0] && sig[0].term ? sig[0].term : '' };
   }
   /** An issued certificate (cert_json) as the renderer wants it; the held line only when it is linked to a listed event. */
   function fromCert(c) {
@@ -3049,7 +3150,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       postNominals: c.post_nominals || '', role: type === 'attendance' || hasDetail(type) ? '' : c.recipient_role || '',
       award: hasDetail(type) ? c.detail || '' : '', eventTitle: c.event_title || '',
       eventDate: ev ? jDate(ev.event_date) : '', venue: ev ? ev.venue || '' : '', issuedDate: c.issued_date || '',
-      certNo: c.ref || '', signatories: sig, term: sig[0] && sig[0].term ? sig[0].term : '' };
+      certNo: c.ref || '', verifyUrl: verifyUrl(c), signatories: sig, term: sig[0] && sig[0].term ? sig[0].term : '' };
   }
   /** A row of the "Other certificates" list: what is on screen until it is issued, then its certificate. */
   function otherData(r) {
@@ -4416,7 +4517,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   // S.p = { doc: 'plaque'|'oath', kind: 'appreciation'|'award', finish: 'dark'|'neutral', name, designation, sentence, role,
   //         title, body, occasion, date 'YYYY-MM-DD', venue, sign: [id, id, id], oath: {officer id: true|false}, indName, indTitle }
   var PQ_MAX = { name: 120, designation: 160, sentence: 300, role: 80, title: 80, body: 900, occasion: 400, venue: 200, indName: 120, indTitle: 80,
-                 offSentence: 300, offOccasion: 400, mNames: 6000, offTitle: 80, offBody: 900 };
+                 offSentence: 300, offOccasion: 400, mNames: 6000, offTitle: 80, offBody: 900,
+                 scOut: 120, scIn: 120, scFyOut: 20, scFyIn: 20, scGavel: 3000, scCharge: 3000, scDischarge: 3000 };
   // Officers' plaques as an award (president 2026-10-17, after the chapter's 2021 "Outstanding Service Award" plaque for the
   // outgoing officers): the title, "is hereby presented to", the name, "Position, fiscal year", the citation. [fiscal year] in
   // the citation becomes each officer's own fiscal year.
@@ -4486,7 +4588,63 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   var PQ_LOGO = [['header', 'Header row: PICPA beside the theme logo'], ['masthead', 'Masthead: PICPA line above the theme logo'],
     ['crest', 'Crest: PICPA emblem above the theme logo'], ['footer', 'Theme logo above, PICPA at the foot'], ['classic', 'Theme logo only (original)']];
   function pqLogo(v) { return PQ_LOGO.some(function (x) { return x[0] === v; }) ? v : PQ_LOGO[0][0]; }
-  var PQ_DOCS = [['plaque', 'Plaque'], ['officers', "Officers' plaques"], ['oath', 'Oath of Office'], ['member', 'Oath of Membership']];
+  var PQ_DOCS = [['plaque', 'Plaque'], ['officers', "Officers' plaques"], ['oath', 'Oath of Office'], ['member', 'Oath of Membership'],
+    ['scripts', 'Induction scripts']];
+  // Induction scripts (president 2026-10-23): the three ceremony sheets read at the induction, after the PPO-WRSA sheets with the
+  // organisation changed to the Chapter. [outgoing president] [incoming president] [outgoing fiscal year] [incoming fiscal year]
+  // [inducting officer] in the text become the names and years typed in the form. A blank line starts a new paragraph; a line
+  // beginning with "## " is a heading (who speaks); "> " is a stage direction.
+  var SC_CHAPTER = 'Philippine Institute of Certified Public Accountants – Western Region – Jeddah Chapter';
+  var SC_GAVEL = '> The Presiding Officer stands between the Outgoing President and the Incoming President while holding the gavel. ' +
+    'The Presiding Officer then gives the gavel to the Outgoing President, and the Outgoing President recites the following:\n\n' +
+    '## Outgoing President – [outgoing president]\n\n' +
+    '“Mr./Madam President, I now turn over to you this gavel, as a symbol of authority, to preside over the affairs of the Chapter. ' +
+    'May you use this gavel to conduct the Chapter with fairness, justice and equality to all members. May the Great Architect in Heaven ' +
+    'guide you. Good luck and carry on.”\n\n> The Outgoing President hands over the gavel to the Incoming President.\n\n' +
+    '## Incoming President – [incoming president]\n\n' +
+    '“I, (state your name), with great honour and privilege, do hereby accept this gavel, the symbol of authority, which shall be used to ' +
+    'govern our Chapter with fairness, justice and equality. I will always preside over the Chapter in accordance with the framework of ' +
+    'the PICPA By-Laws and the Chapter’s policies, rules and regulations.”\n\n## Presiding Officer\n\n' +
+    '“As his/her first sign of authority, the Incoming President will strike the gavel ONCE, and all members of the ' + SC_CHAPTER +
+    ' will stand up; afterwards he/she will strike the gavel TWICE, and all members will sit down.”\n\nCongratulations!';
+  var SC_CHARGE = 'The office to which you have been elected is one of dignity and importance. In accepting this office, you undertake a ' +
+    'responsibility which is not to be assumed lightly nor carelessly discharged. You are charged with the duties of seriously and ' +
+    'resolutely furthering the objectives of the ' + SC_CHAPTER + '.\n\n' +
+    'With the Constitution and By-Laws as your guide, you must be ever ready to exercise the functions of the office with which you are all ' +
+    'entrusted.\n\nFurthermore, you are charged with governing this Chapter according to the laws of democracy, under which laws every ' +
+    'individual who wishes to speak shall be heard, toward the end that in every matter considered, the best of opinion shall prevail ' +
+    'through the expressed will of the majority, and the best course of action followed.\n\nDo you accept this charge?\n\n' +
+    'Now you are ready to take your Oath of Office.\n\n> [inducting officer], they are now ready to be inducted as Executive Officers and ' +
+    'Board of Directors of the ' + SC_CHAPTER + ' for the fiscal year [incoming fiscal year].';
+  var SC_DISCHARGE = 'In this Chapter, people come and go, but the ' + SC_CHAPTER + ' is here to stay, to remind all professionals that we ' +
+    'have a common goal to pursue: mainly to serve God, our fellow professionals, as well as our kababayans.\n\n' +
+    'At this moment, I would like to congratulate you, my fellow professionals, for your unselfish desire to serve the Chapter for the ' +
+    'fiscal year [outgoing fiscal year]. You have made the Chapter soar at your best capacity. You were united because of the leadership of ' +
+    'our very own President, [outgoing president]. We have seen the continuous growth of this Chapter because every member was properly ' +
+    'indoctrinated with our mission. Now that your term is about to expire, I would like to say kudos to all of you! It was a job well done.' +
+    '\n\nAt this juncture, I hereby officially discharge you from your duties and responsibilities as Executive Officers and Board of ' +
+    'Directors of the ' + SC_CHAPTER + ' for the fiscal year [outgoing fiscal year]. May you pass on this momentum to the next batch of ' +
+    'officers with joy and support. God bless you all, and congratulations on a successful term.';
+  var SC_TITLES = { scGavel: 'Turn-over of the Gavel', scCharge: 'Charging of the Executive Officers and Board of Directors',
+    scDischarge: 'Discharging of the Executive Officers and Board of Directors' };
+  /** The fiscal year before 'YYYY-YYYY' ('' when it is not one). */
+  function prevTerm(t) { var m = /^(\d{4})\s*[-–]\s*(\d{4})$/.exec(String(t || '').trim()); return m ? (Number(m[1]) - 1) + '-' + (Number(m[2]) - 1) : ''; }
+  /** A script as the renderer's blocks, the placeholders filled in. */
+  function scriptBlocks(text) {
+    var p = S.p, fill = { '[outgoing president]': sq(p.scOut) || '(Outgoing President)', '[incoming president]': sq(p.scIn) || '(Incoming President)',
+      '[outgoing fiscal year]': sq(p.scFyOut).replace(/-/g, '–') || '(fiscal year)', '[incoming fiscal year]': sq(p.scFyIn).replace(/-/g, '–') || '(fiscal year)',
+      '[inducting officer]': (sq(p.indTitle) && sq(p.indTitle) !== 'Inducting Officer' ? sq(p.indTitle) + ' ' : '') + (sq(p.indName) || '(Inducting Officer)') };
+    function sub(s) { return s.replace(/\[(outgoing president|incoming president|outgoing fiscal year|incoming fiscal year|inducting officer)\]/g, function (m) { return fill[m]; }); }
+    return String(text || '').split(/\n\s*\n/).map(function (para) {
+      var s = sub(para.replace(/\s+/g, ' ').trim());
+      if (/^## /.test(s)) return ['head', s.slice(3)];
+      if (/^> /.test(s)) return ['note', s.slice(2)];
+      return [/^[“"]/.test(s) ? 'quote' : 'p', s];
+    }).filter(function (b) { return b[1]; });
+  }
+  function scriptsData() {
+    return ['scGavel', 'scCharge', 'scDischarge'].map(function (k) { return { title: SC_TITLES[k], logo: pqLogo(S.p.logo), blocks: scriptBlocks(S.p[k]) }; });
+  }
   var PQ_INDUCTING = 'Joey I. Villanueva, CPA';
   var MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   function pqTerm() {
@@ -4507,7 +4665,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       offSentence: PQ_OFF_SENTENCE, offOccasion: PQ_OFF_OCCASION, offs: pqOffRows(),
       offKind: 'appreciation', offTitle: PQ_OFF_AWARD, offBody: PQ_OFF_CITATION,
       offSub: officerByPos(/president/i, /elect|past|immediate|vice/i),
-      mNames: '', mInd: officerByPos(/president/i, /elect|past|immediate|vice/i), mWit: officerByPos(/operations/i) };
+      mNames: '', mInd: officerByPos(/president/i, /elect|past|immediate|vice/i), mWit: officerByPos(/operations/i),
+      scOut: (officerById(officerByPos(/immediate past president/i)) || {}).full_name || PQ_BOARD_2025[0][0],
+      scIn: (officerById(officerByPos(/president/i, /elect|past|immediate|vice/i)) || {}).full_name || '',
+      scFyOut: prevTerm(term), scFyIn: term, scGavel: SC_GAVEL, scCharge: SC_CHARGE, scDischarge: SC_DISCHARGE };
   }
   /** 'YYYY-MM-DD' + venue -> '23rd day of October 2026 at the Gladiolus Hotel, Jeddah' ('' when the date is not valid). */
   function givenText(date, venue) {
@@ -4533,6 +4694,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       if (!p.mInd || !officerById(p.mInd)) e.push('Choose the officer before whom the oath is sworn.');
       if (!p.mWit || !officerById(p.mWit)) e.push('Choose the witness.');
       if (p.mInd && p.mInd === p.mWit) e.push('Choose a different officer as the witness.');
+      return e;
+    }
+    if (p.doc === 'scripts') {
+      if (!sq(p.scOut)) e.push('Enter the name of the outgoing president.');
+      if (!sq(p.scIn)) e.push('Enter the name of the incoming president.');
+      if (!sq(p.indName)) e.push('Enter the name of the inducting officer.');
+      if (!['scGavel', 'scCharge', 'scDischarge'].some(function (k) { return sq(p[k]); })) e.push('Enter at least one script.');
       return e;
     }
     if (p.doc === 'oath') {
@@ -4693,6 +4861,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         return { pdf: d, name: 'Oath-of-Office-' + fileSafe(S.p.date) + '.pdf', label: 'Oath of Office' };
       });
     }
+    if (S.p.doc === 'scripts') {
+      return Promise.resolve().then(function () {
+        var d = pqDoc('a4'), n = 0;
+        scriptsData().forEach(function (s) { if (!s.blocks.length) return; if (n++) d.addPage('a4', 'portrait'); R.drawScript(d, s); });
+        return { pdf: d, name: 'Induction-Scripts-' + fileSafe(S.p.date) + '.pdf', label: 'Induction scripts' };
+      });
+    }
     if (S.p.doc === 'member') {
       return memSignatures().then(function (sigs) {
         var d = pqDoc('a4');
@@ -4789,6 +4964,21 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<span class="tk-hint" id="ct-p-osubh">Nobody signs their own plaque: on it, this person replaces them.</span></div></div>' +
       (notes.length ? '<div class="tk-note" id="ct-p-onotes"><p>' + notes.map(esc).join('<br>') + '</p></div>' : '');
   }
+  /** Induction scripts: the logo layout, who is named, the three scripts (editable). */
+  function pqScriptsHtml() {
+    var p = S.p;
+    return '<div class="tk-ct-optrow">' + pqSeg('Logo layout', PQ_LOGO, pqLogo(p.logo), 'ct.p.logo') + '</div>' +
+      '<div class="tk-ct-optrow">' + pqField('scOut', 'Outgoing president') + pqField('scFyOut', 'Outgoing fiscal year', { hint: 'For example 2025-2026' }) + '</div>' +
+      '<div class="tk-ct-optrow">' + pqField('scIn', 'Incoming president') + pqField('scFyIn', 'Incoming fiscal year', { hint: 'For example 2026-2027' }) + '</div>' +
+      '<div class="tk-ct-optrow">' + pqField('indName', 'Inducting officer') + pqField('indTitle', 'Title of the inducting officer', { hint: 'For example Hon., or Vice Consul' }) + '</div>' +
+      ['scGavel', 'scCharge', 'scDischarge'].map(function (k) {
+        return '<div class="tk-ct-optrow">' + pqField(k, SC_TITLES[k], { area: true, rows: 9, wide: true,
+          hint: 'Leave a blank line between paragraphs. A line starting with ## is a heading (who speaks); a line starting with > is a stage direction. ' +
+            'The names and years above replace [outgoing president], [incoming president], [outgoing fiscal year], [incoming fiscal year] and [inducting officer].' }) + '</div>';
+      }).join('') +
+      '<p class="tk-mini">Three pages, A4 portrait, in one PDF: the Turn-over of the Gavel, the Charging of the incoming officers and the Discharging of the ' +
+      'outgoing officers, read at the induction ceremony. A script left empty is left out.</p>';
+  }
   /** Oath of Membership: the logo layout, the new members (one per line), sworn in before / witnessed by. */
   function pqMemberHtml() {
     var p = S.p, d = dis();
@@ -4855,7 +5045,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<div class="tk-field"><label for="ct-p-date">Date of the ceremony</label><input id="ct-p-date" type="date" value="' + esc(p.date) +
         '" data-change="ct.p.field" data-f="date"' + dis() + '></div>' +
       pqField('venue', 'Venue (optional)', { hint: 'For example: the Gladiolus Hotel, As Salamah District, Jeddah, Kingdom of Saudi Arabia' }) + '</div>' +
-      (p.doc === 'oath' ? pqOathHtml() : p.doc === 'member' ? pqMemberHtml() : p.doc === 'officers' ? pqOfficersHtml() : pqPlaqueHtml()) +
+      (p.doc === 'oath' ? pqOathHtml() : p.doc === 'member' ? pqMemberHtml() : p.doc === 'scripts' ? pqScriptsHtml() : p.doc === 'officers' ? pqOfficersHtml() : pqPlaqueHtml()) +
       '<p class="tk-err" id="ct-p-err" role="alert"></p>' +
       '<div class="tk-actions">' + (isPreparer() ? '' : '<button type="button" class="tk-btn tk-btn-primary" data-action="ct.p.download"' + dis() + '>Download PDF</button>') +
       '<button type="button" class="tk-btn" data-action="ct.p.preview"' + dis() + '>Preview</button></div></section>';
@@ -5221,6 +5411,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       var p = S.p;
       if (p.doc === 'oath') return 'Oath of Office · ' + plural(pqOathOfficers().length, 'officer', 'officers');
       if (p.doc === 'member') return 'Oath of Membership · ' + plural(pqMemNames().length, 'new member', 'new members');
+      if (p.doc === 'scripts') return 'Induction scripts · ' + (sq(p.scFyIn).replace(/-/g, '–') || sq(p.date));
       if (p.doc === 'officers' && p.offKind === 'award') return (sq(p.offTitle) || 'Award') + ' · ' + plural(pqOffChosen().length, 'officer', 'officers');
       if (p.doc === 'officers') return "Officers' plaques · " + plural(pqOffChosen().length, 'officer', 'officers');
       return (p.kind === 'award' ? sq(p.title) || 'Award plaque' : 'Plaque of Appreciation') + (sq(p.name) ? ' · ' + sq(p.name) : '');
