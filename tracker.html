@@ -1169,7 +1169,7 @@ function assignBox(t){
 function teamOf(t){return Array.isArray(t.team)?t.team.filter(function(x){return x&&x!==t.owner;}):[];}
 function whoHtml(t){
   var n=[pname(t.owner)].concat(teamOf(t).map(pname)).filter(Boolean);var vm=t.visitFor?meeting(t.visitFor):null;if(vm&&vm.siteVisitTeam)n.push(vm.siteVisitTeam);
-  if(!n.length)return '<span class="tbd">TBD</span>';
+  if(!n.length)return '<span class="tbd">—</span>';
   return '<span class="who">'+n.map(function(x){return '<span>'+h(x)+'</span>';}).join("")+'</span>';
 }
 function whoText(t){var n=[pname(t.owner)].concat(teamOf(t).map(pname)).filter(Boolean);var vm=t.visitFor?meeting(t.visitFor):null;if(vm&&vm.siteVisitTeam)n.push(vm.siteVisitTeam);return n.join(", ");}
@@ -1491,7 +1491,7 @@ function vData(){
 
 /* ---------- documents (right-hand viewer) ---------- */
 function fmtStamp(iso){var d=new Date(iso);if(isNaN(d))return "";return d.getDate()+" "+MON[d.getMonth()]+" "+d.getFullYear()+", "+(d.getHours()%12||12)+":"+pad(d.getMinutes())+(d.getHours()<12?" AM":" PM");}
-function tbd(v){return v?h(v):'<span class="tbd">TBD</span>';}
+function tbd(v){return v?h(v):'<span class="tbd">—</span>';}
 function themeMode(){var t=S.settings.themePos;if(t==="header"||t==="center"||t==="off")return t;return S.settings.showTheme===false?"off":"header";}
 function letterhead(){
   var s=S.settings,logo=s.logo||APP_LOGO;
@@ -1521,7 +1521,7 @@ function longDate(iso){if(!iso)return "";var p=iso.split("-");var d=new Date(+p[
 function blank(){return '<span class="tbd">________</span>';}
 function roleOf(id){var p=person(id);return p&&p.role?p.role:"";}
 function when(m){
-  return 'Held on '+(m.date?h(longDate(m.date)):'<span class="tbd">date TBD</span>')+(m.time?', at '+h(endTime(m.time,0)):'')+', '+(m.venue?h(m.venue):'<span class="tbd">venue TBD</span>');
+  return 'Held on '+(m.date?h(longDate(m.date)):'<span class="tbd">—</span>')+(m.time?', at '+h(endTime(m.time,0)):'')+', '+(m.venue?h(m.venue):'<span class="tbd">—</span>');
 }
 function meetingLabel(aid){var mm=meeting(String(aid).split("-")[0]);return mm?(mm.title+(mm.date?", "+fmtDate(mm.date):"")):"";}
 function tStatus(t){var al=taskAlert(t);if(al[0]==="Overdue")return '<span class="st red">Overdue</span>';if(t.status==="Done")return '<span class="st ok">Done</span>';return '<span class="st open">'+h(t.status)+'</span>';}
@@ -1529,7 +1529,7 @@ function docTaskTable(list,cols){
   if(!list.length)return '<div class="none">No tasks yet.</div>';
   cols=cols||{};
   return '<table><thead><tr><th style="width:52px">ID</th><th>Task</th>'+(cols.project?'<th style="width:62px">Project</th>':'')+(cols.agenda?'<th style="width:72px">Agenda</th>':'')+(cols.noOwner?'':'<th style="width:26%">Assigned to</th>')+'<th style="width:86px">Target date</th><th style="width:78px">Status</th></tr></thead><tbody>'+
-   list.map(function(t){return '<tr><td class="mono">'+t.id+'</td><td>'+(t.title?h(t.title):'<span class="tbd">Untitled task</span>')+(t.remarks?'<div class="rmk">'+h(t.remarks)+'</div>':'')+'</td>'+(cols.project?'<td class="mono">'+h(t.projectId||"—")+'</td>':'')+(cols.agenda?'<td class="mono">'+h(t.agendaId||"—")+'</td>':'')+(cols.noOwner?'':'<td>'+whoHtml(t)+'</td>')+'<td>'+(t.due?h(fmtDate(t.due).slice(4)):'<span class="tbd">TBD</span>')+'</td><td>'+tStatus(t)+'</td></tr>';}).join("")+'</tbody></table>';
+   list.map(function(t){return '<tr><td class="mono">'+t.id+'</td><td>'+(t.title?h(t.title):'<span class="tbd">Untitled task</span>')+(t.remarks?'<div class="rmk">'+h(t.remarks)+'</div>':'')+'</td>'+(cols.project?'<td class="mono">'+h(t.projectId||"—")+'</td>':'')+(cols.agenda?'<td class="mono">'+h(t.agendaId||"—")+'</td>':'')+(cols.noOwner?'':'<td>'+whoHtml(t)+'</td>')+'<td>'+(t.due?h(fmtDate(t.due).slice(4)):'<span class="tbd">—</span>')+'</td><td>'+tStatus(t)+'</td></tr>';}).join("")+'</tbody></table>';
 }
 function effKind(m){return U.docKind==="agenda"||U.docKind==="minutes"?U.docKind:(m&&m.status==="Planned"?"agenda":"minutes");}
 function docMeeting(){
@@ -1550,18 +1550,18 @@ function itemMinutes(a,letter){
   if(dd.length){
     if(anyRes&&a.motionBy)s+='<p class="res" style="margin-bottom:2px">On motion of '+h(pname(a.motionBy))+(a.secondedBy?', duly seconded by '+h(pname(a.secondedBy)):'')+', the body resolved as follows:</p>';
     var resT=function(x){return (x.r.length?'<ul class="dr-r">'+x.r.map(function(r){return '<li>'+h(r)+'</li>';}).join("")+'</ul>':(x.t.length||x.k.length?'':'<div class="dr-none">No resolution; for further discussion.</div>'))+
-      (x.t.length?'<ul class="dr-t">'+x.t.map(function(t){return '<li><b>To-do:</b> '+(t.title?h(t.title):'<span class="tbd">Untitled</span>')+' <span class="muted">· '+whoHtml(t)+' · '+(t.due?h(fmtDate(t.due).slice(4)):'target date TBD')+' · '+h(t.status)+'</span></li>';}).join("")+'</ul>':'');};
+      (x.t.length?'<ul class="dr-t">'+x.t.map(function(t){return '<li><b>To-do:</b> '+(t.title?h(t.title):'<span class="tbd">Untitled</span>')+' <span class="muted">· '+whoHtml(t)+' · '+(t.due?h(fmtDate(t.due).slice(4)):'—')+' · '+h(t.status)+'</span></li>';}).join("")+'</ul>':'');};
     s+='<ol class="dr">'+dd.map(function(x){return '<li>'+(x.p?'<span class="dp">'+h(x.p)+'</span>':'')+resT(x)+
       (x.k.length?'<ol class="dr2">'+x.k.map(function(c){return '<li>'+(c.p?'<span class="dp">'+h(c.p)+'</span>':'')+resT(c)+'</li>';}).join("")+'</ol>':'')+'</li>';}).join("")+'</ol>';
   } else if(!a.carried&&!decs.length&&!tks.length){s+='<p class="none">'+(a.done?"Taken up; no resolution recorded.":"Not yet taken up.")+'</p>';}
   var am=meeting(String(a.id).split("-")[0]),showDet=!am||am.showDecDetails!==false;
   if(decs.length)s+='<table style="margin-top:6px"><thead><tr><th>Project</th><th style="width:'+(showDet?17:22)+'%">Decision</th><th style="width:'+(showDet?19:26)+'%">Proposed month</th>'+(showDet?'<th style="width:32%">Details</th>':'')+'</tr></thead><tbody>'+
-    decs.map(function(p){var dc=pdecOf(a,p.id);return '<tr><td>'+(p.name?h(p.name):'<span class="tbd">Untitled</span>')+kindTag(p)+(p.lead?'<br><span class="muted">Lead: '+h(pname(p.lead))+'</span>':'')+'</td><td><b>'+(dc.d?h(dc.d):'<span class="tbd">Pending</span>')+'</b></td><td>'+(projMonthLabel(p.id)?h(projMonthLabel(p.id)):'<span class="tbd">TBD</span>')+'</td>'+(showDet?'<td>'+h(dc.note)+'</td>':'')+'</tr>';}).join("")+'</tbody></table>';
+    decs.map(function(p){var dc=pdecOf(a,p.id);return '<tr><td>'+(p.name?h(p.name):'<span class="tbd">Untitled</span>')+kindTag(p)+(p.lead?'<br><span class="muted">Lead: '+h(pname(p.lead))+'</span>':'')+'</td><td><b>'+(dc.d?h(dc.d):'<span class="tbd">Pending</span>')+'</b></td><td>'+(projMonthLabel(p.id)?h(projMonthLabel(p.id)):'<span class="tbd">—</span>')+'</td>'+(showDet?'<td>'+h(dc.note)+'</td>':'')+'</tr>';}).join("")+'</tbody></table>';
   var st=a.schedFor?meeting(a.schedFor):null;
   if(st){if(a.schedPart!=="date")s+=venueMinutes(st);s+='<p class="res"><b>'+(a.schedPart==="venue"?"Venue":a.schedPart==="date"?"Date and time":"Schedule")+':</b> '+schedSentence(st,a.schedPart)+'</p>';}
   if(a.carried)s+='<p class="small"><i>Not concluded; carried forward to '+h(a.carriedTo)+' ('+h(meetingLabel(a.carriedTo))+').</i></p>';
   if(tks.length)s+='<table><thead><tr><th>To-dos</th><th style="width:30%">Assigned to</th><th style="width:15%">Target date</th><th style="width:11%">Status</th></tr></thead><tbody>'+
-    tks.map(function(t){return '<tr><td>'+(t.title?h(t.title):'<span class="tbd">Untitled</span>')+(t.remarks?'<div class="rmk">'+h(t.remarks)+'</div>':'')+'</td><td>'+whoHtml(t)+'</td><td>'+(t.due?h(fmtDate(t.due).slice(4)):'<span class="tbd">TBD</span>')+'</td><td>'+h(t.status)+'</td></tr>';}).join("")+'</tbody></table>';
+    tks.map(function(t){return '<tr><td>'+(t.title?h(t.title):'<span class="tbd">Untitled</span>')+(t.remarks?'<div class="rmk">'+h(t.remarks)+'</div>':'')+'</td><td>'+whoHtml(t)+'</td><td>'+(t.due?h(fmtDate(t.due).slice(4)):'<span class="tbd">—</span>')+'</td><td>'+h(t.status)+'</td></tr>';}).join("")+'</tbody></table>';
   return s+'</div></div>';
 }
 function letterOf(i){return String.fromCharCode(65+(i%26))+(i>=26?String(Math.floor(i/26)+1):"");}
@@ -1601,7 +1601,7 @@ function docAgenda(m){
   var ub=m.agenda.filter(function(a){return a.carriedFrom;}),reg=m.agenda.filter(function(a){return !a.carriedFrom;});
   function it(a,i){
     var projs=a.projectIds.map(proj).filter(Boolean);
-    var info=[];if(a.owner)info.push("Presenter: "+h(pname(a.owner)));else info.push('Presenter: <span class="tbd">TBD</span>');if(a.mins)info.push(a.mins+" minutes");
+    var info=[];if(a.owner)info.push("Presenter: "+h(pname(a.owner)));else info.push('Presenter: <span class="tbd">—</span>');if(a.mins)info.push(a.mins+" minutes");
     if(projs.length)info.push("Project"+(projs.length>1?"s":"")+": "+projs.map(function(p){return p.id+" "+(p.name?h(p.name):"Untitled");}).join("; "));
     if(a.carriedFrom)info.push("Carried from "+h(a.carriedFrom));if(a.addedLater)info.push("Added during the meeting");
     return '<div class="item"><div class="item-h"><span class="lt">'+letterOf(i)+'.</span><span>'+(a.title?h(a.title):'<span class="tbd">Untitled item</span>')+'</span></div><div class="body"><p class="small">'+info.join(" · ")+'</p>'+
@@ -1641,7 +1641,7 @@ function docProjects(){
   groups.forEach(function(g){var ps=list.filter(function(p){return (p.category||"")===g;});if(!ps.length)return;
     body+='<h3>'+(g?'<span class="mono" style="font-size:12px">'+h(codes[g]||"")+'</span>&nbsp; '+h(g):"No category yet")+'</h3><table><thead><tr><th style="width:52px">ID</th><th>Project</th><th style="width:16%">Lead</th><th style="width:66px">Status</th><th style="width:22%">Latest decision</th><th style="width:78px">Proposed month</th><th style="width:66px">Target</th><th style="width:60px">Budget</th><th style="width:40px">Tasks</th></tr></thead><tbody>'+
      ps.map(function(p){var pr=projProgress(p),ld=latestDecision(p.id);return '<tr><td class="mono">'+p.id+'</td><td><b>'+(p.name?h(p.name):'<span class="tbd">Untitled</span>')+'</b>'+kindTag(p)+(p.objective?'<br><span class="muted">'+h(p.objective)+'</span>':'')+'</td><td>'+tbd(pname(p.lead))+'</td><td>'+h(p.status)+'</td>'+
-      '<td>'+(ld?'<b>'+(ld.d?h(ld.d):'Pending')+'</b>'+(ld.note?'<br>'+h(ld.note):'')+'<br><span class="muted" style="font-size:10.5px">'+h(ld.item)+(ld.date?', '+h(fmtDate(ld.date).slice(4)):'')+'</span>':'<span class="none">No decision yet</span>')+'</td><td>'+(projMonthLabel(p.id)?h(projMonthLabel(p.id)):'<span class="tbd">TBD</span>')+'</td><td>'+(p.target?h(fmtDate(p.target).slice(4)):'<span class="tbd">TBD</span>')+'</td><td>'+(p.budget!=null&&p.budget!==""?h((+p.budget).toLocaleString()):'<span class="tbd">TBD</span>')+'</td><td class="mono">'+pr[0]+'/'+pr[1]+'</td></tr>';}).join("")+'</tbody></table>';});
+      '<td>'+(ld?'<b>'+(ld.d?h(ld.d):'Pending')+'</b>'+(ld.note?'<br>'+h(ld.note):'')+'<br><span class="muted" style="font-size:10.5px">'+h(ld.item)+(ld.date?', '+h(fmtDate(ld.date).slice(4)):'')+'</span>':'<span class="none">No decision yet</span>')+'</td><td>'+(projMonthLabel(p.id)?h(projMonthLabel(p.id)):'<span class="tbd">—</span>')+'</td><td>'+(p.target?h(fmtDate(p.target).slice(4)):'<span class="tbd">—</span>')+'</td><td>'+(p.budget!=null&&p.budget!==""?h((+p.budget).toLocaleString()):'<span class="tbd">—</span>')+'</td><td class="mono">'+pr[0]+'/'+pr[1]+'</td></tr>';}).join("")+'</tbody></table>';});
   return docShell("Project Pipeline","Status of chapter projects under EMPOWER",meta,body||'<p class="none">No projects match the filters.</p>');
 }
 function docCalendar(){
@@ -1656,11 +1656,11 @@ function docCalendar(){
     return r.sort(function(x,y){return (x[0]||"9")<(y[0]||"9")?-1:1;});
   }
   function tbl(r){return '<table><thead><tr><th style="width:88px">Date</th><th>Activity</th><th style="width:26%">Type</th><th style="width:46px">Project</th><th style="width:22%">Owner / venue</th><th style="width:70px">Status</th></tr></thead><tbody>'+
-    r.map(function(x){return '<tr><td>'+(x[0]?h(fmtDate(x[0]).slice(0,-5)):x[6]?'<span class="pm-cell">'+h(fmtMonth(x[6]))+'</span><br><span class="tbd" style="font-size:9.5px">proposed · date TBD</span>':'<span class="tbd">Date TBD</span>')+'</td><td>'+(x[1]?h(x[1]):'<span class="tbd">Untitled</span>')+'</td><td>'+h(x[2])+'</td><td class="mono">'+h(x[3]||"—")+'</td><td>'+tbd(x[4])+'</td><td>'+h(x[5])+'</td></tr>';}).join("")+'</tbody></table>';}
+    r.map(function(x){return '<tr><td>'+(x[0]?h(fmtDate(x[0]).slice(0,-5)):x[6]?'<span class="pm-cell">'+h(fmtMonth(x[6]))+'</span><br><span class="tbd" style="font-size:9.5px">proposed · —</span>':'<span class="tbd">—</span>')+'</td><td>'+(x[1]?h(x[1]):'<span class="tbd">Untitled</span>')+'</td><td>'+h(x[2])+'</td><td class="mono">'+h(x[3]||"—")+'</td><td>'+tbd(x[4])+'</td><td>'+h(x[5])+'</td></tr>';}).join("")+'</tbody></table>';}
   var total=0;
   var pl=S.projects.map(function(p){return {p:p,ms:projMonths(p.id)};}).sort(function(a,b){var x=a.ms[0]||"9",y=b.ms[0]||"9";return x<y?-1:x>y?1:(a.p.id<b.p.id?-1:1);});
   if(pl.length)body+='<h3>Projects &amp; events by proposed month</h3><table><thead><tr><th style="width:24%">Proposed month</th><th style="width:52px">ID</th><th>Project</th><th style="width:20%">Lead</th><th style="width:70px">Status</th></tr></thead><tbody>'+
-    pl.map(function(x){var lb=projMonthLabel(x.p.id);return '<tr><td>'+(lb?'<b>'+h(lb)+'</b>':'<span class="tbd">TBD</span>')+'</td><td class="mono">'+h(x.p.id)+'</td><td>'+(x.p.name?h(x.p.name):'<span class="tbd">Untitled</span>')+kindTag(x.p)+'</td><td>'+tbd(pname(x.p.lead))+'</td><td>'+h(x.p.status)+'</td></tr>';}).join("")+'</tbody></table>';
+    pl.map(function(x){var lb=projMonthLabel(x.p.id);return '<tr><td>'+(lb?'<b>'+h(lb)+'</b>':'<span class="tbd">—</span>')+'</td><td class="mono">'+h(x.p.id)+'</td><td>'+(x.p.name?h(x.p.name):'<span class="tbd">Untitled</span>')+kindTag(x.p)+'</td><td>'+tbd(pname(x.p.lead))+'</td><td>'+h(x.p.status)+'</td></tr>';}).join("")+'</tbody></table>';
   tm.forEach(function(ym){var r=rowsFor(ym);total+=r.length;body+='<h3>'+MONL[+ym.slice(5)-1]+' '+ym.slice(0,4)+'</h3>'+(r.length?tbl(r):'<div class="none">Nothing planned yet.</div>');});
   var un=S.activities.filter(function(a){return !a.date&&!a.month;}).map(function(a){return ["",a.title,a.category||"Activity",a.projectId,pname(a.owner),a.status];});
   var unm=S.meetings.filter(function(m){return !m.date&&m.status!=="Closed";}).map(function(m){return ["",m.title,"Meeting · "+m.type,"",m.venue,m.status];});
