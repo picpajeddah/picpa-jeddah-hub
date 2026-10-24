@@ -380,6 +380,10 @@ select.st-Tentative{background:var(--amber-soft);color:var(--amber);font-weight:
 .lst-row:has(.num){grid-template-columns:22px minmax(0,1fr) auto}
 .dres{margin-left:22px;padding:6px 8px;border-left:3px solid var(--green);background:var(--green-soft);border-radius:0 6px 6px 0;display:flex;flex-direction:column;gap:4px}
 .bul.res{color:var(--green-ink)}
+.dtasks{margin-left:22px;padding:6px 8px;border-left:3px solid var(--navy);background:var(--blue-soft);border-radius:0 6px 6px 0}
+.dtasks-h{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600;margin-bottom:4px}
+.paper ul.dr-t{margin:2px 0 2px 14px;padding:0;list-style:none}
+.paper ul.dr-t li{margin:1px 0;padding-left:12px;border-left:2px solid #1B2A6B;font-size:12.5px}
 .paper ol.dr{margin:4px 0 8px 18px;padding:0}
 .paper ol.dr > li{margin:4px 0}
 .paper ol.dr .dp{font-weight:700}
@@ -1049,17 +1053,23 @@ function venueMinutes(t){
     vo.map(function(o){var ch=t.venueChosen===o.id;return '<tr><td>'+(ch?'<b>':'')+(o.name?h(o.name):'<span class="tbd">Unnamed</span>')+(ch?' ✓</b><br><span class="muted">Selected</span>':'')+'</td><td>'+h(o.location)+'</td><td>'+(o.capacity?h(o.capacity):'')+'</td><td>'+(o.cost?h(S.settings.currency+" "+(+o.cost).toLocaleString()):'')+'</td><td>'+h(o.visit)+'</td><td>'+h(o.notes)+'</td></tr>';}).join("")+'</tbody></table>';
   return s;
 }
+// Subpoints of an agenda item (stored in a.disc). Each has a stable id so tasks can sit under it (task.sub).
+function discIds(a){var mx=0;(a.disc||[]).forEach(function(x){var q=/^S(\d+)$/.exec(x.id||"");if(q)mx=Math.max(mx,+q[1]);});(a.disc||[]).forEach(function(x){if(!x.id)x.id="S"+(++mx);});}
+function subTasks(a,x){return x&&x.id?S.tasks.filter(function(t){return t.agendaId===a.id&&t.sub===x.id;}):[];}
+function subIdsOf(a){return (a.disc||[]).map(function(x){return x.id;}).filter(Boolean);}
 function discEditor(a,lock){
+  discIds(a);
   var d=a.disc||[];var rows=d.length?d:(lock?[]:[{p:"",r:[]}]);
-  return '<div class="dlist"><div class="lst-h">Discussion points &amp; resolutions'+(d.length?' <span class="mono muted">'+d.length+'</span>':'')+'<span class="dhint">Enter: point → its resolution → next resolution · Enter on an empty resolution: new point</span></div>'+
+  return '<div class="dlist"><div class="lst-h">Subpoints, resolutions &amp; tasks'+(d.length?' <span class="mono muted">'+d.length+'</span>':'')+'<span class="dhint">Enter: subpoint → its resolution → next resolution · Enter on an empty resolution: new subpoint</span></div>'+
    rows.map(function(x,i){var rr=(x.r&&x.r.length)?x.r:(lock?[]:[""]);var k=a.id+"|"+i;
-     return '<div class="dblock"><div class="lst-row"><span class="bul num">'+(i+1)+'.</span><input class="f dp" data-dp="'+h(k)+'" value="'+h(x.p)+'" placeholder="Discussion point (e.g. Venue)" aria-label="Discussion point '+(i+1)+'"'+(lock?" disabled":"")+'>'+(lock?'':'<button class="btn ghost sm" data-a="dp-del" data-v="'+h(k)+'" title="Remove this point and its resolutions">✕</button>')+'</div>'+
-      '<div class="dres">'+rr.map(function(v,j){return '<div class="lst-row"><span class="bul res">↳</span><input class="f" data-dr="'+h(k+"|"+j)+'" value="'+h(v)+'" placeholder="Resolution for this point" aria-label="Resolution '+(j+1)+' for point '+(i+1)+'"'+(lock?" disabled":"")+'>'+(lock?'':'<button class="btn ghost sm" data-a="dr-del" data-v="'+h(k+"|"+j)+'" title="Remove">✕</button>')+'</div>';}).join("")+
-      (lock?'':'<button class="btn ghost sm lst-add" data-a="dr-add" data-v="'+h(k)+'">+ Resolution for this point</button>')+'</div></div>';}).join("")+
-   (lock?'':'<button class="btn ghost sm lst-add" data-a="dp-add" data-v="'+h(a.id)+'">+ Add discussion point</button>')+'</div>';
+     return '<div class="dblock"><div class="lst-row"><span class="bul num">'+(i+1)+'.</span><input class="f dp" data-dp="'+h(k)+'" value="'+h(x.p)+'" placeholder="Subpoint (e.g. Venue)" aria-label="Subpoint '+(i+1)+'"'+(lock?" disabled":"")+'>'+(lock?'':'<button class="btn ghost sm" data-a="dp-del" data-v="'+h(k)+'" title="Remove this subpoint and its resolutions (its tasks move to the item)">✕</button>')+'</div>'+
+      '<div class="dres">'+rr.map(function(v,j){return '<div class="lst-row"><span class="bul res">↳</span><input class="f" data-dr="'+h(k+"|"+j)+'" value="'+h(v)+'" placeholder="Resolution for this point" aria-label="Resolution '+(j+1)+' for subpoint '+(i+1)+'"'+(lock?" disabled":"")+'>'+(lock?'':'<button class="btn ghost sm" data-a="dr-del" data-v="'+h(k+"|"+j)+'" title="Remove">✕</button>')+'</div>';}).join("")+
+      (lock?'':'<button class="btn ghost sm lst-add" data-a="dr-add" data-v="'+h(k)+'">+ Resolution for this subpoint</button>')+'</div>'+
+      (function(){var st=subTasks(a,x);if(!x.id||(!st.length&&lock))return '';return '<div class="dtasks"><div class="dtasks-h">Tasks for this subpoint</div><div class="tasks">'+st.map(taskRow).join("")+(lock?'':'<div class="addrow"><button class="btn ghost sm" data-a="add-task" data-ag="'+h(a.id)+'" data-sub="'+h(x.id)+'">+ Task for this subpoint</button></div>')+'</div></div>';})()+'</div>';}).join("")+
+   (lock?'':'<button class="btn ghost sm lst-add" data-a="dp-add" data-v="'+h(a.id)+'">+ Add subpoint</button>')+'</div>';
 }
 function syncDisc(a){
-  a.disc=a.disc||[];
+  a.disc=a.disc||[];discIds(a);
   a.points=a.disc.map(function(x){return x.p;});
   a.resolutions=[];a.disc.forEach(function(x){(x.r||[]).forEach(function(r){if(r)a.resolutions.push(r);});});
   a.discussion=a.points.filter(Boolean).join("\n");a.outcome=a.resolutions.join("; ");
@@ -1081,7 +1091,8 @@ var LI_ADD={points:"discussion point",resolutions:"resolution",others:"other mat
 function liFocus(id){setTimeout(function(){var el=app.querySelector('[data-li="'+id+'"]');if(el){el.focus();var n=el.value.length;el.setSelectionRange(n,n);}},0);}
 function agendaCard(m,a,closed){
   var lock=closed||a.carried;
-  var tks=S.tasks.filter(function(t){return t.agendaId===a.id;});
+  discIds(a);var sids=subIdsOf(a);
+  var tks=S.tasks.filter(function(t){return t.agendaId===a.id&&!(t.sub&&sids.indexOf(t.sub)>=0);});
   var approved=m.agendaStatus==="Approved", now=approved&&!closed&&m.current===a.id;
   var cls="ag"+(a.done?" done":"")+(a.carried?" carried":"")+(now?" now":"");
   var idx=m.agenda.indexOf(a);
@@ -1504,18 +1515,20 @@ function docMeeting(){
   return effKind(m)==="agenda"?docAgenda(m):docMinutes(m);
 }
 function itemMinutes(a,letter){
-  var tks=S.tasks.filter(function(t){return t.agendaId===a.id;});
+  var sids=subIdsOf(a);
+  var tks=S.tasks.filter(function(t){return t.agendaId===a.id&&!(t.sub&&sids.indexOf(t.sub)>=0);});
   var projs=a.projectIds.map(proj).filter(Boolean);
   var s='<div class="item"><div class="item-h"><span class="lt">'+letter+'.</span><span>'+(a.title?h(a.title):'<span class="tbd">Untitled item</span>')+'</span></div><div class="body">';
   var info=[];if(a.owner)info.push("Presented by "+h(pname(a.owner)));if(a.carriedFrom)info.push("Carried from "+h(a.carriedFrom));if(a.addedLater)info.push("Added during the meeting");
   if(info.length)s+='<p class="small">'+info.join(" · ")+'</p>';
   var decs=projs;
-  var dd=(a.disc||[]).map(function(x){return {p:x.p||"",r:(x.r||[]).filter(Boolean)};}).filter(function(x){return x.p||x.r.length;});
+  var dd=(a.disc||[]).map(function(x){return {p:x.p||"",r:(x.r||[]).filter(Boolean),t:subTasks(a,x)};}).filter(function(x){return x.p||x.r.length||x.t.length;});
   var anyRes=dd.some(function(x){return x.r.length;});
   if(dd.length){
     if(anyRes&&a.motionBy)s+='<p class="res" style="margin-bottom:2px">On motion of '+h(pname(a.motionBy))+(a.secondedBy?', duly seconded by '+h(pname(a.secondedBy)):'')+', the body resolved as follows:</p>';
     s+='<ol class="dr">'+dd.map(function(x){return '<li>'+(x.p?'<span class="dp">'+h(x.p)+'</span>':'')+
-      (x.r.length?'<ul class="dr-r">'+x.r.map(function(r){return '<li>'+h(r)+'</li>';}).join("")+'</ul>':'<div class="dr-none">No resolution; for further discussion.</div>')+'</li>';}).join("")+'</ol>';
+      (x.r.length?'<ul class="dr-r">'+x.r.map(function(r){return '<li>'+h(r)+'</li>';}).join("")+'</ul>':(x.t.length?'':'<div class="dr-none">No resolution; for further discussion.</div>'))+
+      (x.t.length?'<ul class="dr-t">'+x.t.map(function(t){return '<li><b>To-do:</b> '+(t.title?h(t.title):'<span class="tbd">Untitled</span>')+' <span class="muted">· '+whoHtml(t)+' · '+(t.due?h(fmtDate(t.due).slice(4)):'target date TBD')+' · '+h(t.status)+'</span></li>';}).join("")+'</ul>':'')+'</li>';}).join("")+'</ol>';
   } else if(!a.carried&&!decs.length&&!tks.length){s+='<p class="none">'+(a.done?"Taken up; no resolution recorded.":"Not yet taken up.")+'</p>';}
   var am=meeting(String(a.id).split("-")[0]),showDet=!am||am.showDecDetails!==false;
   if(decs.length)s+='<table style="margin-top:6px"><thead><tr><th>Project</th><th style="width:'+(showDet?17:22)+'%">Decision</th><th style="width:'+(showDet?19:26)+'%">Proposed month</th>'+(showDet?'<th style="width:32%">Details</th>':'')+'</tr></thead><tbody>'+
@@ -1567,7 +1580,8 @@ function docAgenda(m){
     var info=[];if(a.owner)info.push("Presenter: "+h(pname(a.owner)));else info.push('Presenter: <span class="tbd">TBD</span>');if(a.mins)info.push(a.mins+" minutes");
     if(projs.length)info.push("Project"+(projs.length>1?"s":"")+": "+projs.map(function(p){return p.id+" "+(p.name?h(p.name):"Untitled");}).join("; "));
     if(a.carriedFrom)info.push("Carried from "+h(a.carriedFrom));if(a.addedLater)info.push("Added during the meeting");
-    return '<div class="item"><div class="item-h"><span class="lt">'+letterOf(i)+'.</span><span>'+(a.title?h(a.title):'<span class="tbd">Untitled item</span>')+'</span></div><div class="body"><p class="small">'+info.join(" · ")+'</p></div></div>';
+    return '<div class="item"><div class="item-h"><span class="lt">'+letterOf(i)+'.</span><span>'+(a.title?h(a.title):'<span class="tbd">Untitled item</span>')+'</span></div><div class="body"><p class="small">'+info.join(" · ")+'</p>'+
+      (function(){var sp=(a.disc||[]).map(function(x){return x.p;}).filter(Boolean);return sp.length?'<ol class="dr">'+sp.map(function(p){return '<li>'+h(p)+'</li>';}).join("")+'</ol>':'';})()+'</div></div>';
   }
   var secs=[];if(m.showCall!==false)secs.push(["Call to Order",""]);if(m.showQuorum!==false)secs.push(["Determination of Quorum",""]);if(m.showAgendaApproval!==false)secs.push(["Approval of the Agenda",""]);
   if(S.meetings.some(function(x){return x.id!==m.id&&x.type===m.type&&x.status==="Closed";}))secs.push(["Approval of the Previous Minutes",""]);
@@ -1780,7 +1794,7 @@ app.addEventListener("keydown",function(ev){
 
 /* ---------- actions ---------- */
 function newAgenda(m,title,extra){var a={id:nextId(m.agenda,m.id+"-A",2),title:title||"",projectIds:[],owner:"",mins:10,done:false,carried:false,carriedTo:"",carriedFrom:"",outcome:"",discussion:"",points:[],resolutions:[],disc:[],motionBy:"",secondedBy:"",addedLater:m.agendaStatus==="Approved"&&!(extra&&extra.carriedFrom)};for(var k in extra)a[k]=extra[k];m.agenda.push(a);return a;}
-function newMeeting(type){type=type||"Officers' meeting";var m={id:nextId(S.meetings,"M",2),title:type==="Officers' meeting"?"Officers' Meeting":type,type:type,date:"",time:"",venue:"",status:"Planned",notes:"",agenda:[]};S.meetings.push(m);return m;}
+function newMeeting(type){type=type||"Officers' meeting";var m={id:nextId(S.meetings,"M",2),title:type==="Officers' meeting"?"Officers' Meeting":type,type:type,date:"",time:"",venue:"",status:"Planned",notes:"",agenda:[]};S.meetings.push(m);try{normalize();}catch(e){}return m;}
 // A deleted draft meeting must not use up a number: later draft meetings move down to fill the gap.
 // Meetings after the gap are left alone if any of them is already Closed (its minutes carry that number).
 var MTGCLR=null;
@@ -1855,7 +1869,7 @@ app.addEventListener("click",function(ev){
     case "add-meeting":var nm=newMeeting();U.meeting=nm.id;markDirty();U.focus=["meeting",nm.id,"title"];render();return;
     case "add-agenda":var mm=meeting(v);var na=newAgenda(mm,"");markDirty();U.focus=["agenda",na.id,"title"];render();return;
     case "mv":var am=meeting(v.split("-")[0]),i=am.agenda.findIndex(function(x){return x.id===v;}),j=i+(+b.dataset.d);if(j>=0&&j<am.agenda.length){var tmp=am.agenda[i];am.agenda[i]=am.agenda[j];am.agenda[j]=tmp;markDirty();render();}return;
-    case "add-task":var t={id:nextId(S.tasks,"T",3),title:"",projectId:b.dataset.p||(U.tab==="tasks"&&U.tf.project&&U.tf.project!=="__none"?U.tf.project:""),agendaId:b.dataset.ag||"",owner:U.tab==="tasks"&&U.tf.owner&&U.tf.owner!=="__none"?U.tf.owner:"",due:"",status:"To do"};S.tasks.push(t);markDirty();U.focus=["task",t.id,"title"];render();return;
+    case "add-task":var t={id:nextId(S.tasks,"T",3),title:"",projectId:b.dataset.p||(U.tab==="tasks"&&U.tf.project&&U.tf.project!=="__none"?U.tf.project:""),agendaId:b.dataset.ag||"",owner:U.tab==="tasks"&&U.tf.owner&&U.tf.owner!=="__none"?U.tf.owner:"",due:"",status:"To do"};if(b.dataset.sub)t.sub=b.dataset.sub;S.tasks.push(t);markDirty();U.focus=["task",t.id,"title"];render();return;
     case "add-project":U.newProj="__projects";U.pView="list";render();var nf2=document.getElementById("np-cat");if(nf2)nf2.focus();return;
     case "cancel-newproj":U.newProj="";render();return;
     case "create-project":
