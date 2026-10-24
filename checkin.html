@@ -1430,6 +1430,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 
   // in memory only
   var S = { access: null, events: [], eventId: null, view: null, busy: false, seq: 0, last: null, wired: false,
+    find: { q: '', list: null, error: '', seq: 0, timer: null },   // search by name, e-mail or ticket number (hub-checkin-search.sql)
     cam: { gen: 0, active: false, stream: null, timer: null, detector: null, wanted: false, detectorFailed: false } };
 
   function byId(id) { return doc && doc.getElementById ? doc.getElementById(id) : null; }
@@ -1542,9 +1543,55 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<div class="tk-ck-camctl"><button type="button" class="tk-btn tk-btn-primary tk-btn-block tk-ck-btn" data-action="ck.cam.start" id="ck-camstart">Scan with camera</button>' +
       '<button type="button" class="tk-btn tk-btn-block tk-ck-btn" data-action="ck.cam.stop" id="ck-camstop" hidden>Stop camera</button></div>' +
       '<form class="tk-form tk-ck-manual" id="ck-manual" data-action="ck.manual" novalidate>' +
-      '<div class="tk-field"><label for="ck-code">Or type the ticket number</label>' +
-      '<input id="ck-code" name="code" type="text" inputmode="text" maxlength="80" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"></div>' +
-      '<button type="submit" class="tk-btn tk-btn-block tk-ck-btn">Check ticket</button></form></section>';
+      '<div class="tk-field"><label for="ck-code">Or search by name, e-mail or ticket number</label>' +
+      '<input id="ck-code" name="code" type="text" inputmode="text" maxlength="80" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" data-input="ck.find"' +
+      ' value="' + esc(S.find.q) + '"></div>' +
+      '<button type="submit" class="tk-btn tk-btn-block tk-ck-btn">Check ticket</button></form>' +
+      '<div id="ck-found" aria-live="polite">' + foundHtml() + '</div></section>';
+  }
+
+  // ---- search by name, e-mail or ticket number (sql/patches/hub-checkin-search.sql, president 2026-10-24)
+  var FIND_TYPE = { member: 'Member', officer: 'Officer', guest: 'Guest' };
+  var FIND_PAY = { free: 'Free', pending: 'Unpaid', confirmed: 'Paid', cancelled: 'Cancelled', refund_due: 'Refund due' };
+  /** A ticket number or a ticket link code is checked at once; text with a space or an @, or with no digit and no hyphen, is a search. */
+  function isSearchText(t) { return t.length >= 2 && t.length <= MAX_CODE && (/[\s@]/.test(t) || !/[\d-]/.test(t)); }
+  function foundHtml() {
+    var f = S.find;
+    if (f.error) return '<p class="tk-mini tk-ck-finderr" role="alert">' + esc(f.error) + '</p>';
+    if (f.list === null) return f.q.length >= 2 ? '<p class="tk-mini">Searching…</p>' : '';
+    if (!f.list.length) return '<p class="tk-mini">No ticket of this event matches "' + esc(f.q) + '".</p>';
+    return '<p class="tk-mini">Tap a name to check the person in.</p><div class="tk-ck-found">' + f.list.map(function (t) {
+      var bits = [esc(t.ticket_no), esc(FIND_TYPE[t.attendee_type] || 'Guest'),
+        t.status === 'cancelled' ? 'Cancelled' : esc(FIND_PAY[t.payment_status] || String(t.payment_status || ''))];
+      if (num(t.fee_sar) > 0 && t.payment_status === 'pending') bits[2] += ' · ' + esc(money(t.fee_sar)) + ' due';
+      if (t.registered_by) bits.push('with ' + esc(t.registered_by));
+      return '<button type="button" class="tk-btn tk-btn-block tk-ck-foundbtn" style="display:block;text-align:left;margin-bottom:8px;height:auto;padding:10px 14px" data-action="ck.found" data-no="' + esc(t.ticket_no) + '"' +
+        (S.busy ? ' disabled' : '') + '><span style="display:block;width:100%;text-align:left"><b>' + esc(t.holder_name) + '</b>' +
+        (t.checked_in_at ? ' <span class="tk-pill tk-pill-info">Checked in ' + esc(TK.when(t.checked_in_at)) + '</span>' : '') +
+        '<span class="tk-mini" style="display:block;margin-top:2px">' + bits.join(' · ') + '</span></span></button>';
+    }).join('') + '</div>';
+  }
+  function drawFound() { TK.setHTML('ck-found', foundHtml()); }
+  function clearFind() { S.find.seq += 1; S.find.q = ''; S.find.list = null; S.find.error = ''; }
+  function findNow(text) {
+    var f = S.find, q = String(text || '').trim().replace(/\s+/g, ' ');
+    if (f.timer && root.clearTimeout) root.clearTimeout(f.timer);
+    f.timer = null;
+    f.q = q; f.error = '';
+    var seq = (f.seq += 1);
+    if (q.length < 2 || !S.eventId) { f.list = null; drawFound(); return Promise.resolve(); }
+    f.list = null; drawFound();
+    var ev = S.eventId;
+    return TK.rpc('ticketing_checkin_search', { p_announcement: ev, p_query: q }).then(function (list) {
+      if (seq !== f.seq || ev !== S.eventId) return;
+      f.list = Array.isArray(list) ? list : [];
+      drawFound();
+    }, function (err) {
+      if (seq !== f.seq) return;
+      if (err && err.code === 'TKT_NO_ACCESS') { noAccess(); return; }
+      f.list = []; f.error = 'The search did not work. Check the connection, or type the full ticket number.';
+      drawFound();
+    });
   }
 
   function mainHtml() {
@@ -1902,15 +1949,34 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (S.busy || !evById(id)) return;
     stopCamera();
     S.eventId = id;
+    clearFind();
     S.view = null;
     S.last = null;
     drawTop();
     drawMain();
   });
+  TK.action('ck.find', function (el) {
+    var t = el && el.value != null ? String(el.value) : '';
+    if (S.find.timer && root.clearTimeout) root.clearTimeout(S.find.timer);
+    S.find.timer = root.setTimeout ? root.setTimeout(function () { findNow(t); }, 350) : null;
+    if (!S.find.timer) findNow(t);
+    return null;
+  });
+  TK.action('ck.found', function (el) {
+    var no = el && el.getAttribute ? el.getAttribute('data-no') : '';
+    if (!no) return null;
+    clearFind();
+    var sent = submitCode(no);
+    if (!sent && S.busy) TK.toast('Still checking the last ticket. Try again in a moment.', 'info');
+    return sent;
+  });
   TK.action('ck.manual', function (form) {
     var input = form && form.elements ? (form.elements.namedItem ? form.elements.namedItem('code') : form.elements.code) : null;
     var raw = input ? input.value : '';
+    var typed = String(raw || '').trim();
+    if (S.eventId && isSearchText(typed)) return findNow(typed);   // a name or an e-mail: list the matches
     var sent = submitCode(raw);
+    if (sent) clearFind();
     if (sent && input) input.value = '';
     else if (!sent && S.busy && String(raw || '').trim()) TK.toast('Still checking the last ticket. Scan again in a moment.', 'info');
     else if (!sent && !S.eventId) TK.toast('Choose an event first.', 'warn');
