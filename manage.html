@@ -1431,7 +1431,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   var doc = root.document;
 
   var TABS = [['pending', 'Payments to review'], ['attendees', 'Attendees'], ['walkin', 'Walk-in'], ['export', 'Export CSV']];
-  var CSV_HEAD = ['Ticket no', 'Name', 'Designation', 'Phone', 'Fee (SAR)', 'Payment status', 'Checked in at'];
+  // the complete event record (president 2026-10-24): every ticket, cancelled ones included, with payment, receipt and attendance
+  var CSV_HEAD = ['Ticket no', 'Name', 'Designation', 'Group', 'Phone', 'Registered at', 'Ticket status', 'Fee (SAR)',
+    'Payment method', 'Payment status', 'Payment reference', 'Proof of payment', 'Proof submitted at', 'Payment confirmed by',
+    'OR no.', 'OR date', 'OR status', 'Attendance', 'Checked in at', 'Checked in by', 'Cancelled at', 'Cancelled by', 'Cancellation reason'];
 
   // in memory only
   // hub = ticketing_list_hub_events (null until loaded / when it failed); setupId = the event whose Sell tickets / Edit
@@ -1744,6 +1747,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   var MODES = ['stcpay', 'bank', 'cash'];
   function defaultMode(t) { return t && MODES.indexOf(t.payment_mode) >= 0 ? t.payment_mode : 'cash'; }
   // console labels, as stored (president 2026-10-11): STC Pay / Cash / Bank transfer
+  // plain words for the export (president 2026-10-24): Paid / Unpaid / Free; a refused OR counts as Unpaid
+  var PAY_STATUS = { free: 'Free', pending: 'Unpaid', confirmed: 'Paid', cancelled: 'Unpaid (cancelled)', refund_due: 'Paid (refund due)' };
   function methodLabel(m) { return m === 'cash' ? 'Cash' : TK.METHOD_LABEL[m] || (m === 'free' ? 'Free' : ''); }
   /** The reference the registrant gave (11-payment-proof.sql), else the bank reference of older tickets. */
   function refOf(t, lead) { return (lead && lead.payment_reference) || t.payment_reference || t.bank_ref || (lead && lead.bank_ref) || ''; }
@@ -1951,6 +1956,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var n = (S.tickets || []).length;
     var body = S.listError ? listErrorHtml() : S.tickets === null ? loadingHtml()
       : '<p>' + esc(n + ' ticket' + (n === 1 ? '' : 's')) + ' will be saved to a spreadsheet file (CSV) on this device. Nothing is sent anywhere.</p>' +
+        '<p class="tk-muted">Every ticket is included, cancelled ones too, with the payment method and status, the reference, the proof of payment, ' +
+        'the officer who confirmed the payment, the OR number, attendance and check-in, and any cancellation.</p>' +
         '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-primary" data-action="cn.csv"' + (n ? '' : ' disabled') + '>Download CSV</button></div>';
     return '<h2>Export CSV</h2>' + body;
   }
@@ -2696,12 +2703,23 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var s = TK.safeText(v);
     return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
-  /** The attendee list as CSV text: UTF-8 BOM first (Excel reads Arabic), CRLF lines, RFC 4180 quoting, safeText on every text cell. */
+  /** The complete ticket list as CSV text: UTF-8 BOM first (Excel reads Arabic), CRLF lines, RFC 4180 quoting, safeText on every text cell. */
   function buildCsv(rows) {
     var lines = [CSV_HEAD.map(csvCell).join(',')];
+    var byId = {};
+    (rows || []).forEach(function (t) { if (t && t.id) byId[t.id] = t; });
+    var at = function (v) { return v ? TK.when(v) : ''; };
     (rows || []).forEach(function (t) {
-      lines.push([t.ticket_no, t.holder_name, typeLabel(t), t.phone, (Number(t.fee_sar) || 0).toFixed(2), t.payment_status,
-        t.checked_in_at ? TK.when(t.checked_in_at) : ''].map(csvCell).join(','));
+      var lead = t.group_id ? byId[t.group_id] || null : null;
+      var group = !t.group_id ? '' : t.group_id === t.id ? 'Registrant' : 'Companion of ' + (lead ? lead.holder_name : 'the registrant');
+      var proof = (lead || t).proof_status, ref = refOf(t, lead);
+      lines.push([t.ticket_no, t.holder_name, typeLabel(t), group, t.phone, at(t.registered_at),
+        t.status === 'cancelled' ? 'Cancelled' : 'Active', (Number(t.fee_sar) || 0).toFixed(2),
+        methodLabel(t.payment_mode), needsReconfirm(t) ? 'Unpaid' : PAY_STATUS[t.payment_status] || t.payment_status, ref,
+        proof && proof !== 'none' && TK.PROOF_LABEL[proof] ? TK.PROOF_LABEL[proof][1] : '', at((lead || t).proof_submitted_at),
+        t.receipt_by_name || (lead || t).proof_decided_by_name || '', t.receipt_doc, t.receipt_date || '', t.receipt_status,
+        t.checked_in_at ? 'Attended' : 'Not attended', at(t.checked_in_at), t.checked_in_by_name, at(t.cancelled_at), t.cancelled_by_name,
+        t.cancel_reason].map(csvCell).join(','));
     });
     return '﻿' + lines.join('\r\n');
   }
