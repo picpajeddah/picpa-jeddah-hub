@@ -304,7 +304,7 @@ table.t tr:hover td{background:var(--surface-2)}
 .paper p{margin:0 0 6px;text-align:justify}
 .paper p.small{font:12px/1.5 var(--sans);color:var(--p-muted);text-align:left}
 .sec-b{margin-left:36px}
-.paper .tbd{color:#9A4B05;font-style:italic}
+.paper .tbd{color:#9A4B05;font-style:italic;display:inline;padding:0;border:0;border-radius:0;background:none;gap:0}
 .paper .muted{color:var(--p-muted)}
 .paper .mono{font-family:var(--mono);font-size:10.5px}
 .paper .none{font-style:italic;color:var(--p-muted)}
@@ -1611,7 +1611,10 @@ function docAgenda(m){
   if(S.meetings.some(function(x){return x.id!==m.id&&x.type===m.type&&x.status==="Closed";}))secs.push(["Approval of the Previous Minutes",""]);
   if(ub.length)secs.push(["Matters Arising / Unfinished Business",ub.map(it).join("")]);
   secs.push([ub.length?"New Business":"Matters for Discussion",reg.length?reg.map(it).join(""):'<p class="none">No agenda items yet.</p>']);
-  secs.push(["Other Matters",""],["Adjournment",""]);
+  var aom=(m.others||[]).filter(Boolean),aan=(m.annc||[]).filter(Boolean);
+  secs.push(["Other Matters",aom.length?'<ul class="pts">'+aom.map(function(x){return '<li>'+h(x)+'</li>';}).join("")+'</ul>':""]);
+  if(aan.length)secs.push(["Announcements",'<ul class="pts">'+aan.map(function(x){return '<li>'+h(x)+'</li>';}).join("")+'</ul>']);
+  secs.push(["Adjournment",""]);
   var mins=m.agenda.reduce(function(s,a){return s+(+a.mins||0);},0);
   var body=(approved?'<p class="small" style="text-align:center">Approved '+(m.agendaMovedBy?'on motion of '+h(pname(m.agendaMovedBy))+(m.agendaSecondedBy?', seconded by '+h(pname(m.agendaSecondedBy)):''):'by the body')+(m.agendaNote?'; amendments: '+h(m.agendaNote):'')+'.</p>':'')+
    '<h3>Order of Business</h3>'+
