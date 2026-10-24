@@ -895,7 +895,7 @@ function stats(){
    '<div class="stat"><b>'+open.length+'</b><span>Open tasks</span></div>'+
    '<div class="stat'+(overdue?" warn":"")+'"><b>'+overdue+'</b><span>Overdue tasks</span></div>'+
    '<div class="stat"><b>'+unfinished+'</b><span>Unfinished business items</span></div>'+
-   '<div class="stat"><b style="font-size:15px;font-family:var(--sans)">'+(nextM?h(nextM.id+" · "+(nextM.date?fmtDate(nextM.date):"Date TBD")):"None")+'</b><span>'+(nextM?h(nextM.title):"Next meeting")+'</span></div></div>';
+   '<div class="stat"><b style="font-size:15px;font-family:var(--sans)">'+(nextM?h(nextM.id+" · "+(nextM.date?fmtDate(nextM.date):"—")):"None")+'</b><span>'+(nextM?h(nextM.title):"Next meeting")+'</span></div></div>';
 }
 
 /* ---------- meetings ---------- */
@@ -904,7 +904,7 @@ function vMeetings(){
   if(!meeting(U.meeting)&&list.length)U.meeting=list[0].id;
   var m=meeting(U.meeting);
   var pick='<div class="panel"><div class="ph"><label for="mpick" class="muted" style="font-weight:600">Meeting</label><select class="f boxed" id="mpick" style="flex:1;min-width:200px;width:auto">'+
-   list.map(function(x){var d=x.agenda.filter(function(a){return a.done;}).length;return opt(x.id,x.id+" · "+(x.title||"Untitled meeting")+" — "+(x.date?fmtDate(x.date):"Date TBD")+" · "+x.status+" · "+d+"/"+x.agenda.length+" done",U.meeting);}).join("")+
+   list.map(function(x){var d=x.agenda.filter(function(a){return a.done;}).length;return opt(x.id,x.id+" · "+(x.title||"Untitled meeting")+" — "+(x.date?fmtDate(x.date):"—")+" · "+x.status+" · "+d+"/"+x.agenda.length+" done",U.meeting);}).join("")+
    '</select><button class="btn sm" data-a="add-meeting">+ Meeting</button></div></div>';
   return pick+(m?meetingDetail(m):'<div class="empty">No meetings yet. Click + Meeting to start one.</div>');
 }
@@ -1381,11 +1381,11 @@ function vCalYear(tm,actMonth,unsched){
     it.sort(function(a,b){return (a.d||"9")<(b.d||"9")?-1:(a.d||"9")>(b.d||"9")?1:0;});
     var p=ym.split("-");
     return '<div class="ymo'+(ym===td?" now":"")+'"><button class="ymo-h" data-a="calm" data-v="'+ym+'" data-open="1" title="Open '+h(fmtMonth(ym))+' in month view"><span>'+MONL[+p[1]-1]+' '+p[0]+'</span><b>'+it.length+'</b></button><div class="ymo-b">'+
-      (it.length?it.map(function(x){return '<div class="ymo-r"><span class="ymo-d">'+(x.d?+x.d.slice(8,10):'TBD')+'</span>'+x.h+'</div>';}).join(""):'<span class="muted" style="font-size:12px">Nothing yet</span>')+'</div></div>';
+      (it.length?it.map(function(x){return '<div class="ymo-r"><span class="ymo-d">'+(x.d?+x.d.slice(8,10):'—')+'</span>'+x.h+'</div>';}).join(""):'<span class="muted" style="font-size:12px">Nothing yet</span>')+'</div></div>';
   }).join("");
   var head='<div class="calhead">'+calViewSw()+'<h2>'+h(S.settings.term||"Chapter year")+'</h2><span style="flex:1"></span>'+
    '<label class="legend"><input type="checkbox" data-a="caltasks"'+(U.calTasks?" checked":"")+'> Show task deadlines</label>'+
-   '<span class="legend"><span><i style="background:var(--navy)"></i>Meeting</span><span><i style="background:var(--blue-soft);border:1px solid var(--navy)"></i>Site visit</span><span><i style="background:var(--green-soft);border:1px solid var(--green)"></i>Activity</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>Task due</span><span><i style="background:var(--surface-2);border:1px dashed var(--muted)"></i>Vacation</span><span><i style="background:var(--blue-soft);border:1px solid var(--blue-ink)"></i>Hub post</span><span><b class="mono">TBD</b> = month set, date to follow</span></span></div>';
+   '<span class="legend"><span><i style="background:var(--navy)"></i>Meeting</span><span><i style="background:var(--blue-soft);border:1px solid var(--navy)"></i>Site visit</span><span><i style="background:var(--green-soft);border:1px solid var(--green)"></i>Activity</span><span><i style="background:var(--amber-soft);border:1px solid var(--amber)"></i>Task due</span><span><i style="background:var(--surface-2);border:1px dashed var(--muted)"></i>Vacation</span><span><i style="background:var(--blue-soft);border:1px solid var(--blue-ink)"></i>Hub post</span><span><b class="mono">—</b> = month set, date to follow</span></span></div>';
   return '<div class="panel"><div class="ph"><h2>Calendar of activities</h2><span class="muted">Term '+h(S.settings.term)+'</span></div><div class="pb" style="display:flex;flex-direction:column;gap:14px">'+head+
    undatedMeetings()+'<div class="ycal">'+cards+'</div>'+leaveEditor()+
    '<h3 class="sec">Not yet scheduled ('+unsched.length+')</h3><p class="muted" style="margin:0;font-size:12.5px">Pick a month or date on a row to place it on the calendar.</p>'+actTable(unsched,"")+'</div></div>';
