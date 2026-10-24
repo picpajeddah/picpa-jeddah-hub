@@ -1781,9 +1781,34 @@ app.addEventListener("keydown",function(ev){
 /* ---------- actions ---------- */
 function newAgenda(m,title,extra){var a={id:nextId(m.agenda,m.id+"-A",2),title:title||"",projectIds:[],owner:"",mins:10,done:false,carried:false,carriedTo:"",carriedFrom:"",outcome:"",discussion:"",points:[],resolutions:[],disc:[],motionBy:"",secondedBy:"",addedLater:m.agendaStatus==="Approved"&&!(extra&&extra.carriedFrom)};for(var k in extra)a[k]=extra[k];m.agenda.push(a);return a;}
 function newMeeting(type){type=type||"Officers' meeting";var m={id:nextId(S.meetings,"M",2),title:type==="Officers' meeting"?"Officers' Meeting":type,type:type,date:"",time:"",venue:"",status:"Planned",notes:"",agenda:[]};S.meetings.push(m);return m;}
+// A deleted draft meeting must not use up a number: later draft meetings move down to fill the gap.
+// Meetings after the gap are left alone if any of them is already Closed (its minutes carry that number).
+var MTGCLR=null;
+function compactMeetings(){
+  function num(m){var x=String(m.id).match(/^M(\d+)$/);return x?+x[1]:0;}
+  function pad(n){var s=String(n);while(s.length<2)s="0"+s;return "M"+s;}
+  var list=S.meetings.filter(function(m){return num(m)>0;}).sort(function(a,b){return num(a)-num(b);});
+  var start=-1;for(var i=0;i<list.length;i++)if(num(list[i])!==i+1){start=i;break;}
+  if(start<0)return [];
+  var tail=list.slice(start);
+  if(tail.some(function(m){return m.status==="Closed";}))return [];
+  var mmap={},amap={},order=[];
+  tail.forEach(function(m,j){var nid=pad(start+j+1);if(nid===m.id)return;mmap[m.id]=nid;order.push(m.id);(m.agenda||[]).forEach(function(a){if(String(a.id).indexOf(m.id+"-")===0)amap[a.id]=nid+String(a.id).slice(m.id.length);});});
+  if(!order.length)return [];
+  function fa(v){return v&&amap[v]?amap[v]:v;}
+  function fm(v){return v&&mmap[v]?mmap[v]:v;}
+  S.meetings.forEach(function(m){if(mmap[m.id])m.id=mmap[m.id];if(m.createdByClose)m.createdByClose=fm(m.createdByClose);
+    (m.agenda||[]).forEach(function(a){a.id=fa(a.id);if(a.carriedTo)a.carriedTo=fa(a.carriedTo);if(a.carriedFrom)a.carriedFrom=fa(a.carriedFrom);if(a.schedFor)a.schedFor=fm(a.schedFor);});});
+  S.tasks.forEach(function(t){if(t.agendaId)t.agendaId=fa(t.agendaId);if(t.visitFor)t.visitFor=fm(t.visitFor);});
+  U.meeting=fm(U.meeting);U.closing=fm(U.closing);
+  if(MODE==="cloud"&&SB){var ch=MTGCLR||Promise.resolve();
+    order.forEach(function(o){var hl=HUBLINK["mtg:"+o];if(hl)ch=ch.then(function(){return SB.from("announcements").update({tracker_ref:"mtg:"+mmap[o]}).eq("id",hl.id);});});
+    MTGCLR=null;ch.then(function(){hubLoad();});}
+  return order.map(function(o){return o+" is now "+mmap[o];});
+}
 function del(key){
   var p=key.split(":"),k=p[0],id=p.slice(1).join(":");
-  if(MODE==="cloud"&&(k==="act"||k==="meeting")){var hk=k==="act"?"act":"mtg",hl=HUBLINK[hk+":"+id];if(hl&&hl.is_published)SB.from("announcements").update({is_published:false}).eq("id",hl.id).then(function(){hubLoad();});}
+  if(MODE==="cloud"&&(k==="act"||k==="meeting")){var hk=k==="act"?"act":"mtg",hl=HUBLINK[hk+":"+id];if(hl&&(hl.is_published||k==="meeting")){var hq=SB.from("announcements").update(k==="meeting"?{is_published:false,tracker_ref:null}:{is_published:false}).eq("id",hl.id).then(function(){hubLoad();});if(k==="meeting")MTGCLR=hq;}}
   if(k==="task")S.tasks=S.tasks.filter(function(t){return t.id!==id;});
   if(k==="allprojects"){S.projects=[];S.tasks.forEach(function(t){t.projectId="";});S.activities.forEach(function(a){a.projectId="";});S.meetings.forEach(function(m){m.agenda.forEach(function(a){a.projectIds=[];});});banner={kind:"info",text:"All projects were deleted. Tasks, agenda items and activities were kept."};}
   if(k==="vopt"){var vd=id.split(":"),vmm=meeting(vd[0]);if(vmm){vmm.venueOptions=vmm.venueOptions.filter(function(x){return x.id!==vd[1];});if(vmm.venueChosen===vd[1])vmm.venueChosen="";}}
@@ -1793,7 +1818,7 @@ function del(key){
   if(k==="project"){S.projects=S.projects.filter(function(x){return x.id!==id;});S.tasks.forEach(function(t){if(t.projectId===id)t.projectId="";});S.activities.forEach(function(a){if(a.projectId===id)a.projectId="";});S.meetings.forEach(function(m){m.agenda.forEach(function(a){a.projectIds=a.projectIds.filter(function(x){return x!==id;});});});}
   if(k==="person"){S.people=S.people.filter(function(x){return x.id!==id;});S.leaves=S.leaves.filter(function(x){return x.person!==id;});S.projects.forEach(function(x){if(x.lead===id)x.lead="";});S.tasks.forEach(function(x){if(x.owner===id)x.owner="";});S.activities.forEach(function(x){if(x.owner===id)x.owner="";});S.meetings.forEach(function(m){m.agenda.forEach(function(a){if(a.owner===id)a.owner="";});});}
   if(k==="agenda"){var m=meeting(id.split("-")[0]);if(m)m.agenda=m.agenda.filter(function(a){return a.id!==id;});S.tasks.forEach(function(t){if(t.agendaId===id)t.agendaId="";});}
-  if(k==="meeting"){var mm=meeting(id);if(mm){var ids=mm.agenda.map(function(a){return a.id;});S.tasks.forEach(function(t){if(ids.indexOf(t.agendaId)>=0)t.agendaId="";});}S.meetings=S.meetings.filter(function(x){return x.id!==id;});U.meeting="";}
+  if(k==="meeting"){var mm=meeting(id);if(mm){var ids=mm.agenda.map(function(a){return a.id;});S.tasks.forEach(function(t){if(ids.indexOf(t.agendaId)>=0)t.agendaId="";});}var wasDraft=!mm||mm.status!=="Closed";S.meetings=S.meetings.filter(function(x){return x.id!==id;});U.meeting="";if(wasDraft){var ren=compactMeetings();if(ren.length)banner={kind:"info",text:"Meeting numbers updated so no number is skipped: "+ren.join(", ")+"."};}MTGCLR=null;}
   markDirty();
 }
 function closeMeeting(mid){
@@ -1891,7 +1916,7 @@ app.addEventListener("click",function(ev){
         if(cp){S.tasks.forEach(function(tk){if(tk.agendaId===cp.id)tk.agendaId=a.id;});var tm3=meeting(cp.id.split("-")[0]);if(tm3){tm3.agenda=tm3.agenda.filter(function(x){return x.id!==cp.id;});touched[tm3.id]=tm3;}}
         a.carried=false;a.carriedTo="";back++;});
       Object.keys(touched).forEach(function(k){var tm4=touched[k];var blank=!tm4.agenda.length&&!tm4.date&&!tm4.venue&&!tm4.time&&!Object.keys(tm4.attendance||{}).length&&!(tm4.others||[]).some(Boolean)&&!(tm4.attendees||[]).length;
-        if(blank&&(tm4.createdByClose===rm.id||/^Officers' Meeting$/.test(tm4.title||""))){S.meetings=S.meetings.filter(function(x){return x.id!==tm4.id;});}});
+        if(blank&&(tm4.createdByClose===rm.id||/^Officers' Meeting$/.test(tm4.title||""))){S.meetings=S.meetings.filter(function(x){return x.id!==tm4.id;});compactMeetings();}});
       rm.status="In progress";U.meeting=rm.id;banner={kind:"info",text:rm.id+" reopened."+(back?" "+back+" carried item(s) brought back to this meeting.":"")};markDirty();render();}return;
     case "tasks-of":U.tab="tasks";U.tf={owner:v,status:"open",project:""};render();return;
   }
