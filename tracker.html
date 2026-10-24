@@ -380,6 +380,16 @@ select.st-Tentative{background:var(--amber-soft);color:var(--amber);font-weight:
 .lst-row:has(.num){grid-template-columns:22px minmax(0,1fr) auto}
 .dres{margin-left:22px;padding:6px 8px;border-left:3px solid var(--green);background:var(--green-soft);border-radius:0 6px 6px 0;display:flex;flex-direction:column;gap:4px}
 .bul.res{color:var(--green-ink)}
+.fu-tick{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:var(--muted);white-space:nowrap;cursor:pointer;padding:0 4px}
+.lst-row:has(.fu-tick){grid-template-columns:22px minmax(0,1fr) auto auto}
+.fu-ov{position:fixed;inset:0;background:rgba(10,20,35,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.fu-dlg{background:var(--surface);color:var(--ink);border-radius:12px;max-width:540px;width:100%;padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:10px;max-height:85vh;overflow:auto}
+.fu-dlg h3{margin:0;color:var(--navy);font-size:17px}
+.fu-dlg p{margin:0}
+.fu-list{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.fu-act{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
+.fu-note{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;font-size:13px;padding:8px 12px;border-radius:8px;background:var(--amber-soft);color:var(--amber)}
+.paper .dr-fu{font-style:italic;font-weight:400;color:#9A4B05;font-size:12px}
 .dkids{display:flex;flex-direction:column;gap:6px;margin-left:22px}
 .dkid{display:flex;flex-direction:column;gap:4px;padding:4px 0 4px 10px;border-left:2px dashed var(--line)}
 .dkid .f.dp{font-weight:600}
@@ -899,6 +909,36 @@ function stats(){
 }
 
 /* ---------- meetings ---------- */
+// Unfinished business: items of the last closed meeting that have a subpoint ticked "Follow up at next meeting"
+// or still have open tasks. The next open meeting offers (pop-up) to add them under Matters Arising / Unfinished Business.
+function lastClosedBefore(m){var c=sortMeetings().filter(function(x){return x.id!==m.id&&x.status==="Closed"&&(!m.date||!x.date||x.date<=m.date);});return c.length?c[c.length-1]:null;}
+function fuCount(a){return discNodes(a).filter(function(x){return x.fu;}).length;}
+function openTasksOf(a){return S.tasks.filter(function(t){return t.agendaId===a.id&&isOpenTask(t);});}
+function pendingFrom(m){if(!m||m.status==="Closed")return null;var p=lastClosedBefore(m);if(!p)return null;
+  var items=p.agenda.filter(function(a){return !a.carried&&(fuCount(a)>0||openTasksOf(a).length>0);});
+  return items.length?{p:p,items:items}:null;}
+function bringForward(m){var pf=pendingFrom(m);if(!pf)return 0;
+  pf.items.forEach(function(a){
+    var ot=openTasksOf(a),subs=ot.map(function(t){return t.sub;}).filter(Boolean);
+    var keep=function(x){return x.fu||subs.indexOf(x.id)>=0;};
+    // carry only the subpoints still pending (ticked or with open tasks); their resolutions stay in the earlier minutes
+    var disc=(a.disc||[]).filter(function(x){return keep(x)||(x.kids||[]).some(keep);}).map(function(x){
+      return {id:x.id,p:x.p,r:[],kids:(x.kids||[]).filter(keep).map(function(c){return {id:c.id,p:c.p,r:[]};})};});
+    var n=newAgenda(m,a.title,{projectIds:a.projectIds.slice(),pdec:JSON.parse(JSON.stringify(a.pdec||{})),owner:a.owner,mins:a.mins,disc:disc,carriedFrom:a.id});
+    syncDisc(n);
+    var ub=m.agenda.filter(function(x){return x.carriedFrom;}).length;
+    m.agenda.splice(m.agenda.indexOf(n),1);m.agenda.splice(ub-1,0,n);
+    a.carried=true;a.carriedTo=n.id;
+    ot.forEach(function(t){t.agendaId=n.id;});
+  });
+  return pf.items.length;}
+function fuSummary(a){var f=fuCount(a),t=openTasksOf(a).length;return [f?f+" follow-up"+(f>1?"s":""):"",t?t+" open task"+(t>1?"s":""):""].filter(Boolean).join(", ");}
+function fuPopup(m){var pf=pendingFrom(m);if(!pf||MODE==="readonly")return "";
+  if((U.fuSkip||{})[m.id])return '<div class="fu-note"><span><b>Unfinished business from '+h(pf.p.id)+':</b> '+pf.items.length+' item'+(pf.items.length>1?'s':'')+' not yet added to '+h(m.id)+'.</span><button class="btn sm" data-a="fu-show" data-v="'+h(m.id)+'">Review</button></div>';
+  return '<div class="fu-ov" role="dialog" aria-modal="true" aria-labelledby="fu-h"><div class="fu-dlg"><h3 id="fu-h">Unfinished business from '+h(pf.p.id)+'</h3>'+
+    '<p class="muted">'+h(pf.p.title||"The last meeting")+(pf.p.date?' ('+h(fmtDate(pf.p.date))+')':'')+' has items marked for follow-up or with open tasks. Add them to '+h(m.id)+' under Matters Arising / Unfinished Business?</p>'+
+    '<ul class="fu-list">'+pf.items.map(function(a){return '<li><b>'+h(a.title||"Untitled item")+'</b> <span class="muted">· '+h(fuSummary(a))+'</span></li>';}).join("")+'</ul>'+
+    '<div class="fu-act"><button class="btn" data-a="fu-skip" data-v="'+h(m.id)+'">Not now</button><button class="btn primary" data-a="fu-bring" data-v="'+h(m.id)+'">Add to '+h(m.id)+'</button></div></div></div>';}
 function vMeetings(){
   var list=sortMeetings();
   if(!meeting(U.meeting)&&list.length)U.meeting=list[0].id;
@@ -906,7 +946,7 @@ function vMeetings(){
   var pick='<div class="panel"><div class="ph"><label for="mpick" class="muted" style="font-weight:600">Meeting</label><select class="f boxed" id="mpick" style="flex:1;min-width:200px;width:auto">'+
    list.map(function(x){var d=x.agenda.filter(function(a){return a.done;}).length;return opt(x.id,x.id+" · "+(x.title||"Untitled meeting")+" — "+(x.date?fmtDate(x.date):"—")+" · "+x.status+" · "+d+"/"+x.agenda.length+" done",U.meeting);}).join("")+
    '</select><button class="btn sm" data-a="add-meeting">+ Meeting</button></div></div>';
-  return pick+(m?meetingDetail(m):'<div class="empty">No meetings yet. Click + Meeting to start one.</div>');
+  return pick+(m?fuPopup(m)+meetingDetail(m):'<div class="empty">No meetings yet. Click + Meeting to start one.</div>');
 }
 function meetingDetail(m){
   var closed=m.status==="Closed";
@@ -1075,7 +1115,7 @@ function resBox(rows,key,attr,delA,addA,label,lock){
 }
 function kidEditor(a,x,i,lock){
   return (x.kids||[]).map(function(c,ci){var k=a.id+"|"+i+"|"+ci,lab=(i+1)+kidLetter(ci);var rr=(c.r&&c.r.length)?c.r:(lock?[]:[""]);
-    return '<div class="dkid"><div class="lst-row"><span class="bul num">'+kidLetter(ci)+'.</span><input class="f dp" data-kp="'+h(k)+'" value="'+h(c.p)+'" placeholder="Subpoint under '+(i+1)+' (e.g. CMA Review)" aria-label="Subpoint '+lab+'"'+(lock?" disabled":"")+'>'+(lock?'':'<button class="btn ghost sm" data-a="kp-del" data-v="'+h(k)+'" title="Remove this subpoint and its resolutions (its tasks move to the item)">✕</button>')+'</div>'+
+    return '<div class="dkid"><div class="lst-row"><span class="bul num">'+kidLetter(ci)+'.</span><input class="f dp" data-kp="'+h(k)+'" value="'+h(c.p)+'" placeholder="Subpoint under '+(i+1)+' (e.g. CMA Review)" aria-label="Subpoint '+lab+'"'+(lock?" disabled":"")+'>'+(c.id?'<label class="fu-tick" title="Bring this up again at the next meeting"><input type="checkbox" data-fu="'+h(a.id+"|"+c.id)+'"'+(c.fu?" checked":"")+(a.carried||MODE==="readonly"?" disabled":"")+'> Follow up</label>':'')+(lock?'':'<button class="btn ghost sm" data-a="kp-del" data-v="'+h(k)+'" title="Remove this subpoint and its resolutions (its tasks move to the item)">✕</button>')+'</div>'+
       resBox(rr,k,"data-kr","kr-del","kr-add",lab,lock)+subTaskBox(a,c,lock)+'</div>';}).join("")+
     (lock?'':'<button class="btn ghost sm lst-add kid-add" data-a="kp-add" data-v="'+h(a.id+"|"+i)+'">+ Subpoint under '+(i+1)+'</button>');
 }
@@ -1084,7 +1124,7 @@ function discEditor(a,lock){
   var d=a.disc||[];var rows=d.length?d:(lock?[]:[{p:"",r:[]}]);
   return '<div class="dlist"><div class="lst-h">Subpoints, resolutions &amp; tasks'+(d.length?' <span class="mono muted">'+d.length+'</span>':'')+'<span class="dhint">Enter: subpoint → its resolution → next resolution · Enter on an empty resolution: new subpoint · “+ Subpoint under” adds a., b., c.</span></div>'+
    rows.map(function(x,i){var rr=(x.r&&x.r.length)?x.r:(lock?[]:[""]);var k=a.id+"|"+i;
-     return '<div class="dblock"><div class="lst-row"><span class="bul num">'+(i+1)+'.</span><input class="f dp" data-dp="'+h(k)+'" value="'+h(x.p)+'" placeholder="Subpoint (e.g. Venue)" aria-label="Subpoint '+(i+1)+'"'+(lock?" disabled":"")+'>'+(lock?'':'<button class="btn ghost sm" data-a="dp-del" data-v="'+h(k)+'" title="Remove this subpoint, its own subpoints and resolutions (tasks move to the item)">✕</button>')+'</div>'+
+     return '<div class="dblock"><div class="lst-row"><span class="bul num">'+(i+1)+'.</span><input class="f dp" data-dp="'+h(k)+'" value="'+h(x.p)+'" placeholder="Subpoint (e.g. Venue)" aria-label="Subpoint '+(i+1)+'"'+(lock?" disabled":"")+'>'+(x.id?'<label class="fu-tick" title="Bring this up again at the next meeting"><input type="checkbox" data-fu="'+h(a.id+"|"+x.id)+'"'+(x.fu?" checked":"")+(a.carried||MODE==="readonly"?" disabled":"")+'> Follow up</label>':'')+(lock?'':'<button class="btn ghost sm" data-a="dp-del" data-v="'+h(k)+'" title="Remove this subpoint, its own subpoints and resolutions (tasks move to the item)">✕</button>')+'</div>'+
       resBox(rr,k,"data-dr","dr-del","dr-add",String(i+1),lock)+subTaskBox(a,x,lock)+
       '<div class="dkids">'+kidEditor(a,x,i,lock)+'</div></div>';}).join("")+
    (lock?'':'<button class="btn ghost sm lst-add" data-a="dp-add" data-v="'+h(a.id)+'">+ Add subpoint</button>')+'</div>';
@@ -1544,22 +1584,23 @@ function itemMinutes(a,letter){
   var info=[];if(a.owner)info.push("Presented by "+h(pname(a.owner)));if(a.carriedFrom)info.push("Carried from "+h(a.carriedFrom));if(a.addedLater)info.push("Added during the meeting");
   if(info.length)s+='<p class="small">'+info.join(" · ")+'</p>';
   var decs=projs;
-  var nodeOut=function(x){return {p:x.p||"",r:(x.r||[]).filter(Boolean),t:subTasks(a,x),k:(x.kids||[]).map(nodeOut).filter(function(c){return c.p||c.r.length||c.t.length;})};};
+  var nodeOut=function(x){return {f:!!x.fu,p:x.p||"",r:(x.r||[]).filter(Boolean),t:subTasks(a,x),k:(x.kids||[]).map(nodeOut).filter(function(c){return c.p||c.r.length||c.t.length;})};};
   var dd=(a.disc||[]).map(nodeOut).filter(function(x){return x.p||x.r.length||x.t.length||x.k.length;});
   var anyRes=dd.some(function(x){return x.r.length||x.k.some(function(c){return c.r.length;});});
   if(dd.length){
     if(anyRes&&a.motionBy)s+='<p class="res" style="margin-bottom:2px">On motion of '+h(pname(a.motionBy))+(a.secondedBy?', duly seconded by '+h(pname(a.secondedBy)):'')+', the body resolved as follows:</p>';
     var resT=function(x){return (x.r.length?'<ul class="dr-r">'+x.r.map(function(r){return '<li>'+h(r)+'</li>';}).join("")+'</ul>':(x.t.length||x.k.length?'':'<div class="dr-none">No resolution; for further discussion.</div>'))+
       (x.t.length?'<ul class="dr-t">'+x.t.map(function(t){return '<li><b>To-do:</b> '+(t.title?h(t.title):'<span class="tbd">Untitled</span>')+' <span class="muted">· '+whoHtml(t)+' · '+(t.due?h(fmtDate(t.due).slice(4)):'—')+' · '+h(t.status)+'</span></li>';}).join("")+'</ul>':'');};
-    s+='<ol class="dr">'+dd.map(function(x){return '<li>'+(x.p?'<span class="dp">'+h(x.p)+'</span>':'')+resT(x)+
-      (x.k.length?'<ol class="dr2">'+x.k.map(function(c){return '<li>'+(c.p?'<span class="dp">'+h(c.p)+'</span>':'')+resT(c)+'</li>';}).join("")+'</ol>':'')+'</li>';}).join("")+'</ol>';
+    var fuT=function(x){return x.f?' <span class="dr-fu">(for follow-up at the next meeting)</span>':'';};
+    s+='<ol class="dr">'+dd.map(function(x){return '<li>'+(x.p?'<span class="dp">'+h(x.p)+'</span>':'')+fuT(x)+resT(x)+
+      (x.k.length?'<ol class="dr2">'+x.k.map(function(c){return '<li>'+(c.p?'<span class="dp">'+h(c.p)+'</span>':'')+fuT(c)+resT(c)+'</li>';}).join("")+'</ol>':'')+'</li>';}).join("")+'</ol>';
   } else if(!a.carried&&!decs.length&&!tks.length){s+='<p class="none">'+(a.done?"Taken up; no resolution recorded.":"Not yet taken up.")+'</p>';}
   var am=meeting(String(a.id).split("-")[0]),showDet=!am||am.showDecDetails!==false;
   if(decs.length)s+='<table style="margin-top:6px"><thead><tr><th>Project</th><th style="width:'+(showDet?17:22)+'%">Decision</th><th style="width:'+(showDet?19:26)+'%">Proposed month</th>'+(showDet?'<th style="width:32%">Details</th>':'')+'</tr></thead><tbody>'+
     decs.map(function(p){var dc=pdecOf(a,p.id);return '<tr><td>'+(p.name?h(p.name):'<span class="tbd">Untitled</span>')+kindTag(p)+(p.lead?'<br><span class="muted">Lead: '+h(pname(p.lead))+'</span>':'')+'</td><td><b>'+(dc.d?h(dc.d):'<span class="tbd">Pending</span>')+'</b></td><td>'+(projMonthLabel(p.id)?h(projMonthLabel(p.id)):'<span class="tbd">—</span>')+'</td>'+(showDet?'<td>'+h(dc.note)+'</td>':'')+'</tr>';}).join("")+'</tbody></table>';
   var st=a.schedFor?meeting(a.schedFor):null;
   if(st){if(a.schedPart!=="date")s+=venueMinutes(st);s+='<p class="res"><b>'+(a.schedPart==="venue"?"Venue":a.schedPart==="date"?"Date and time":"Schedule")+':</b> '+schedSentence(st,a.schedPart)+'</p>';}
-  if(a.carried)s+='<p class="small"><i>Not concluded; carried forward to '+h(a.carriedTo)+' ('+h(meetingLabel(a.carriedTo))+').</i></p>';
+  if(a.carried)s+='<p class="small"><i>'+(a.done?'For follow-up; carried forward to ':'Not concluded; carried forward to ')+h(a.carriedTo)+' ('+h(meetingLabel(a.carriedTo))+').</i></p>';
   if(tks.length)s+='<table><thead><tr><th>To-dos</th><th style="width:30%">Assigned to</th><th style="width:15%">Target date</th><th style="width:11%">Status</th></tr></thead><tbody>'+
     tks.map(function(t){return '<tr><td>'+(t.title?h(t.title):'<span class="tbd">Untitled</span>')+(t.remarks?'<div class="rmk">'+h(t.remarks)+'</div>':'')+'</td><td>'+whoHtml(t)+'</td><td>'+(t.due?h(fmtDate(t.due).slice(4)):'<span class="tbd">—</span>')+'</td><td>'+h(t.status)+'</td></tr>';}).join("")+'</tbody></table>';
   return s+'</div></div>';
@@ -1768,6 +1809,7 @@ function onLive(el){
 }
 app.addEventListener("change",function(ev){
   var el=ev.target;
+  if(el.dataset&&el.dataset.fu){if(MODE==="readonly")return;var fp=el.dataset.fu.split("|"),fa=agendaItem(fp[0]);if(!fa)return;var fnd=discNodes(fa).filter(function(x){return x.id===fp[1];})[0];if(fnd){fnd.fu=el.checked;markDirty();render();}return;}
   if(el.id==="importf"){var file=el.files&&el.files[0];if(!file)return;var r=new FileReader();r.onload=function(){try{var d=JSON.parse(r.result);if(!d||!d.projects||!d.meetings)throw 0;S=d;normalize();markDirty();banner={kind:"info",text:"Imported "+file.name+"."};render();}catch(x){banner={kind:"warn",text:"That file isn't a tracker export. Choose a .json file made with Export data."};render();}};r.readAsText(file);return;}
   if(el.dataset.link){
     var ai=agendaItem(el.dataset.link),pv=el.value;if(!ai||!pv)return;
@@ -1926,6 +1968,9 @@ app.addEventListener("click",function(ev){
     case "dp-del":var pd=v.split("|"),pda=agendaItem(pd[0]);if(pda&&pda.disc){pda.disc.splice(+pd[1],1);syncDisc(pda);markDirty();render();}return;
     case "dr-add":var ra=v.split("|"),raa=agendaItem(ra[0]);if(raa){var rb=ensureDisc(raa,+ra[1]);if(!rb.r.length)rb.r.push("");rb.r.push("");syncDisc(raa);markDirty();render();dFocus('[data-dr="'+ra[0]+"|"+ra[1]+"|"+(rb.r.length-1)+'"]');}return;
     case "dr-del":var rd=v.split("|"),rda=agendaItem(rd[0]);if(rda&&rda.disc&&rda.disc[+rd[1]]){rda.disc[+rd[1]].r.splice(+rd[2],1);syncDisc(rda);markDirty();render();}return;
+    case "fu-bring":var fbm=meeting(v);if(fbm){var fbn=bringForward(fbm);if(U.fuSkip)delete U.fuSkip[v];banner={kind:"info",text:fbn+" item(s) added to "+fbm.id+" under Matters Arising / Unfinished Business. Their open tasks moved with them."};markDirty();render();}return;
+    case "fu-skip":U.fuSkip=U.fuSkip||{};U.fuSkip[v]=true;render();return;
+    case "fu-show":if(U.fuSkip)delete U.fuSkip[v];render();return;
     case "kp-add":var zpa=v.split("|"),zpi=agendaItem(zpa[0]);if(zpi){var zx=ensureDisc(zpi,+zpa[1]);zx.kids=zx.kids||[];zx.kids.push({p:"",r:[]});syncDisc(zpi);markDirty();render();dFocus('[data-kp="'+zpa[0]+"|"+zpa[1]+"|"+(zx.kids.length-1)+'"]');}return;
     case "kp-del":var zd=v.split("|"),zdi=agendaItem(zd[0]);if(zdi&&zdi.disc&&zdi.disc[+zd[1]]&&zdi.disc[+zd[1]].kids){zdi.disc[+zd[1]].kids.splice(+zd[2],1);syncDisc(zdi);markDirty();render();}return;
     case "kr-add":var zr=v.split("|"),zri=agendaItem(zr[0]);if(zri){var zn2=ensureKid(zri,+zr[1],+zr[2]);if(!zn2.r.length)zn2.r.push("");zn2.r.push("");syncDisc(zri);markDirty();render();dFocus('[data-kr="'+zr[0]+"|"+zr[1]+"|"+zr[2]+"|"+(zn2.r.length-1)+'"]');}return;
