@@ -1434,7 +1434,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   // the complete event record (president 2026-10-24): every ticket, cancelled ones included, with payment, receipt and attendance
   var CSV_HEAD = ['Ticket no', 'Name', 'Designation', 'Group', 'Phone', 'Registered at', 'Ticket status', 'Fee (SAR)',
     'Payment method', 'Payment status', 'Payment reference', 'Proof of payment', 'Proof submitted at', 'Payment confirmed by',
-    'OR no.', 'OR date', 'OR status', 'Attendance', 'Checked in at', 'Checked in by', 'Cancelled at', 'Cancelled by', 'Cancellation reason'];
+    'Amount received (SAR)', 'Discount (SAR)', 'Discount reason',
+    'OR no.', 'OR date', 'OR status', 'Attendance', 'Tagged did not attend by', 'Checked in at', 'Checked in by', 'Cancelled at', 'Cancelled by', 'Cancellation reason'];
 
   // in memory only
   // hub = ticketing_list_hub_events (null until loaded / when it failed); setupId = the event whose Sell tickets / Edit
@@ -1483,6 +1484,18 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     }).map(function (w) { return w.charAt(0); }).join('').toUpperCase().slice(0, 8) || 'EV';
     var j = jLocal(date);
     return init + (j ? j.slice(2, 4) : '');
+  }
+  // ---- "Did not attend" and the venue cost (sql/patches/hub-no-show-cost.sql, president 2026-10-24)
+  function eventStarted() {
+    var e = curEvent(), h = e ? hubRow(e.announcement_id) : null, d = (e && e.event_date) || (h && h.event_date);
+    var ms = d ? Date.parse(d) : NaN;
+    return !isNaN(ms) && ms <= Date.now();
+  }
+  function noShowFee() { var l = S.tickets || []; for (var i = 0; i < l.length; i++) if (l[i].no_show_fee_sar != null) return num(l[i].no_show_fee_sar); return null; }
+  /** Only a single ticket tagged "Did not attend", not checked in, may be paid at the venue cost (the database re-checks). */
+  function atCostOk(t) {
+    var fee = noShowFee();
+    return !!t && !!t.no_show_at && !t.checked_in_at && !t.group_id && fee !== null && fee > 0 && fee < num(t.fee_sar);
   }
   function eventCancelled() { var e = curEvent(); return !!e && e.event_status === 'cancelled'; }
 
@@ -1757,9 +1770,16 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var lead = g ? g.lead : t, ref = refOf(t, lead);
     var dis = S.busy ? ' disabled' : '';
     var opt = function (v, label) { return '<option value="' + v + '"' + (mode === v ? ' selected' : '') + '>' + label + '</option>'; };
+    var cost = !g && atCostOk(t), atCost = cost && S.confirmAmt !== 'full';
+    var amt = atCost ? noShowFee() : num(t.fee_sar);
+    var aopt = function (v, label) { return '<option value="' + v + '"' + ((v === 'cost') === atCost ? ' selected' : '') + '>' + label + '</option>'; };
     return '<div class="tk-mg-confirm"><p>' + (g
       ? 'Confirm <b>' + esc(money(g.total)) + '</b> received from <b>' + esc(g.name) + '</b> for ' + g.size + (g.size === 1 ? ' attendee' : ' attendees') + '? This posts one Ledger receipt for the group.'
-      : 'Confirm <b>' + esc(money(t.fee_sar)) + '</b> received from <b>' + esc(t.holder_name) + '</b>? This posts a Ledger receipt.') + '</p>' +
+      : 'Confirm <b>' + esc(money(amt)) + '</b> received from <b>' + esc(t.holder_name) + '</b>' +
+        (atCost ? ' (did not attend: venue cost only, discount ' + esc(money(num(t.fee_sar) - amt)) + ')' : '') + '? This posts a Ledger receipt.') + '</p>' +
+      (cost ? '<div class="tk-field tk-mg-cmode"><label for="mg-c-amt">Amount</label><select id="mg-c-amt" name="amt" data-change="cn.confirm.amt"' + dis + '>' +
+        aopt('cost', 'Venue cost only (did not attend): ' + esc(money(noShowFee()))) + aopt('full', 'Full ticket price: ' + esc(money(t.fee_sar))) +
+        '</select></div>' : '') +
       '<p class="tk-mini">Method: ' + esc(methodLabel(t.payment_mode) || 'Not stated') + ' · Reference: ' + esc(ref || 'None') +
       (lead.proof_path ? ' · Proof of payment attached' : ' · No proof of payment') + '</p>' +
       (needsReconfirm(t) ? '<p class="tk-mini">The earlier receipt ' + esc(t.receipt_doc || '') + ' was ' + esc(t.receipt_status) +
@@ -1797,7 +1817,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         out.push(e);
       }
       e.rows.push(t);
-      e.total += num(t.fee_sar);
+      e.total += num(t.fee_sar) - num(t.discount_sar);   // a no-show paid at venue cost (hub-no-show-cost.sql)
       if (!e.t && confirmable(t)) e.t = t;
     });
     out.forEach(function (e) {
@@ -1862,7 +1882,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
           '<div class="tk-mg-payamt">' + esc(money(e.total)) + '</div></div>' +
           people +
           '<div class="tk-mg-payfoot"><div class="tk-pills">' + TK.proofPill(e.status, statusDetail(e)) +
-          (needsReconfirm(t) ? TK.pill('warn', 'Receipt ' + t.receipt_status + ': counts as unpaid') : '') + '</div>' +
+          (needsReconfirm(t) ? TK.pill('warn', 'Receipt ' + t.receipt_status + ': counts as unpaid') : '') +
+          (t.no_show_at && !t.checked_in_at ? TK.pill('warn', 'Did not attend') : '') + '</div>' +
           '<span class="tk-mini">' + facts.join(' · ') + '</span></div>' +
           (acts ? '<div class="tk-mg-acts">' + acts + '</div>' : '') + '</div>';
       }).join('') + '</div>';
@@ -1878,12 +1899,27 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (t.status === 'cancelled' && t.payment_status !== 'cancelled' && t.payment_status !== 'refund_due') s += TK.pill('neutral', 'Cancelled');
     else s += TK.payPill(t.payment_status);
     if (t.checked_in_at) s += TK.pill('info', 'Checked in');
+    else if (t.no_show_at) s += TK.pill('warn', 'Did not attend');
     if (t.payment_status === 'confirmed' && (t.receipt_status === 'Rejected' || t.receipt_status === 'Cancelled')) {
       s += TK.pill('warn', 'Receipt ' + t.receipt_status + ': counts as unpaid');
     }
     s += '</div>';
-    if (t.receipt_doc) s += '<div class="tk-mini">Receipt ' + esc(t.receipt_doc) + (t.receipt_status ? ' (' + esc(t.receipt_status) + ')' : '') + '</div>';
+    if (t.receipt_doc) s += '<div class="tk-mini">Receipt ' + esc(t.receipt_doc) + (t.receipt_status ? ' (' + esc(t.receipt_status) + ')' : '') +
+      (num(t.discount_sar) > 0 ? ' · venue cost ' + esc(money(num(t.fee_sar) - num(t.discount_sar))) + ', discount ' + esc(money(t.discount_sar)) : '') + '</div>';
     return s;
+  }
+  /** The venue cost per person for no-shows: managers set it; everyone sees it once set. */
+  function noShowFeeHtml() {
+    var fee = noShowFee();
+    if (!canManage()) {
+      return fee === null ? '' : '<p class="tk-mini">Venue cost for those who did not attend: ' + esc(money(fee)) + ' per person.</p>';
+    }
+    var dis = S.busy ? ' disabled' : '';
+    return '<form class="tk-form tk-mg-nsfee" data-action="cn.nsfee" novalidate style="margin-bottom:var(--s3)">' +
+      '<div class="tk-field"><label for="mg-nsfee">Venue cost per person for those who did not attend (SAR)</label>' +
+      '<input id="mg-nsfee" name="fee" type="number" min="1" step="0.01" inputmode="decimal" value="' + (fee === null ? '' : esc(String(fee))) + '"' + dis + '></div>' +
+      '<p class="tk-mini">Only a ticket tagged "Did not attend" can be paid at this amount instead of the full price.</p>' +
+      '<div class="tk-actions"><button type="submit" class="tk-btn tk-btn-small"' + dis + '>Save venue cost</button></div></form>';
   }
   function attendeesListHtml() {
     var q = String(S.search || '').trim().toLowerCase();
@@ -1906,8 +1942,16 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         esc(t.id) + '"' + dis + '>Cancel ticket</button>' : '';
     }
     // one card per ticket (president 2026-10-13: the table squeezed the Cancel buttons into a one-letter column)
-    return '<div class="tk-mg-paylist tk-mg-attlist">' + rows.map(function (t) {
-      var btn = showCancel ? cancelBtn(t) : '';
+    var started = eventStarted();
+    function noShowBtn(t) {
+      if (!showCancel || !started || t.status !== 'active' || t.checked_in_at) return '';
+      var dis = S.busy ? ' disabled' : '';
+      if (!t.no_show_at) return '<button type="button" class="tk-btn tk-btn-small" data-action="cn.noshow" data-on="1" data-id="' + esc(t.id) + '"' + dis + '>Mark did not attend</button>';
+      if (num(t.discount_sar) > 0 && t.payment_status === 'confirmed') return '';
+      return '<button type="button" class="tk-btn tk-btn-small" data-action="cn.noshow" data-on="0" data-id="' + esc(t.id) + '"' + dis + '>Undo did not attend</button>';
+    }
+    return noShowFeeHtml() + '<div class="tk-mg-paylist tk-mg-attlist">' + rows.map(function (t) {
+      var btn = [noShowBtn(t), showCancel ? cancelBtn(t) : ''].filter(Boolean).join(' ');
       var facts = [esc(t.ticket_no)];
       if (t.phone) facts.push(esc(t.phone));
       return '<div class="tk-mg-paycard">' +
@@ -2159,6 +2203,45 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return null;
   });
 
+  // ------------------------------------------------------------------ actions: did not attend / venue cost (hub-no-show-cost.sql)
+  TK.action('cn.noshow', function (el) {
+    var id = el && el.getAttribute ? el.getAttribute('data-id') : '';
+    var on = !!el && !!el.getAttribute && el.getAttribute('data-on') === '1';
+    var t = ticketOf(id);
+    if (!t || !canCancel() || S.busy || eventCancelled()) return null;
+    var who = t.holder_name + ' (' + t.ticket_no + ')';
+    return run(function () { return TK.rpc('ticketing_mark_no_show', { p_ticket: id, p_on: on }); }, {
+      ok: function () {
+        setNotice('good', [on ? who + ' is tagged "Did not attend".' : 'The "Did not attend" tag was removed from ' + who + '.']);
+        return loadTickets(true);
+      },
+      err: function (err) {
+        if (err && err.code === 'TKT_NO_ACCESS') { noAccess(); return; }
+        setNotice('crit', [friendly(err)]);
+      }
+    });
+  });
+  TK.action('cn.nsfee', function (form) {
+    if (!canManage() || S.busy || !S.eventId) return null;
+    var f = field(form, 'fee'), raw = String(f && f.value != null ? f.value : '').trim();
+    var v = raw === '' ? null : Number(raw);
+    if (v !== null && (!(v > 0) || v > 100000 || Math.round(v * 100) !== v * 100)) {
+      setNotice('crit', ['Enter the venue cost per person in SAR, for example 80.']);
+      return null;
+    }
+    var ev = S.eventId;
+    return run(function () { return TK.rpc('ticketing_set_no_show_fee', { p_announcement: ev, p_amount: v }); }, {
+      ok: function () {
+        setNotice('good', [v === null ? 'The venue cost was cleared.' : 'Venue cost saved: ' + money(v) + ' per person.']);
+        return loadTickets(true);
+      },
+      err: function (err) {
+        if (err && err.code === 'TKT_NO_ACCESS') { noAccess(); return; }
+        setNotice('crit', [friendly(err)]);
+      }
+    });
+  });
+
   // ------------------------------------------------------------------ actions: confirm payment
   TK.action('cn.confirm', function (el) {
     var id = el && el.getAttribute ? el.getAttribute('data-id') : '';
@@ -2166,11 +2249,17 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (!t || !canWrite() || S.busy || eventCancelled() || !confirmable(t)) return null;
     S.confirming = id;
     S.confirmMode = defaultMode(t);
+    S.confirmAmt = null;
     drawList();
     return null;
   });
-  TK.action('cn.confirm.back', function () { if (S.busy) return null; S.confirming = null; S.confirmMode = null; drawList(); return null; });
+  TK.action('cn.confirm.back', function () { if (S.busy) return null; S.confirming = null; S.confirmMode = null; S.confirmAmt = null; drawList(); return null; });
   /* the officer may record how the money really came in (a "cash" registrant who paid by transfer, and back) */
+  TK.action('cn.confirm.amt', function (el) {
+    var v = el && el.value != null ? String(el.value) : '';
+    if (S.confirming && (v === 'cost' || v === 'full')) { S.confirmAmt = v; drawList(); }
+    return null;
+  });
   TK.action('cn.confirm.mode', function (el) {
     var v = el && el.value != null ? String(el.value) : '';
     if (S.confirming && MODES.indexOf(v) >= 0) S.confirmMode = v;
@@ -2181,17 +2270,21 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var t = ticketOf(id);
     if (!t || S.confirming !== id || !canWrite() || S.busy || eventCancelled() || !confirmable(t)) return null;
     var mode = MODES.indexOf(S.confirmMode) >= 0 ? S.confirmMode : defaultMode(t);
+    var atCost = atCostOk(t) && S.confirmAmt !== 'full';
     S.confirming = null;
     S.confirmMode = null;
+    S.confirmAmt = null;
     var lead = t.group_id ? ticketOf(t.group_id) : null;
     var ref = refOf(t, lead) || null;
     var who = lead ? lead.holder_name : t.holder_name, no = lead ? lead.ticket_no : t.ticket_no;
     function msg(out) {
       var many = num(out.people) > 1;
       return 'Payment confirmed for ' + who + (many ? '\'s group (' + num(out.people) + ' people, ' + no + ')' : ' (' + (out.ticket_no || no) + ')') +
-        '. Ledger receipt ' + (out.ledger_doc || '(number not returned)') + '.';
+        '. Ledger receipt ' + (out.ledger_doc || '(number not returned)') + (out.at_cost ? ' for the venue cost only (did not attend)' : '') + '.';
     }
-    return run(function () { return TK.rpc('ticketing_confirm_payment', { p_ticket: id, p_mode: mode, p_bank_ref: ref }); }, {
+    return run(function () {
+      return TK.rpc(atCost ? 'ticketing_confirm_payment_at_cost' : 'ticketing_confirm_payment', { p_ticket: id, p_mode: mode, p_bank_ref: ref });
+    }, {
       ok: function (out) {
         if (!isObj(out)) { setNotice('crit', [friendly(TK.makeError('UNKNOWN')), 'Check the list below before trying again.']); return loadTickets(true); }
         setNotice(out.warning ? 'warn' : 'good', [msg(out), out.warning]);
@@ -2704,6 +2797,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   }
   /** The complete ticket list as CSV text: UTF-8 BOM first (Excel reads Arabic), CRLF lines, RFC 4180 quoting, safeText on every text cell. */
+  /** Money received for this ticket: paid with a valid receipt, or paid and now owed back (refund due). */
+  function isPaid(t) { return (t.payment_status === 'confirmed' && !needsReconfirm(t)) || t.payment_status === 'refund_due'; }
   function buildCsv(rows) {
     var lines = [CSV_HEAD.map(csvCell).join(',')];
     var byId = {};
@@ -2717,8 +2812,11 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         t.status === 'cancelled' ? 'Cancelled' : 'Active', (Number(t.fee_sar) || 0).toFixed(2),
         methodLabel(t.payment_mode), needsReconfirm(t) ? 'Unpaid' : PAY_STATUS[t.payment_status] || t.payment_status, ref,
         proof && proof !== 'none' && TK.PROOF_LABEL[proof] ? TK.PROOF_LABEL[proof][1] : '', at((lead || t).proof_submitted_at),
-        t.receipt_by_name || (lead || t).proof_decided_by_name || '', t.receipt_doc, t.receipt_date || '', t.receipt_status,
-        t.checked_in_at ? 'Attended' : 'Not attended', at(t.checked_in_at), t.checked_in_by_name, at(t.cancelled_at), t.cancelled_by_name,
+        t.receipt_by_name || (lead || t).proof_decided_by_name || '',
+        isPaid(t) ? (num(t.fee_sar) - num(t.discount_sar)).toFixed(2) : '', num(t.discount_sar) > 0 ? num(t.discount_sar).toFixed(2) : '',
+        t.discount_reason || '', t.receipt_doc, t.receipt_date || '', t.receipt_status,
+        t.checked_in_at ? 'Attended' : t.no_show_at ? 'Did not attend' : 'Not checked in', t.checked_in_at ? '' : t.no_show_by_name || '',
+        at(t.checked_in_at), t.checked_in_by_name, at(t.cancelled_at), t.cancelled_by_name,
         t.cancel_reason].map(csvCell).join(','));
     });
     return '﻿' + lines.join('\r\n');

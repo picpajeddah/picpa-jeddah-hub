@@ -1575,12 +1575,19 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return '<p><b>Amount due: ' + esc(money(sum)) + ' (' + attendees(n) + ')</b></p>';
   }
 
+  /** The no-show policy (sql/patches/hub-no-show-cost.sql, president 2026-10-24): shown once the event has a venue cost. */
+  function noShowHtml(ev) {
+    var fee = ev && ev.no_show_fee_sar != null ? Number(ev.no_show_fee_sar) : NaN;
+    if (!(fee > 0)) return '';
+    return '<p class="tk-paynote tk-noshow"><b>Please note:</b> once your registration is confirmed, a registrant who does not attend ' +
+      'will be charged the venue cost of ' + esc(money(fee)) + ' per person.</p>';
+  }
   /** The Payment section of a paid event: amount due, payment instructions, method (no default), reference, proof file. */
   function paymentHtml(ev) {
     var id = ev.announcement_id, fid = 'reg-' + id + '-proof';
     return '<fieldset class="tk-paysec" id="reg-pay-' + id + '"><legend>Payment</legend>' +
       '<div class="tk-total" id="reg-total-' + id + '" aria-live="polite">' + totalHtml(ev) + '</div>' +
-      (ev.payment_note ? '<p class="tk-paynote">' + noteHtml(ev.payment_note) + '</p>' : '') +
+      (ev.payment_note ? '<p class="tk-paynote">' + noteHtml(ev.payment_note) + '</p>' : '') + noShowHtml(ev) +
       '<div class="tk-field"><fieldset class="tk-typepick tk-methodpick"><legend>Payment method (optional)</legend><div class="tk-typeopts">' +
       METHODS.map(function (m) {
         var rid = 'reg-' + id + '-m-' + m[0];
@@ -1682,7 +1689,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var pr = S.proof[id];
     // the status pill is shown once, at the top of the success view (president 2026-10-11)
     var out = '<div class="tk-pay" id="reg-paystat-' + id + '"><p><b>Amount due:</b> ' + esc(money(total)) + (n > 1 ? ' (' + attendees(n) + ')' : '') + '</p>' +
-      '<p class="tk-paynote">' + (ev.payment_note ? noteHtml(ev.payment_note) : 'Payment instructions are available from the chapter officers.') + '</p>';
+      '<p class="tk-paynote">' + (ev.payment_note ? noteHtml(ev.payment_note) : 'Payment instructions are available from the chapter officers.') + '</p>' +
+      noShowHtml(ev);
     if (!pr) return out + '<p class="tk-mini">' + PAY_LATER + '</p></div>';
     if (pr.state === 'sending') return out + '<p role="status">Submitting the proof of payment.</p></div>';
     if (pr.state === 'done') return out + '<p>The proof of payment was submitted and is pending review by the chapter officers.</p></div>';
