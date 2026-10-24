@@ -380,6 +380,13 @@ select.st-Tentative{background:var(--amber-soft);color:var(--amber);font-weight:
 .lst-row:has(.num){grid-template-columns:22px minmax(0,1fr) auto}
 .dres{margin-left:22px;padding:6px 8px;border-left:3px solid var(--green);background:var(--green-soft);border-radius:0 6px 6px 0;display:flex;flex-direction:column;gap:4px}
 .bul.res{color:var(--green-ink)}
+.dkids{display:flex;flex-direction:column;gap:6px;margin-left:22px}
+.dkid{display:flex;flex-direction:column;gap:4px;padding:4px 0 4px 10px;border-left:2px dashed var(--line)}
+.dkid .f.dp{font-weight:600}
+.kid-add{align-self:flex-start}
+.paper ol.dr2{list-style:lower-alpha;margin:2px 0 4px 18px;padding:0}
+.paper ol.dr2 > li{margin:2px 0}
+.paper ol.dr2 .dp{font-weight:600}
 .dtasks{margin-left:22px;padding:6px 8px;border-left:3px solid var(--navy);background:var(--blue-soft);border-radius:0 6px 6px 0}
 .dtasks-h{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:600;margin-bottom:4px}
 .paper ul.dr-t{margin:2px 0 2px 14px;padding:0;list-style:none}
@@ -1053,25 +1060,40 @@ function venueMinutes(t){
     vo.map(function(o){var ch=t.venueChosen===o.id;return '<tr><td>'+(ch?'<b>':'')+(o.name?h(o.name):'<span class="tbd">Unnamed</span>')+(ch?' ✓</b><br><span class="muted">Selected</span>':'')+'</td><td>'+h(o.location)+'</td><td>'+(o.capacity?h(o.capacity):'')+'</td><td>'+(o.cost?h(S.settings.currency+" "+(+o.cost).toLocaleString()):'')+'</td><td>'+h(o.visit)+'</td><td>'+h(o.notes)+'</td></tr>';}).join("")+'</tbody></table>';
   return s;
 }
-// Subpoints of an agenda item (stored in a.disc). Each has a stable id so tasks can sit under it (task.sub).
-function discIds(a){var mx=0;(a.disc||[]).forEach(function(x){var q=/^S(\d+)$/.exec(x.id||"");if(q)mx=Math.max(mx,+q[1]);});(a.disc||[]).forEach(function(x){if(!x.id)x.id="S"+(++mx);});}
+// Subpoints of an agenda item (stored in a.disc). A subpoint may have its own subpoints (x.kids, one level deeper).
+// Every subpoint at either level has a stable id so resolutions stay with it and tasks can sit under it (task.sub).
+function discNodes(a){var out=[];(a.disc||[]).forEach(function(x){out.push(x);(x.kids||[]).forEach(function(c){out.push(c);});});return out;}
+function discIds(a){var mx=0,all=discNodes(a);all.forEach(function(x){var q=/^S(\d+)$/.exec(x.id||"");if(q)mx=Math.max(mx,+q[1]);});all.forEach(function(x){if(!x.id)x.id="S"+(++mx);});}
 function subTasks(a,x){return x&&x.id?S.tasks.filter(function(t){return t.agendaId===a.id&&t.sub===x.id;}):[];}
-function subIdsOf(a){return (a.disc||[]).map(function(x){return x.id;}).filter(Boolean);}
+function subIdsOf(a){return discNodes(a).map(function(x){return x.id;}).filter(Boolean);}
+function kidLetter(c){return String.fromCharCode(97+(c%26));}
+function ensureKid(a,i,c){var x=ensureDisc(a,i);x.kids=x.kids||[];while(x.kids.length<=c)x.kids.push({p:"",r:[]});x.kids[c].r=x.kids[c].r||[];return x.kids[c];}
+function subTaskBox(a,x,lock){var st=subTasks(a,x);if(!x.id||(!st.length&&lock))return '';return '<div class="dtasks"><div class="dtasks-h">Tasks for this subpoint</div><div class="tasks">'+st.map(taskRow).join("")+(lock?'':'<div class="addrow"><button class="btn ghost sm" data-a="add-task" data-ag="'+h(a.id)+'" data-sub="'+h(x.id)+'">+ Task for this subpoint</button></div>')+'</div></div>';}
+function resBox(rows,key,attr,delA,addA,label,lock){
+  return '<div class="dres">'+rows.map(function(v,j){return '<div class="lst-row"><span class="bul res">↳</span><input class="f" '+attr+'="'+h(key+"|"+j)+'" value="'+h(v)+'" placeholder="Resolution" aria-label="Resolution '+(j+1)+' for subpoint '+label+'"'+(lock?" disabled":"")+'>'+(lock?'':'<button class="btn ghost sm" data-a="'+delA+'" data-v="'+h(key+"|"+j)+'" title="Remove">✕</button>')+'</div>';}).join("")+
+    (lock?'':'<button class="btn ghost sm lst-add" data-a="'+addA+'" data-v="'+h(key)+'">+ Resolution for this subpoint</button>')+'</div>';
+}
+function kidEditor(a,x,i,lock){
+  return (x.kids||[]).map(function(c,ci){var k=a.id+"|"+i+"|"+ci,lab=(i+1)+kidLetter(ci);var rr=(c.r&&c.r.length)?c.r:(lock?[]:[""]);
+    return '<div class="dkid"><div class="lst-row"><span class="bul num">'+kidLetter(ci)+'.</span><input class="f dp" data-kp="'+h(k)+'" value="'+h(c.p)+'" placeholder="Subpoint under '+(i+1)+' (e.g. CMA Review)" aria-label="Subpoint '+lab+'"'+(lock?" disabled":"")+'>'+(lock?'':'<button class="btn ghost sm" data-a="kp-del" data-v="'+h(k)+'" title="Remove this subpoint and its resolutions (its tasks move to the item)">✕</button>')+'</div>'+
+      resBox(rr,k,"data-kr","kr-del","kr-add",lab,lock)+subTaskBox(a,c,lock)+'</div>';}).join("")+
+    (lock?'':'<button class="btn ghost sm lst-add kid-add" data-a="kp-add" data-v="'+h(a.id+"|"+i)+'">+ Subpoint under '+(i+1)+'</button>');
+}
 function discEditor(a,lock){
   discIds(a);
   var d=a.disc||[];var rows=d.length?d:(lock?[]:[{p:"",r:[]}]);
-  return '<div class="dlist"><div class="lst-h">Subpoints, resolutions &amp; tasks'+(d.length?' <span class="mono muted">'+d.length+'</span>':'')+'<span class="dhint">Enter: subpoint → its resolution → next resolution · Enter on an empty resolution: new subpoint</span></div>'+
+  return '<div class="dlist"><div class="lst-h">Subpoints, resolutions &amp; tasks'+(d.length?' <span class="mono muted">'+d.length+'</span>':'')+'<span class="dhint">Enter: subpoint → its resolution → next resolution · Enter on an empty resolution: new subpoint · “+ Subpoint under” adds a., b., c.</span></div>'+
    rows.map(function(x,i){var rr=(x.r&&x.r.length)?x.r:(lock?[]:[""]);var k=a.id+"|"+i;
-     return '<div class="dblock"><div class="lst-row"><span class="bul num">'+(i+1)+'.</span><input class="f dp" data-dp="'+h(k)+'" value="'+h(x.p)+'" placeholder="Subpoint (e.g. Venue)" aria-label="Subpoint '+(i+1)+'"'+(lock?" disabled":"")+'>'+(lock?'':'<button class="btn ghost sm" data-a="dp-del" data-v="'+h(k)+'" title="Remove this subpoint and its resolutions (its tasks move to the item)">✕</button>')+'</div>'+
-      '<div class="dres">'+rr.map(function(v,j){return '<div class="lst-row"><span class="bul res">↳</span><input class="f" data-dr="'+h(k+"|"+j)+'" value="'+h(v)+'" placeholder="Resolution for this point" aria-label="Resolution '+(j+1)+' for subpoint '+(i+1)+'"'+(lock?" disabled":"")+'>'+(lock?'':'<button class="btn ghost sm" data-a="dr-del" data-v="'+h(k+"|"+j)+'" title="Remove">✕</button>')+'</div>';}).join("")+
-      (lock?'':'<button class="btn ghost sm lst-add" data-a="dr-add" data-v="'+h(k)+'">+ Resolution for this subpoint</button>')+'</div>'+
-      (function(){var st=subTasks(a,x);if(!x.id||(!st.length&&lock))return '';return '<div class="dtasks"><div class="dtasks-h">Tasks for this subpoint</div><div class="tasks">'+st.map(taskRow).join("")+(lock?'':'<div class="addrow"><button class="btn ghost sm" data-a="add-task" data-ag="'+h(a.id)+'" data-sub="'+h(x.id)+'">+ Task for this subpoint</button></div>')+'</div></div>';})()+'</div>';}).join("")+
+     return '<div class="dblock"><div class="lst-row"><span class="bul num">'+(i+1)+'.</span><input class="f dp" data-dp="'+h(k)+'" value="'+h(x.p)+'" placeholder="Subpoint (e.g. Venue)" aria-label="Subpoint '+(i+1)+'"'+(lock?" disabled":"")+'>'+(lock?'':'<button class="btn ghost sm" data-a="dp-del" data-v="'+h(k)+'" title="Remove this subpoint, its own subpoints and resolutions (tasks move to the item)">✕</button>')+'</div>'+
+      resBox(rr,k,"data-dr","dr-del","dr-add",String(i+1),lock)+subTaskBox(a,x,lock)+
+      '<div class="dkids">'+kidEditor(a,x,i,lock)+'</div></div>';}).join("")+
    (lock?'':'<button class="btn ghost sm lst-add" data-a="dp-add" data-v="'+h(a.id)+'">+ Add subpoint</button>')+'</div>';
 }
 function syncDisc(a){
   a.disc=a.disc||[];discIds(a);
-  a.points=a.disc.map(function(x){return x.p;});
-  a.resolutions=[];a.disc.forEach(function(x){(x.r||[]).forEach(function(r){if(r)a.resolutions.push(r);});});
+  a.points=[];a.resolutions=[];
+  a.disc.forEach(function(x){a.points.push(x.p);(x.r||[]).forEach(function(r){if(r)a.resolutions.push(r);});
+    (x.kids||[]).forEach(function(c){if(c.p)a.points.push("  - "+c.p);(c.r||[]).forEach(function(r){if(r)a.resolutions.push(r);});});});
   a.discussion=a.points.filter(Boolean).join("\n");a.outcome=a.resolutions.join("; ");
 }
 function ensureDisc(a,i){a.disc=a.disc||[];while(a.disc.length<=i)a.disc.push({p:"",r:[]});a.disc[i].r=a.disc[i].r||[];return a.disc[i];}
@@ -1522,13 +1544,15 @@ function itemMinutes(a,letter){
   var info=[];if(a.owner)info.push("Presented by "+h(pname(a.owner)));if(a.carriedFrom)info.push("Carried from "+h(a.carriedFrom));if(a.addedLater)info.push("Added during the meeting");
   if(info.length)s+='<p class="small">'+info.join(" · ")+'</p>';
   var decs=projs;
-  var dd=(a.disc||[]).map(function(x){return {p:x.p||"",r:(x.r||[]).filter(Boolean),t:subTasks(a,x)};}).filter(function(x){return x.p||x.r.length||x.t.length;});
-  var anyRes=dd.some(function(x){return x.r.length;});
+  var nodeOut=function(x){return {p:x.p||"",r:(x.r||[]).filter(Boolean),t:subTasks(a,x),k:(x.kids||[]).map(nodeOut).filter(function(c){return c.p||c.r.length||c.t.length;})};};
+  var dd=(a.disc||[]).map(nodeOut).filter(function(x){return x.p||x.r.length||x.t.length||x.k.length;});
+  var anyRes=dd.some(function(x){return x.r.length||x.k.some(function(c){return c.r.length;});});
   if(dd.length){
     if(anyRes&&a.motionBy)s+='<p class="res" style="margin-bottom:2px">On motion of '+h(pname(a.motionBy))+(a.secondedBy?', duly seconded by '+h(pname(a.secondedBy)):'')+', the body resolved as follows:</p>';
-    s+='<ol class="dr">'+dd.map(function(x){return '<li>'+(x.p?'<span class="dp">'+h(x.p)+'</span>':'')+
-      (x.r.length?'<ul class="dr-r">'+x.r.map(function(r){return '<li>'+h(r)+'</li>';}).join("")+'</ul>':(x.t.length?'':'<div class="dr-none">No resolution; for further discussion.</div>'))+
-      (x.t.length?'<ul class="dr-t">'+x.t.map(function(t){return '<li><b>To-do:</b> '+(t.title?h(t.title):'<span class="tbd">Untitled</span>')+' <span class="muted">· '+whoHtml(t)+' · '+(t.due?h(fmtDate(t.due).slice(4)):'target date TBD')+' · '+h(t.status)+'</span></li>';}).join("")+'</ul>':'')+'</li>';}).join("")+'</ol>';
+    var resT=function(x){return (x.r.length?'<ul class="dr-r">'+x.r.map(function(r){return '<li>'+h(r)+'</li>';}).join("")+'</ul>':(x.t.length||x.k.length?'':'<div class="dr-none">No resolution; for further discussion.</div>'))+
+      (x.t.length?'<ul class="dr-t">'+x.t.map(function(t){return '<li><b>To-do:</b> '+(t.title?h(t.title):'<span class="tbd">Untitled</span>')+' <span class="muted">· '+whoHtml(t)+' · '+(t.due?h(fmtDate(t.due).slice(4)):'target date TBD')+' · '+h(t.status)+'</span></li>';}).join("")+'</ul>':'');};
+    s+='<ol class="dr">'+dd.map(function(x){return '<li>'+(x.p?'<span class="dp">'+h(x.p)+'</span>':'')+resT(x)+
+      (x.k.length?'<ol class="dr2">'+x.k.map(function(c){return '<li>'+(c.p?'<span class="dp">'+h(c.p)+'</span>':'')+resT(c)+'</li>';}).join("")+'</ol>':'')+'</li>';}).join("")+'</ol>';
   } else if(!a.carried&&!decs.length&&!tks.length){s+='<p class="none">'+(a.done?"Taken up; no resolution recorded.":"Not yet taken up.")+'</p>';}
   var am=meeting(String(a.id).split("-")[0]),showDet=!am||am.showDecDetails!==false;
   if(decs.length)s+='<table style="margin-top:6px"><thead><tr><th>Project</th><th style="width:'+(showDet?17:22)+'%">Decision</th><th style="width:'+(showDet?19:26)+'%">Proposed month</th>'+(showDet?'<th style="width:32%">Details</th>':'')+'</tr></thead><tbody>'+
@@ -1581,7 +1605,7 @@ function docAgenda(m){
     if(projs.length)info.push("Project"+(projs.length>1?"s":"")+": "+projs.map(function(p){return p.id+" "+(p.name?h(p.name):"Untitled");}).join("; "));
     if(a.carriedFrom)info.push("Carried from "+h(a.carriedFrom));if(a.addedLater)info.push("Added during the meeting");
     return '<div class="item"><div class="item-h"><span class="lt">'+letterOf(i)+'.</span><span>'+(a.title?h(a.title):'<span class="tbd">Untitled item</span>')+'</span></div><div class="body"><p class="small">'+info.join(" · ")+'</p>'+
-      (function(){var sp=(a.disc||[]).map(function(x){return x.p;}).filter(Boolean);return sp.length?'<ol class="dr">'+sp.map(function(p){return '<li>'+h(p)+'</li>';}).join("")+'</ol>':'';})()+'</div></div>';
+      (function(){var sp=(a.disc||[]).filter(function(x){return x.p||(x.kids||[]).some(function(c){return c.p;});});return sp.length?'<ol class="dr">'+sp.map(function(x){var kp=(x.kids||[]).map(function(c){return c.p;}).filter(Boolean);return '<li>'+h(x.p)+(kp.length?'<ol class="dr2">'+kp.map(function(p){return '<li>'+h(p)+'</li>';}).join("")+'</ol>':'')+'</li>';}).join("")+'</ol>':'';})()+'</div></div>';
   }
   var secs=[];if(m.showCall!==false)secs.push(["Call to Order",""]);if(m.showQuorum!==false)secs.push(["Determination of Quorum",""]);if(m.showAgendaApproval!==false)secs.push(["Approval of the Agenda",""]);
   if(S.meetings.some(function(x){return x.id!==m.id&&x.type===m.type&&x.status==="Closed";}))secs.push(["Approval of the Previous Minutes",""]);
@@ -1767,9 +1791,15 @@ app.addEventListener("change",function(ev){
   if(el.dataset.a==="caltasks"){U.calTasks=el.checked;render();return;}
   if(el.dataset.e)onField(el);
 });
-app.addEventListener("input",function(ev){if(ev.target.dataset&&(ev.target.dataset.dp||ev.target.dataset.dr)&&MODE!=="readonly"){var kk=(ev.target.dataset.dp||ev.target.dataset.dr).split("|"),ai=agendaItem(kk[0]);if(ai){var bb=ensureDisc(ai,+kk[1]);if(ev.target.dataset.dp)bb.p=ev.target.value;else bb.r[+kk[2]]=ev.target.value;syncDisc(ai);markDirty();renderPreview();}return;}if(ev.target.dataset&&ev.target.dataset.li&&MODE!=="readonly"){var lp=ev.target.dataset.li.split("|"),la=liOwner(lp[0]);if(la){la[lp[1]][+lp[2]]=ev.target.value;syncLists(la);markDirty();renderPreview();}return;}if(ev.target.dataset&&ev.target.dataset.e&&MODE!=="readonly"){onLive(ev.target);return;}if(ev.target.id==="pq"){U.pf.q=ev.target.value;var pos=ev.target.selectionStart;render();var q=document.getElementById("pq");if(q){q.focus();q.setSelectionRange(pos,pos);}}});
+app.addEventListener("input",function(ev){if(ev.target.dataset&&(ev.target.dataset.kp||ev.target.dataset.kr)&&MODE!=="readonly"){var zq=(ev.target.dataset.kp||ev.target.dataset.kr).split("|"),za=agendaItem(zq[0]);if(za){var zc=ensureKid(za,+zq[1],+zq[2]);if(ev.target.dataset.kp)zc.p=ev.target.value;else zc.r[+zq[3]]=ev.target.value;syncDisc(za);markDirty();renderPreview();}return;}if(ev.target.dataset&&(ev.target.dataset.dp||ev.target.dataset.dr)&&MODE!=="readonly"){var kk=(ev.target.dataset.dp||ev.target.dataset.dr).split("|"),ai=agendaItem(kk[0]);if(ai){var bb=ensureDisc(ai,+kk[1]);if(ev.target.dataset.dp)bb.p=ev.target.value;else bb.r[+kk[2]]=ev.target.value;syncDisc(ai);markDirty();renderPreview();}return;}if(ev.target.dataset&&ev.target.dataset.li&&MODE!=="readonly"){var lp=ev.target.dataset.li.split("|"),la=liOwner(lp[0]);if(la){la[lp[1]][+lp[2]]=ev.target.value;syncLists(la);markDirty();renderPreview();}return;}if(ev.target.dataset&&ev.target.dataset.e&&MODE!=="readonly"){onLive(ev.target);return;}if(ev.target.id==="pq"){U.pf.q=ev.target.value;var pos=ev.target.selectionStart;render();var q=document.getElementById("pq");if(q){q.focus();q.setSelectionRange(pos,pos);}}});
 app.addEventListener("toggle",function(ev){if(ev.target.dataset&&ev.target.dataset.det==="mdet")U.mdet=ev.target.open;},true);
 app.addEventListener("keydown",function(ev){
+  var zkp=ev.target.dataset&&ev.target.dataset.kp,zkr=ev.target.dataset&&ev.target.dataset.kr;
+  if((zkp||zkr)&&ev.key==="Enter"){ev.preventDefault();var zq=(zkp||zkr).split("|"),za=agendaItem(zq[0]);if(!za)return;var zi=+zq[1],zc=+zq[2],zn=ensureKid(za,zi,zc);
+    if(zkp){zn.p=ev.target.value;if(!zn.r.length)zn.r.push("");syncDisc(za);markDirty();render();dFocus('[data-kr="'+zq[0]+"|"+zi+"|"+zc+'|0"]');return;}
+    var zj=+zq[3],zv=ev.target.value;
+    if(zv===""){zn.r.splice(zj,1);za.disc[zi].kids.splice(zc+1,0,{p:"",r:[]});syncDisc(za);markDirty();render();dFocus('[data-kp="'+zq[0]+"|"+zi+"|"+(zc+1)+'"]');return;}
+    zn.r[zj]=zv;zn.r.splice(zj+1,0,"");syncDisc(za);markDirty();render();dFocus('[data-kr="'+zq[0]+"|"+zi+"|"+zc+"|"+(zj+1)+'"]');return;}
   var dp=ev.target.dataset&&ev.target.dataset.dp,dr=ev.target.dataset&&ev.target.dataset.dr;
   if(dp||dr){
     var k=(dp||dr).split("|"),aa=agendaItem(k[0]);if(!aa)return;var i=+k[1],blk=ensureDisc(aa,i);
@@ -1893,6 +1923,10 @@ app.addEventListener("click",function(ev){
     case "dp-del":var pd=v.split("|"),pda=agendaItem(pd[0]);if(pda&&pda.disc){pda.disc.splice(+pd[1],1);syncDisc(pda);markDirty();render();}return;
     case "dr-add":var ra=v.split("|"),raa=agendaItem(ra[0]);if(raa){var rb=ensureDisc(raa,+ra[1]);if(!rb.r.length)rb.r.push("");rb.r.push("");syncDisc(raa);markDirty();render();dFocus('[data-dr="'+ra[0]+"|"+ra[1]+"|"+(rb.r.length-1)+'"]');}return;
     case "dr-del":var rd=v.split("|"),rda=agendaItem(rd[0]);if(rda&&rda.disc&&rda.disc[+rd[1]]){rda.disc[+rd[1]].r.splice(+rd[2],1);syncDisc(rda);markDirty();render();}return;
+    case "kp-add":var zpa=v.split("|"),zpi=agendaItem(zpa[0]);if(zpi){var zx=ensureDisc(zpi,+zpa[1]);zx.kids=zx.kids||[];zx.kids.push({p:"",r:[]});syncDisc(zpi);markDirty();render();dFocus('[data-kp="'+zpa[0]+"|"+zpa[1]+"|"+(zx.kids.length-1)+'"]');}return;
+    case "kp-del":var zd=v.split("|"),zdi=agendaItem(zd[0]);if(zdi&&zdi.disc&&zdi.disc[+zd[1]]&&zdi.disc[+zd[1]].kids){zdi.disc[+zd[1]].kids.splice(+zd[2],1);syncDisc(zdi);markDirty();render();}return;
+    case "kr-add":var zr=v.split("|"),zri=agendaItem(zr[0]);if(zri){var zn2=ensureKid(zri,+zr[1],+zr[2]);if(!zn2.r.length)zn2.r.push("");zn2.r.push("");syncDisc(zri);markDirty();render();dFocus('[data-kr="'+zr[0]+"|"+zr[1]+"|"+zr[2]+"|"+(zn2.r.length-1)+'"]');}return;
+    case "kr-del":var zs=v.split("|"),zsi=agendaItem(zs[0]);if(zsi){var zn3=ensureKid(zsi,+zs[1],+zs[2]);zn3.r.splice(+zs[3],1);syncDisc(zsi);markDirty();render();}return;
     case "li-add":var lq=v.split("|"),lqa=liOwner(lq[0]);if(lqa){lqa[lq[1]].push("");markDirty();render();liFocus(lq[0]+"|"+lq[1]+"|"+(lqa[lq[1]].length-1));}return;
     case "li-del":var ld=v.split("|"),lda=liOwner(ld[0]);if(lda){lda[ld[1]].splice(+ld[2],1);syncLists(lda);markDirty();render();}return;
     case "sched-off":var so=agendaItem(v);if(so){so.schedFor="";so.schedPart="";markDirty();render();}return;
