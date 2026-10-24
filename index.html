@@ -453,8 +453,9 @@ PERFORMANCE OF THIS SOFTWARE.
     if (dm) { r.d = +dm[1]; r.m = monthIndex(dm[2]); r.y = +dm[3]; r.time = dm[4] || ''; }
     if (/^12:00\s*AM$/i.test(r.time)) r.time = ''; // midnight means no start time was set
     var vm = /📍\s*([^\n]+)/.exec(meta);
-    if (vm) r.venue = vm[1].split(/💳|🎓|🎟/)[0].trim();
-    var fm = /💳\s*([^\n📍🗓🎓]+)/.exec(meta);
+    if (vm) r.venue = vm[1].split(/💳|🆓|🎓|🎟/)[0].trim();
+    // paid events show 💳 + price; free events show 🆓 Free
+    var fm = /(?:💳|🆓)\s*([^\n📍🗓🎓]+)/.exec(meta);
     if (fm) r.fee = fm[1].trim();
     if (!r.y) { // month-only items (chapter projects): "Scheduled for March 2027" or "during Ramadan 2027"
       var mm = new RegExp('\\b(' + MONL.join('|') + ')\\s+(20\\d\\d)\\b').exec(desc);
