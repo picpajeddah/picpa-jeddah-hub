@@ -3159,7 +3159,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       rows.map(function (r) { return tr(r); }).join('') + (total ? tr(total, 'rp-tot') : '') + '</tbody></table></div>';
   }
   var REPORT_CSS = '<style>' +
-    '.rp-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:var(--s2);margin:var(--s3) 0}' +
+    '.rp-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s2);margin:var(--s3) 0}' +
+    '@media (max-width:32rem){.rp-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}' +
     '.rp-kpi{background:var(--surface-2);border-radius:var(--r-sm);padding:var(--s3);border-bottom:3px solid var(--warn);text-align:center}' +
     '.rp-kpi b{display:block;font-size:1.5rem;color:var(--navy-800);font-variant-numeric:tabular-nums}' +
     '.rp-kpi span{display:block;font-size:var(--fs-xs);color:var(--muted)}.rp-kpi i{display:block;font-style:normal;font-size:var(--fs-xs);font-weight:700;letter-spacing:.04em;color:var(--muted)}' +
