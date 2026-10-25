@@ -2801,7 +2801,9 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   /** cert_context().default_signatories as a chooser pair. */
   function defaultPair() {
     var d = (S.ctx && Array.isArray(S.ctx.default_signatories) ? S.ctx.default_signatories : []).filter(officerById);
-    return [d[0] || '', d[1] && d[1] !== d[0] ? d[1] : '', ''];
+    var out = [];
+    d.forEach(function (id) { if (id && out.indexOf(id) < 0 && out.length < 3) out.push(id); });
+    return [out[0] || '', out[1] || '', out[2] || ''];                    // the three defaults (21-certificates-third-default.sql)
   }
   /** A certificate's snapshot of who signed it, or null (none saved: it prints with the chooser's choice). */
   function snapOf(c) { return c && Array.isArray(c.signatories) && c.signatories.length ? c.signatories : null; }
@@ -3405,10 +3407,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (!S.showSettings || !S.ctx) return '';
     var s = settings(), pos = [];
     officers().forEach(function (o) { if (o.position && pos.indexOf(o.position) < 0) pos.push(o.position); });
-    function posSelect(id, name, cur) {
+    function posSelect(id, name, cur, none) {
       var list = pos.slice();
       if (cur && list.indexOf(cur) < 0) list.unshift(cur);
-      return '<select id="' + id + '" name="' + name + '">' + list.map(function (p) {
+      return '<select id="' + id + '" name="' + name + '">' + (none ? '<option value=""' + (cur ? '' : ' selected') + '>None</option>' : '') + list.map(function (p) {
         return '<option value="' + esc(p) + '"' + (p === cur ? ' selected' : '') + '>' + esc(p) + '</option>';
       }).join('') + '</select>';
     }
@@ -3422,6 +3424,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       'you can change who signs each batch there.</p>' +
       '<div class="tk-field"><label for="ct-s-s1">Default signatory 1</label>' + posSelect('ct-s-s1', 's1', s.signatory_1) + '</div>' +
       '<div class="tk-field"><label for="ct-s-s2">Default signatory 2</label>' + posSelect('ct-s-s2', 's2', s.signatory_2) + '</div>' +
+      '<div class="tk-field"><label for="ct-s-s3">Default signatory 3 (optional)</label>' + posSelect('ct-s-s3', 's3', s.signatory_3 || '', true) + '</div>' +
       '<div class="tk-field"><label for="ct-s-lay">Default design</label><select id="ct-s-lay" name="layout">' + LAYOUTS.map(function (l) {
         return '<option value="' + l[0] + '"' + (s.default_layout === l[0] ? ' selected' : '') + '>' + l[1] + '</option>';
       }).join('') + '</select></div>' +
@@ -3896,18 +3899,19 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       var els = form && form.elements, c = els ? (els.namedItem ? els.namedItem(n) : els[n]) : null;
       return c && c.value != null ? String(c.value).trim() : '';
     }
-    var url = val('url'), s1 = val('s1'), s2 = val('s2'), lay = val('layout');
+    var url = val('url'), s1 = val('s1'), s2 = val('s2'), s3 = val('s3'), lay = val('layout');
     if (url && (url.length > 300 || !/^https:\/\/\S+\/exec$/.test(url))) {
       TK.setHTML('ct-s-err', esc('Paste the web app address from the mailer set-up; it starts with https and ends in /exec.'));
       return null;
     }
     if (!s1 || !s2) { TK.setHTML('ct-s-err', esc('Choose both signatories.')); return null; }
     if (s1 === s2) { TK.setHTML('ct-s-err', esc('Choose two different signatories.')); return null; }
+    if (s3 && (s3 === s1 || s3 === s2)) { TK.setHTML('ct-s-err', esc('Choose a different position for Signatory 3, or None.')); return null; }
     TK.setHTML('ct-s-err', '');
     var go = byId('ct-s-go');
     if (go && go.setAttribute) go.setAttribute('disabled', 'disabled');
     var id = S.eventId, mine = S.seq;
-    return TK.rpc('cert_save_settings', { p_mailer_url: url || null, p_signatory_1: s1, p_signatory_2: s2,
+    return TK.rpc('cert_save_settings', { p_mailer_url: url || null, p_signatory_1: s1, p_signatory_2: s2, p_signatory_3: s3 || null,
       p_default_layout: lay === 'modern' ? 'modern' : 'formal' }).then(function () {
       if (mine !== S.seq) return null;
       S.sign = null;                              // Signed by starts again from the new defaults
