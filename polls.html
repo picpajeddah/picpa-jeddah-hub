@@ -594,7 +594,9 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
 .pl-bar { height: 10px; margin-top: 6px; border-radius: var(--r-pill); background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
 .pl-bar span { display: block; height: 100%; background: var(--navy-500); border-radius: var(--r-pill); }
 .pl-lead .pl-bar span { background: var(--green-700); }
-.pl-waiting { margin-top: var(--s3); }
+.pl-waiting { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--s2); }
+.pl-waiting li { padding: 4px var(--s3); border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--surface-2);
+  font-size: var(--fs-sm); color: var(--navy-800); }
 .pl-myrank { margin: 0 0 var(--s3); padding-left: 1.4em; }
 .pl-manage { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: var(--s4); }
 .pl-share { display: flex; gap: var(--s2); margin-bottom: var(--s3); flex-wrap: wrap; }
@@ -1655,7 +1657,9 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
         p.voters.map(function (v) { return '<tr><td>' + esc(v.name) + '</td><td>' + esc(choiceText(p, v.choice)) + '</td></tr>'; }).join('') + '</tbody></table></div>';
     }
     if (p.open && p.waiting && p.waiting.length) {
-      out += '<p class="tk-mini pl-waiting"><b>Not yet voted:</b> ' + esc(p.waiting.join(', ')) + '</p>';
+      // one chip per name: names such as "Juan Cruz, CPA" contain commas, so a comma-joined line ran them together
+      out += '<h3>Not yet voted (' + p.waiting.length + ')</h3><ul class="pl-waiting">' +
+        p.waiting.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>';
     }
     if (p.anonymous) out += '<p class="tk-mini">Anonymous poll: names are not recorded with the votes.</p>';
     return out + '</section>';
