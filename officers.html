@@ -537,6 +537,20 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   .tk-ct-offrow input[data-f="position"] { grid-column: 2 / 4; grid-row: 2; }
   .tk-ct-offrow input[data-f="term"] { grid-column: 2 / 4; grid-row: 3; }
 }
+/* verify.html: the public certificate check (2026-10-22) */
+.tk-vwrap { max-width: 640px; margin: 0 auto; }
+.tk-vwrap h1 { margin-bottom: 4px; }
+.tk-vbanner { margin: 16px 0; }
+.tk-vcard { padding: 20px; }
+.tk-vkind { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.tk-vname { margin: 6px 0 14px; font-size: 24px; line-height: 1.25; overflow-wrap: anywhere; }
+.tk-vlist { margin: 0 0 16px; }
+.tk-vrow { display: grid; grid-template-columns: 130px 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.tk-vrow dt { color: var(--muted); font-size: 14px; }
+.tk-vrow dd { margin: 0; overflow-wrap: anywhere; }
+.tk-vsigners { display: flex; flex-direction: column; gap: 8px; }
+.tk-vsigner { display: flex; flex-direction: column; }
+@media (max-width: 480px) { .tk-vrow { grid-template-columns: 1fr; gap: 2px; } .tk-vname { font-size: 21px; } }
 </style>
 </head>
 <body data-page="officers">
@@ -1445,7 +1459,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   var GROUPS = [
     ['Run the chapter', [
       ['Chapter Tracker', 'Projects, activities, meetings and tasks.', './tracker.html', 'tracker'],
-      ['Chapter calendar', 'Public view of chapter activities.', './calendar.html', 'all']]],
+      ['Chapter calendar', 'Public view of chapter activities.', './calendar.html', 'all'],
+      ['Chapter polls', 'Create a poll, share the link, see the results.', './polls.html', 'signed']]],
     ['Money', [
       ['Ledger', 'Receipts, payments, approvals and statements.', './ledger.html', 'ledger'],
       ['Events console', 'Tickets, payments, attendees, walk-ins and CSV.', './manage.html', 'officer'],
