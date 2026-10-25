@@ -2160,12 +2160,18 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     }
     if (eventCancelled()) return '<h2>Walk-in</h2><p class="tk-muted">This event is cancelled, so walk-ins can\'t be added.</p>';
     return '<h2>Walk-in</h2><p class="tk-muted">Someone at the door without a ticket. This creates the ticket, records the payment in the Ledger and checks them in.</p>' +
+      '<p class="tk-muted">For a person who did not register and did not attend but paid the fee (not refunded), choose ' +
+      '<b>Paid, did not attend</b>: the ticket is created with the full fee recorded in the Ledger and is tagged "Did not attend". ' +
+      'This is available once the event has taken place.</p>' +
       '<form class="tk-form tk-form-2" data-action="cn.walk" id="mg-walk" novalidate>' +
+      '<div class="tk-field tk-wide"><label for="mg-w-att">Attendance</label><select id="mg-w-att" name="att">' +
+      '<option value="in">Attending now (check in)</option><option value="absent">Paid, did not attend</option></select></div>' +
       '<div class="tk-field"><label for="mg-w-kind">Type</label><select id="mg-w-kind" name="kind"><option value="guest">Guest</option><option value="member">Member</option></select></div>' +
       '<div class="tk-field"><label for="mg-w-mode">Payment</label><select id="mg-w-mode" name="mode"><option value="cash">Cash</option>' +
       '<option value="bank">Bank transfer</option><option value="stcpay">STC Pay</option><option value="free">Free (no fee)</option></select></div>' +
       '<div class="tk-field tk-wide"><label for="mg-w-name">Full name</label><input id="mg-w-name" name="name" type="text" maxlength="120" autocomplete="off" required></div>' +
       '<div class="tk-field tk-wide"><label for="mg-w-phone">Phone (optional)</label><input id="mg-w-phone" name="phone" type="tel" maxlength="40" autocomplete="off"></div>' +
+      '<div class="tk-field tk-wide"><label for="mg-w-ref">Payment reference (optional; Paid, did not attend only)</label><input id="mg-w-ref" name="ref" type="text" maxlength="80" autocomplete="off"></div>' +
       '<div class="tk-wide"><button type="submit" class="tk-btn tk-btn-primary" id="mg-wgo">Add walk-in and check in</button></div></form>';
   }
 
@@ -2680,14 +2686,27 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var phone = String(fp && fp.value != null ? fp.value : '').trim();
     var kind = fk && fk.value === 'member' ? 'member' : 'guest';
     var mode = fm && (fm.value === 'bank' || fm.value === 'stcpay' || fm.value === 'free') ? fm.value : 'cash';
+    var fa = field(form, 'att'), fr = field(form, 'ref');
+    var absent = !!(fa && fa.value === 'absent');
+    var ref = String(fr && fr.value != null ? fr.value : '').trim();
     if (!name || name.length > 120) { setNotice('crit', ['Please enter the full name (up to 120 characters).']); return null; }
+    if (absent && mode === 'free') { setNotice('crit', ['"Paid, did not attend" needs the payment: choose cash, bank transfer or STC Pay.']); return null; }
+    if (ref.length > 80) { setNotice('crit', ['The payment reference is too long (up to 80 characters).']); return null; }
     var go = byId('mg-wgo');
     if (go && go.setAttribute) go.setAttribute('disabled', 'disabled');
     var ev = S.eventId;
     function msg(out) {
+      if (absent) {
+        return 'Ticket issued: ' + name + ' (' + (out.ticket_no || '') + ')' + (out.ledger_doc ? '. Ledger receipt ' + out.ledger_doc : '') +
+          '. Tagged "Did not attend".';
+      }
       return 'Walk-in added: ' + name + ' (' + (out.ticket_no || '') + ')' + (out.ledger_doc ? '. Ledger receipt ' + out.ledger_doc : '') + '. Checked in.';
     }
     return run(function () {
+      if (absent) {
+        return TK.rpc('ticketing_add_paid_absent', { p_announcement: ev, p_kind: kind, p_name: name, p_phone: phone || null, p_mode: mode,
+          p_ref: ref || null });
+      }
       return TK.rpc('ticketing_add_walkin', { p_announcement: ev, p_kind: kind, p_name: name, p_phone: phone || null, p_mode: mode });
     }, {
       ok: function (out) {
@@ -2702,6 +2721,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         setNotice('good', [msg(out)]);
         if (fn) fn.value = '';
         if (fp) fp.value = '';
+        if (fr) fr.value = '';
         S.tickets = null;                     // the next list view reloads
         return undefined;
       },
