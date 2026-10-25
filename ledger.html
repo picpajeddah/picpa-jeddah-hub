@@ -372,6 +372,10 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
 .open-grid { min-width: 640px; }
 .open-grid input.num-input { text-align: right; min-width: 8rem; width: 100%; border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: var(--s1) var(--s2); min-height: 36px; background: var(--surface); }
 .open-grid td.num { white-space: nowrap; }
+/* split charges on a reimbursement request (views/reimb.js) */
+table.rr-lines input, table.rr-lines select, .modal table.grid select { width: 100%; min-width: 8rem; border: 1px solid var(--line-strong); border-radius: var(--r-sm); padding: var(--s1) var(--s2); min-height: 36px; background: var(--surface); }
+table.rr-lines input[inputmode="decimal"] { text-align: right; }
+.rr-total { margin-left: auto; }
 </style>
 </head>
 <body>
@@ -1336,6 +1340,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       return cap(the(c, 'this record')) + ' was changed by ' + ((c && c.by) || 'someone else') +
         (c && c.at ? ' at ' + c.at : '') + ' — reload to see the latest version. Your changes were not saved.';
     },
+    LEDGER_REIMB_LINE: function (c) { return (c && c.detail) || 'Check the charges on the request.'; },
     LEDGER_FILE_TYPE: function () {
       return "That file can't be attached. Use a photo (JPEG, PNG or HEIC) or a PDF, up to 9 MB.";
     },
@@ -1592,7 +1597,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
                settings: { fy_label: ctx.fy_label || '', fy_start: ctx.fy_start || '', fy_end: ctx.fy_end || '', currency: ctx.currency || 'SAR' },
                settingRows: [], accounts: [], events: (ctx.events || []).map(function (e) { return { id: e.id, code: e.code, name: e.name, active: true }; }),
                openings: [], pledges: [], txns: [], users: [], officers: [], officerOpenings: [], budgetLines: [], reimbursements: [],
-               myReimb: [], names: {} };
+               reimbLines: [], myReimb: [], names: {} };
     return reloadMine(st).then(function () {
       return loadNames([user.id]).then(function (profiles) {
         profiles.forEach(function (p) { if (p.full_name) st.names[p.id] = p.full_name; });
@@ -1626,12 +1631,14 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
         soft(select('ledger_budget_lines'), []),
         // reimbursement requests (09-reimbursements.sql); the caller's own officer, if linked to this login
         soft(select('ledger_reimbursements', function (q) { return q.order('requested_at', { ascending: false }); }), []),
-        soft(rpc('ledger_my_officer'), [])
+        soft(rpc('ledger_my_officer'), []),
+        // split charges (10-reimbursement-lines.sql); empty if the database does not have them yet
+        soft(select('ledger_reimbursement_lines', function (q) { return q.order('line_no'); }), [])
       ]).then(function (rest) {
         var mine = [].concat(rest[8] || [])[0];
         var st = { user: user, role: role, settings: settings, settingRows: ref[0], accounts: ref[1], events: ref[2],
                    openings: rest[0], pledges: rest[1], txns: rest[2], users: rest[3], officers: rest[4],
-                   officerOpenings: rest[5], budgetLines: rest[6], reimbursements: rest[7],
+                   officerOpenings: rest[5], budgetLines: rest[6], reimbursements: rest[7], reimbLines: rest[9] || [],
                    myOfficer: mine ? { id: mine.officer_id, name: mine.name } : null, myReimb: [], names: {} };
         (st.reimbursements || []).forEach(function (r) { ids.push(r.requested_by); });
         st.txns.forEach(function (t) { ids.push(t.entered_by, t.approved_by); });
@@ -2105,8 +2112,18 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   }
   /** All requests (ledger users only; RLS hides them from anyone else). */
   function reloadReimb() {
-    return select('ledger_reimbursements', function (q) { return q.order('requested_at', { ascending: false }); })
-      .then(function (rows) { S.state.reimbursements = rows; touch(); return rows; });
+    return Promise.all([
+      select('ledger_reimbursements', function (q) { return q.order('requested_at', { ascending: false }); }),
+      soft(select('ledger_reimbursement_lines', function (q) { return q.order('line_no'); }), [])
+    ]).then(function (r) { S.state.reimbursements = r[0]; S.state.reimbLines = r[1] || []; touch(); return r[0]; });
+  }
+  /** The charges of a request, in order; a request from before split charges reads as one charge. */
+  function reimbLinesOf(r) {
+    if (!r) return [];
+    var ls = (S.state.reimbLines || []).filter(function (l) { return l.reimbursement_id === r.id; })
+      .sort(function (a, b) { return a.line_no - b.line_no; });
+    return ls.length ? ls : [{ id: null, reimbursement_id: r.id, line_no: 1, event_id: r.event_id, description: r.description,
+                               amount: r.amount, account_id: r.account_id, expense_txn_id: r.expense_txn_id }];
   }
   /** A receipt goes to the officer's own folder of the private bucket: reimb/<user id>/<stamp>-<rand>_<name>. */
   function reimbPath(filename, d) {
@@ -2119,27 +2136,50 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     name = name.replace(/[^\w.-]+/g, '_').replace(/_+/g, '_').slice(-80) || 'receipt';
     return 'reimb/' + S.state.user.id + '/' + stamp + '-' + rand + '_' + name;
   }
-  /** File a request: upload the receipt, then submit. f = {event_id, description, spent_on, amount, file, filename}. */
+  var MAX_RECEIPTS = 6;
+  /**
+   * File a request: upload the receipts (1 to 6), then submit. f = {spent_on, description, lines: [{event_id,
+   * description, amount}], files: [File]}. The one-charge form {event_id, description, amount, file} still works.
+   */
   function reimbSubmit(f) {
-    if (!f || !f.file) return Promise.reject(LedgerError('LEDGER_RECEIPT_REQUIRED'));
-    if (!(f.file.size <= MAX_FILE)) return Promise.reject(LedgerError('LEDGER_FILE_TYPE'));
-    if (!moneyOk(f.amount)) return Promise.reject(LedgerError('LEDGER_AMOUNT'));
-    var p = reimbPath(f.filename || f.file.name);
-    return exec(function () {
-      return client().storage.from(BUCKET).upload(p, f.file, { upsert: false, contentType: f.file.type });
-    }).then(function (r) {
-      data(r);
-      return rpc('ledger_reimb_submit', { p_event_id: f.event_id, p_description: f.description, p_spent_on: f.spent_on,
-        p_amount: typeof f.amount === 'string' ? parseAmount(f.amount) : f.amount, p_attachment_path: p });
+    if (!f) return Promise.reject(LedgerError('LEDGER_RECEIPT_REQUIRED'));
+    var files = (f.files && f.files.length ? Array.prototype.slice.call(f.files) : (f.file ? [f.file] : []));
+    var lines = f.lines || [{ event_id: f.event_id, description: f.description, amount: f.amount }];
+    if (!files.length) return Promise.reject(LedgerError('LEDGER_RECEIPT_REQUIRED'));
+    if (files.length > MAX_RECEIPTS) return Promise.reject(LedgerError('LEDGER_REIMB_LINE', { detail: 'Attach at most ' + MAX_RECEIPTS + ' receipt files.' }));
+    if (files.some(function (x) { return !(x.size <= MAX_FILE); })) return Promise.reject(LedgerError('LEDGER_FILE_TYPE'));
+    if (!lines.length) return Promise.reject(LedgerError('LEDGER_REIMB_LINE', { detail: 'Add at least one charge.' }));
+    lines = lines.map(function (l) {
+      return { event_id: l.event_id, description: String(l.description || '').trim(),
+               amount: typeof l.amount === 'string' ? parseAmount(l.amount) : l.amount };
+    });
+    if (lines.some(function (l) { return !moneyOk(l.amount); })) return Promise.reject(LedgerError('LEDGER_AMOUNT'));
+    var paths = files.map(function (x) { return reimbPath(x.name); });
+    var up = paths.reduce(function (p, path, i) {
+      return p.then(function () {
+        return exec(function () {
+          return client().storage.from(BUCKET).upload(path, files[i], { upsert: false, contentType: files[i].type });
+        }).then(data);
+      });
+    }, Promise.resolve());
+    return up.then(function () {
+      return rpc('ledger_reimb_submit_lines', { p_spent_on: f.spent_on, p_description: f.summary !== undefined ? f.summary : (f.lines ? '' : f.description),
+        p_lines: lines, p_attachment_path: paths[0], p_extra_paths: paths.slice(1) });
     }).then(function (row) { return reloadMine().then(function () { return row; }); });
   }
   function reimbCancel(id) {
     return rpc('ledger_reimb_cancel', { p_id: id }).then(function (row) { return reloadMine().then(function () { return row; }); });
   }
-  /** Approver: approve (with the expense account, optionally another event) or reject (with a reason). */
-  function reimbDecide(id, action, accountId, eventId, note) {
-    return rpc('ledger_reimb_decide', { p_id: id, p_action: action, p_account_id: accountId || null, p_event_id: eventId || null,
-      p_note: note || null }).then(function (row) {
+  /**
+   * Approver: approve or reject (with a reason). accountOrLines is either one expense account for every charge, or
+   * [{id, account_id, event_id}] with an account (and optionally another event) per charge.
+   */
+  function reimbDecide(id, action, accountOrLines, eventId, note) {
+    var call = Array.isArray(accountOrLines)
+      ? rpc('ledger_reimb_decide_lines', { p_id: id, p_action: action, p_lines: accountOrLines, p_note: note || null })
+      : rpc('ledger_reimb_decide', { p_id: id, p_action: action, p_account_id: accountOrLines || null, p_event_id: eventId || null,
+          p_note: note || null });
+    return call.then(function (row) {
       return Promise.all([reloadReimb(), reloadTxns()]).then(function () { return row; });
     });
   }
@@ -2189,7 +2229,7 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     saveOfficer: saveOfficer, deleteOfficer: deleteOfficer, saveOfficerOpening: saveOfficerOpening,
     deleteOfficerOpening: deleteOfficerOpening, officerAccounts: officerAccounts, isOfficerAccount: isOfficerAccount,
     officerName: officerName, sideText: sideText, reloadMine: reloadMine, reloadReimb: reloadReimb, reimbPath: reimbPath,
-    reimbSubmit: reimbSubmit, reimbCancel: reimbCancel, reimbDecide: reimbDecide, reimbPay: reimbPay, budgetLinesOf: budgetLinesOf, saveBudgetLines: saveBudgetLines, refreshEvent: refreshEvent,
+    reimbSubmit: reimbSubmit, reimbCancel: reimbCancel, reimbLinesOf: reimbLinesOf, MAX_RECEIPTS: MAX_RECEIPTS, reimbDecide: reimbDecide, reimbPay: reimbPay, budgetLinesOf: budgetLinesOf, saveBudgetLines: saveBudgetLines, refreshEvent: refreshEvent,
     touch: touch, views: {}, actions: actions, action: action,
     client: function () { return S.client; },
     get expired() { return S.expired; }
@@ -5823,19 +5863,19 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
  * views/reimb.js — officer reimbursement requests (sql/09-reimbursements.sql). Registers LD.views.reimb =
  * {mine(), queue()} and the 'reimb.*' handlers.
  *
- *  mine()   An officer linked to the signed-in Hub login (with or without a ledger role) files a request: event,
- *           what was bought, the date, the amount and a receipt. They follow its status and may cancel it while it
- *           waits for a decision.
+ *  mine()   An officer linked to the signed-in Hub login (with or without a ledger role) files a request: the date,
+ *           one or more charges (event, description, amount; sql/10) and the receipts. They follow its status and
+ *           may cancel it while it waits for a decision.
  *  queue()  Ledger users see every request. An Approver who is not the requester approves (choosing the expense
- *           account; this books "officer paid with own money") or rejects with a reason, then records the payout
- *           from a cash fund, which a second Approver checks in the approval queue.
+ *           account of each charge; this books "officer paid with own money" per charge) or rejects with a reason,
+ *           then records the payout of the total from a cash fund, which a second Approver checks in the approval queue.
  * The database owns every rule; this file only hides what the caller cannot do and words the result.
  */
 (function (root) {
   'use strict';
   var LD = root.LD, esc = LD.esc;
   var ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,.heic,.heif,.pdf';
-  var S = { decide: null, pay: null };
+  var S = { decide: null, lines: null, pay: null };
 
   function app() { return root.LedgerApp; }
   function state() { return LD.state; }
@@ -5876,20 +5916,50 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   }
 
   // ------------------------------------------------------------------ the officer's screen
+  /** One line per charge, for a list cell: "1. GEN · Food 120.50". */
+  function chargesText(lines, withAccount) {
+    return lines.map(function (l, n) {
+      var acc = withAccount && l.account_id ? ' → ' + nameOf(state().accounts, l.account_id, 'name') : '';
+      return '<span class="mini muted">' + (n + 1) + '. ' + esc((l.event_code || nameOf(state().events, l.event_id, 'code')) + ' · ' +
+        l.description + ' ' + LD.fmt(l.amount) + acc) + '</span>';
+    }).join('<br>');
+  }
+  function codesOf(lines) {
+    var seen = [];
+    lines.forEach(function (l) { var c = l.event_code || nameOf(state().events, l.event_id, 'code'); if (seen.indexOf(c) < 0) seen.push(c); });
+    return seen.join(', ');
+  }
   function mineList() {
     var rows = state().myReimb || [];
     if (!rows.length) return '<p class="muted">You have not requested a reimbursement yet.</p>';
     return '<div class="table-wrap"><table class="grid stack"><thead><tr><th scope="col">Request</th><th scope="col">Event</th>' +
       '<th scope="col">What for</th><th scope="col" class="num">Amount</th><th scope="col">Status</th><th scope="col"></th></tr></thead><tbody>' +
       rows.map(function (r) {
-        var s = standing(r.status, r.payout_status, r.note);
+        var s = standing(r.status, r.payout_status, r.note), lines = r.lines || [];
         return '<tr data-ref="' + esc(r.ref) + '"><td data-label="Request"><b>' + esc(r.ref) + '</b><br><span class="muted">Spent ' + esc(r.spent_on) + '</span></td>' +
-          '<td data-label="Event">' + esc(r.event_code) + '</td><td data-label="What for">' + esc(r.description) + '</td>' +
+          '<td data-label="Event">' + esc(lines.length ? codesOf(lines) : r.event_code) + '</td><td data-label="What for">' + esc(r.description) +
+          (lines.length > 1 ? '<br>' + chargesText(lines) : '') + '</td>' +
           '<td class="num" data-label="Amount">' + LD.fmt(r.amount) + '</td>' +
           '<td data-label="Status">' + pill(s.label, s.cls) + (s.detail ? '<br><span class="mini muted">' + esc(s.detail) + '</span>' : '') + '</td>' +
           '<td data-label="">' + (r.status === 'Submitted' ? '<button type="button" class="btn btn-small btn-danger" data-action="reimb.cancelAsk" data-id="' +
             esc(r.id) + '">Cancel</button>' : '') + '</td></tr>';
       }).join('') + '</tbody></table></div>';
+  }
+
+  // charge rows on the request form; keys survive a re-render
+  var F = { keys: ['c0'], seq: 1 };
+  function activeEvents() { return (state().events || []).filter(function (e) { return e.active !== false; }); }
+  function chargeRow(k, evId) {
+    var evs = activeEvents();
+    return '<tr id="rr-row-' + k + '" data-key="' + k + '">' +
+      '<td data-label="Event"><select name="l_event_' + k + '" aria-label="Event">' + evs.map(function (e) {
+        return '<option value="' + esc(e.id) + '"' + (e.id === evId ? ' selected' : '') + '>' + esc(e.code + ' · ' + e.name) + '</option>';
+      }).join('') + '</select></td>' +
+      '<td data-label="Description"><input name="l_desc_' + k + '" type="text" maxlength="200" aria-label="Description" ' +
+        'placeholder="For example: plaques, 12 pieces"></td>' +
+      '<td data-label="Amount" class="num"><input name="l_amount_' + k + '" type="text" inputmode="decimal" placeholder="0.00" ' +
+        'aria-label="Amount" data-input="reimb.calc"></td>' +
+      '<td><button type="button" class="btn btn-small" data-action="reimb.dropLine" data-key="' + k + '" aria-label="Remove this charge">Remove</button></td></tr>';
   }
   function mine() {
     var st = state(), me = st.myOfficer, set = st.settings;
@@ -5897,23 +5967,25 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
       return '<section class="card"><p class="note note-warn" role="alert">Your Hub login is not linked to an officer, so you cannot request a ' +
         'reimbursement here. Ask an approver to link you under Admin, Officers.</p></section>';
     }
-    var events = (st.events || []).filter(function (e) { return e.active !== false; });
-    var max = set.fy_end && set.fy_end < today() ? set.fy_end : today();
+    var max = set.fy_end && set.fy_end < today() ? set.fy_end : today(), cur = esc(set.currency || 'SAR');
     var html = '<section class="card rec-card"><h2>Request a reimbursement</h2>' +
       '<p class="muted">For chapter costs you paid with your own money. Requested by <b>' + esc(me.name) + '</b>. ' +
-      'An approver checks the receipt; once approved the chapter owes you the amount, and you are told when it has been paid.</p>' +
+      'List each charge separately (for example food, printing and transport), each under its event. An approver checks the receipts; ' +
+      'once approved the chapter owes you the total, and you are told when it has been paid.</p>' +
       '<form class="rec-form" data-submit="reimb.submit" novalidate autocomplete="off"><div class="rec-grid">' +
-      '<div class="field"><label for="rr-event">Event</label><select id="rr-event" name="event_id">' +
-        events.map(function (e) { return '<option value="' + esc(e.id) + '">' + esc(e.code + ' · ' + e.name) + '</option>'; }).join('') + '</select></div>' +
       '<div class="field"><label for="rr-date">Date paid</label><input id="rr-date" name="spent_on" type="date" min="' + esc(set.fy_start || '') +
         '" max="' + esc(max) + '" value="' + esc(max) + '"><span class="hint">Within ' + esc(set.fy_label || 'the financial year') + ', not in the future.</span></div>' +
-      '<div class="field"><label for="rr-amount">Amount (' + esc(set.currency || 'SAR') + ')</label><input id="rr-amount" name="amount" type="text" ' +
-        'inputmode="decimal" placeholder="0.00"><span class="hint">As on the receipt.</span></div>' +
-      '<div class="field rec-wide"><label for="rr-desc">What was paid for</label><input id="rr-desc" name="description" type="text" maxlength="200" ' +
-        'placeholder="For example: plaques for the induction, 12 pieces"><span class="hint">At least 4 characters.</span></div>' +
-      '<div class="field rec-wide"><label for="rr-file">Receipt (required)</label><input id="rr-file" name="receipt" type="file" accept="' + ACCEPT + '">' +
-        '<span class="hint">Photo (JPEG, PNG, HEIC) or PDF, up to 9 MB.</span></div>' +
-      '</div><div id="rr-err" aria-live="assertive"></div>' +
+      '<div class="field rec-wide"><label for="rr-desc">Purpose of the request (optional)</label><input id="rr-desc" name="summary" type="text" maxlength="200" ' +
+        'placeholder="For example: 1st GMM preparations"><span class="hint">If left blank, it is taken from the charges.</span></div>' +
+      '</div><h3>Charges</h3><div class="table-wrap"><table class="grid stack rr-lines"><thead><tr><th scope="col">Event</th>' +
+        '<th scope="col">Description</th><th scope="col" class="num">Amount (' + cur + ')</th><th scope="col"></th></tr></thead>' +
+        '<tbody id="rr-lines">' + F.keys.map(function (k) { return chargeRow(k, null); }).join('') + '</tbody></table></div>' +
+      '<div class="btn-row"><button type="button" class="btn" data-action="reimb.addLine">+ Add a charge</button>' +
+        '<span class="rr-total">Total: <b id="rr-total">' + LD.fmt(0) + '</b> ' + cur + '</span></div>' +
+      '<div class="field rec-wide"><label for="rr-file">Receipts (at least one, up to ' + LD.MAX_RECEIPTS + ' files)</label>' +
+        '<input id="rr-file" name="receipt" type="file" multiple accept="' + ACCEPT + '">' +
+        '<span class="hint">Photos (JPEG, PNG, HEIC) or PDF, up to 9 MB each. Select several files at once if there is more than one receipt.</span></div>' +
+      '<div id="rr-err" aria-live="assertive"></div>' +
       '<div class="btn-row"><button type="submit" id="rr-save" class="btn btn-primary">Submit request</button></div></form></section>' +
       '<section class="card"><h2>My requests</h2><div id="rr-mine">' + mineList() + '</div></section>';
     return {
@@ -5924,28 +5996,81 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     };
   }
 
-  function fileOf(form) {
+  function filesOf(form) {
     var f = field(form, 'receipt');
-    return f && f.files && f.files[0] ? f.files[0] : null;
+    return f && f.files ? Array.prototype.slice.call(f.files) : [];
   }
+  /** The charges typed on the form; a row left completely blank is skipped. */
+  function chargesOf(form) {
+    var out = [];
+    F.keys.forEach(function (k) {
+      if (!field(form, 'l_desc_' + k)) return;
+      var d = val(form, 'l_desc_' + k).trim(), a = val(form, 'l_amount_' + k).trim();
+      if (!d && !a) return;
+      out.push({ key: k, event_id: val(form, 'l_event_' + k), description: d, raw: a, amount: LD.parseAmount(a) });
+    });
+    return out;
+  }
+  function showTotal(form) {
+    var t = 0;
+    chargesOf(form).forEach(function (c) { if (c.amount !== null) t += c.amount; });
+    var el = byId('rr-total');
+    if (el) el.textContent = LD.fmt(Math.round(t * 100) / 100);
+  }
+  function formOf(el) { return (el && el.closest && el.closest('form')) || byId('view'); }
+  LD.action('reimb.calc', function (el) { showTotal(formOf(el)); });
+  LD.action('reimb.addLine', function () {
+    var form = byId('view'), last = F.keys[F.keys.length - 1], ev = last ? val(form, 'l_event_' + last) : '';
+    var k = 'c' + (F.seq++);
+    F.keys.push(k);
+    var body = byId('rr-lines');
+    if (body && typeof body.insertAdjacentHTML === 'function') {
+      body.insertAdjacentHTML('beforeend', chargeRow(k, ev));
+      var f = field(form, 'l_desc_' + k);
+      if (f && f.focus) f.focus();
+    } else {
+      app().render();
+    }
+  });
+  LD.action('reimb.dropLine', function (el) {
+    var k = el && el.getAttribute ? el.getAttribute('data-key') : '';
+    if (F.keys.length <= 1 || F.keys.indexOf(k) < 0) return;
+    F.keys = F.keys.filter(function (x) { return x !== k; });
+    var row = byId('rr-row-' + k);
+    if (row && row.parentNode && row.parentNode.removeChild) {
+      row.parentNode.removeChild(row);
+      showTotal(byId('view'));
+    } else {
+      app().render();
+    }
+  });
   LD.action('reimb.submit', function (form) {
     return LD.guard('reimb.submit', function () {
       var set = state().settings, errs = [];
-      var v = { event_id: val(form, 'event_id'), spent_on: val(form, 'spent_on'), description: val(form, 'description').trim(),
-                amount: LD.parseAmount(val(form, 'amount')), file: fileOf(form) };
-      if (!v.event_id) errs.push('Choose the event.');
+      var charges = chargesOf(form), files = filesOf(form);
+      var v = { spent_on: val(form, 'spent_on'), summary: val(form, 'summary').trim(), files: files };
       if (!/^\d{4}-\d{2}-\d{2}$/.test(v.spent_on)) errs.push('Pick the date you paid.');
       else if ((set.fy_start && v.spent_on < set.fy_start) || (set.fy_end && v.spent_on > set.fy_end) || v.spent_on > today()) {
         errs.push('The date must be within ' + (set.fy_label || 'the financial year') + ' and not in the future.');
       }
-      if (v.description.length < 4) errs.push(LD.ERRORS.LEDGER_DESC_SHORT());
-      if (v.amount === null) errs.push(LD.ERRORS.LEDGER_AMOUNT());
-      if (!v.file) errs.push('Attach the receipt.');
+      if (v.summary && v.summary.length < 4) errs.push('The purpose must be at least 4 characters, or leave it blank.');
+      if (!charges.length) errs.push('Add at least one charge.');
+      charges.forEach(function (c, n) {
+        var who = 'Charge ' + (n + 1) + ': ';
+        if (!c.event_id) errs.push(who + 'choose the event.');
+        if (c.description.length < 3) errs.push(who + 'describe it in at least 3 characters.');
+        if (c.amount === null) errs.push(who + LD.ERRORS.LEDGER_AMOUNT());
+      });
+      if (charges.length > 30) errs.push('A request can have at most 30 charges; file the rest as another request.');
+      if (!files.length) errs.push('Attach the receipt.');
+      else if (files.length > LD.MAX_RECEIPTS) errs.push('Attach at most ' + LD.MAX_RECEIPTS + ' receipt files.');
       errBox('rr-err', errs);
       if (errs.length) return false;
+      v.lines = charges.map(function (c) { return { event_id: c.event_id, description: c.description, amount: c.amount }; });
       setBusy('rr-save', true);
       return LD.reimbSubmit(v).then(function (row) {
-        app().toast('Request ' + row.ref + ' sent for approval.', 'good');
+        F.keys = ['c' + (F.seq++)];
+        app().toast('Request ' + row.ref + ' for ' + LD.fmt(row.amount) + ' sent for approval.', 'good');
         app().render();
         return true;
       }, function (e) {
@@ -5989,12 +6114,18 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
     if (appr && mode === 'pay') {
       acts += ' <button type="button" class="btn btn-small btn-primary" data-action="reimb.payAsk" data-id="' + esc(r.id) + '">Mark as paid</button>';
     }
-    var books = (exp ? 'Expense ' + exp.doc : '') + (pay ? (exp ? ' · ' : '') + 'Payout ' + pay.doc + ' (' + pay.status + ')' : '');
+    var expDocs = LD.reimbLinesOf(r).map(function (l) { var t = txn(l.expense_txn_id); return t ? t.doc : null; }).filter(Boolean);
+    if (!expDocs.length && exp) expDocs = [exp.doc];
+    var books = (expDocs.length ? (expDocs.length > 1 ? 'Expenses ' : 'Expense ') + expDocs.join(', ') : '') +
+      (pay ? (expDocs.length ? ' · ' : '') + 'Payout ' + pay.doc + ' (' + pay.status + ')' : '');
+    var lines = LD.reimbLinesOf(r), many = lines.length > 1;
     return '<tr data-ref="' + esc(r.ref) + '"><td data-label="Request"><b>' + esc(r.ref) + '</b><br><span class="muted">' + esc(LD.whenText(r.requested_at)) + '</span></td>' +
       '<td data-label="Officer">' + esc(officerName(r)) + (r.requested_by !== me ? '' : ' <span class="mini muted">(you)</span>') + '</td>' +
-      '<td data-label="Event">' + esc(nameOf(st.events, r.event_id, 'code')) + '</td>' +
+      '<td data-label="Event">' + esc(codesOf(lines)) + '</td>' +
       '<td data-label="What for">' + esc(r.description) + '<br><span class="muted">Paid ' + esc(r.spent_on) +
-        (r.account_id ? ' · ' + esc(nameOf(st.accounts, r.account_id, 'name')) : '') + '</span>' +
+        (!many && r.account_id ? ' · ' + esc(nameOf(st.accounts, r.account_id, 'name')) : '') +
+        ((r.extra_paths || []).length ? ' · ' + (1 + r.extra_paths.length) + ' receipts' : '') + '</span>' +
+        (many ? '<br>' + chargesText(lines, true) : '') +
         (books ? '<br><span class="mini muted">' + esc(books) + '</span>' : '') + '</td>' +
       '<td class="num" data-label="Amount">' + LD.fmt(r.amount) + '</td>' +
       '<td data-label="Status">' + pill(s.label, s.cls) + (s.detail ? '<br><span class="mini muted">' + esc(s.detail) + '</span>' : '') + '</td>' +
@@ -6036,43 +6167,86 @@ table.stmt-narrow { max-width: 44rem; margin: 0 auto; }
   LD.action('reimb.receipt', function (el) {
     var r = find(idOf(el));
     if (!r) return Promise.resolve();
-    return LD.signedUrl(r.attachment_path).then(function (url) {
-      app().modal('<h2>Receipt for ' + esc(r.ref) + '</h2><p>' + esc(r.description) + ' · ' + LD.fmt(r.amount) + '</p>' +
-        '<p><a class="btn btn-primary" href="' + esc(url) + '" target="_blank" rel="noopener">Open the receipt</a></p>' +
-        '<p class="muted">The link works for 5 minutes.</p><div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Close</button></div>',
-        { label: 'Receipt for ' + r.ref });
+    var paths = [r.attachment_path].concat(r.extra_paths || []);
+    return Promise.all(paths.map(function (p) { return LD.signedUrl(p); })).then(function (urls) {
+      var one = urls.length === 1;
+      app().modal('<h2>' + (one ? 'Receipt' : 'Receipts') + ' for ' + esc(r.ref) + '</h2><p>' + esc(r.description) + ' · ' + LD.fmt(r.amount) + '</p>' +
+        '<p class="btn-row">' + urls.map(function (url, n) {
+          return '<a class="btn' + (n ? '' : ' btn-primary') + '" href="' + esc(url) + '" target="_blank" rel="noopener">' +
+            (one ? 'Open the receipt' : 'Receipt ' + (n + 1)) + '</a>';
+        }).join(' ') + '</p>' +
+        '<p class="muted">The links work for 5 minutes.</p><div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Close</button></div>',
+        { label: 'Receipts for ' + r.ref });
     }, function (e) { app().toast(LD.friendlyError(e), 'crit'); });
   });
 
+  function expenseAccounts() {
+    return state().accounts.filter(function (a) { return a.fs === 'Income Statement' && a.normal === 'Dr' && a.active !== false; });
+  }
+  function accOptions(sel) {
+    return '<option value="">Choose the account</option>' + expenseAccounts().map(function (a) {
+      return '<option value="' + esc(a.id) + '"' + (a.id === sel ? ' selected' : '') + '>' + esc(a.name) + '</option>';
+    }).join('');
+  }
   LD.action('reimb.approveAsk', function (el) {
     var r = find(idOf(el)), st = state();
     if (!r) return;
+    var lines = LD.reimbLinesOf(r), many = lines.length > 1;
     S.decide = r.id;
-    var exp = st.accounts.filter(function (a) { return a.fs === 'Income Statement' && a.normal === 'Dr' && a.active !== false; });
-    app().modal('<h2>Approve ' + esc(r.ref) + '</h2><p>' + esc(officerName(r)) + ' · ' + esc(r.description) + ' · <b>' + LD.fmt(r.amount) + '</b></p>' +
-      '<form class="rec-form" data-submit="reimb.approveDo" novalidate><div class="rec-grid">' +
-      '<div class="field"><label for="rr-acc">Expense account</label><select id="rr-acc" name="account_id"><option value="">Choose the account</option>' +
-        exp.map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.name) + '</option>'; }).join('') + '</select></div>' +
-      '<div class="field"><label for="rr-ev">Event</label><select id="rr-ev" name="event_id">' +
-        st.events.filter(function (e) { return e.active !== false || e.id === r.event_id; }).map(function (e) {
-          return '<option value="' + esc(e.id) + '"' + (e.id === r.event_id ? ' selected' : '') + '>' + esc(e.code + ' · ' + e.name) + '</option>';
-        }).join('') + '</select></div>' +
+    S.lines = lines;
+    var evOpts = function (cur) {
+      return st.events.filter(function (e) { return e.active !== false || e.id === cur; }).map(function (e) {
+        return '<option value="' + esc(e.id) + '"' + (e.id === cur ? ' selected' : '') + '>' + esc(e.code + ' · ' + e.name) + '</option>';
+      }).join('');
+    };
+    var rows = lines.map(function (l, n) {
+      return '<tr><td data-label="Charge">' + (many ? (n + 1) + '. ' : '') + esc(l.description) + '</td>' +
+        '<td class="num" data-label="Amount">' + LD.fmt(l.amount) + '</td>' +
+        '<td data-label="Expense account"><select name="acc_' + n + '" id="rr-acc' + (n ? '-' + n : '') + '" aria-label="Expense account">' + accOptions(null) + '</select></td>' +
+        '<td data-label="Event"><select name="ev_' + n + '" aria-label="Event">' + evOpts(l.event_id) + '</select></td></tr>';
+    }).join('');
+    app().modal('<h2>Approve ' + esc(r.ref) + '</h2><p>' + esc(officerName(r)) + ' · ' + esc(r.description) + ' · <b>' + LD.fmt(r.amount) + '</b>' +
+      (many ? ' in ' + lines.length + ' charges' : '') + '</p>' +
+      '<form class="rec-form" data-submit="reimb.approveDo" novalidate>' +
+      (many ? '<div class="field"><label for="rr-acc-all">Same account for every charge (optional)</label><select id="rr-acc-all" name="acc_all" ' +
+        'data-change="reimb.accAll">' + accOptions(null) + '</select></div>' : '') +
+      '<div class="table-wrap"><table class="grid stack"><thead><tr><th scope="col">Charge</th><th scope="col" class="num">Amount</th>' +
+        '<th scope="col">Expense account</th><th scope="col">Event</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
       '<div class="field rec-wide"><label for="rr-note">Note (optional)</label><input id="rr-note" name="note" type="text" maxlength="200"></div>' +
-      '</div><p class="muted">Approving books the expense now, as paid by the officer: the chapter owes ' + esc(officerName(r)) + ' ' +
-        LD.fmt(r.amount) + ' until you mark it as paid.</p><div id="rr-dec-err" aria-live="assertive"></div>' +
+      '<p class="muted">Approving books ' + (many ? 'each charge as an expense' : 'the expense') + ' now, as paid by the officer: the chapter owes ' +
+        esc(officerName(r)) + ' ' + LD.fmt(r.amount) + ' until you mark it as paid.</p><div id="rr-dec-err" aria-live="assertive"></div>' +
       '<div class="modal-actions"><button type="button" class="btn" data-action="app.closeModal">Close</button>' +
       '<button type="submit" id="rr-dec-save" class="btn btn-good">Approve</button></div></form>', { label: 'Approve ' + r.ref });
   });
+  /** "Same account for every charge": copies the choice into each charge's account box. */
+  LD.action('reimb.accAll', function (el) {
+    var form = formOf(el), v = el && el.value !== undefined ? el.value : val(form, 'acc_all');
+    if (!v) return;
+    (S.lines || []).forEach(function (l, n) { var f = field(form, 'acc_' + n); if (f) f.value = v; });
+  });
   LD.action('reimb.approveDo', function (form) {
-    var id = S.decide, r = find(id);
+    var id = S.decide, r = find(id), lines = S.lines || [];
     if (!r) return Promise.resolve(false);
     return LD.guard('reimb.decide:' + id, function () {
-      var acc = val(form, 'account_id');
-      if (!acc) { errBox('rr-dec-err', 'Choose the expense account.'); return false; }
+      var all = val(form, 'acc_all'), errs = [], picks = lines.map(function (l, n) {
+        return { line: l, account_id: val(form, 'acc_' + n) || all, event_id: val(form, 'ev_' + n) };
+      });
+      picks.forEach(function (p, n) {
+        if (!p.account_id) errs.push(lines.length > 1 ? 'Charge ' + (n + 1) + ' (' + p.line.description + '): choose the expense account.' : 'Choose the expense account.');
+      });
+      errBox('rr-dec-err', errs);
+      if (errs.length) return false;
       setBusy('rr-dec-save', true);
-      return LD.reimbDecide(id, 'approve', acc, val(form, 'event_id'), val(form, 'note').trim()).then(function (row) {
+      var note = val(form, 'note').trim();
+      var call = picks.every(function (p) { return p.line.id; })
+        ? LD.reimbDecide(id, 'approve', picks.map(function (p) {
+            return { id: p.line.id, account_id: p.account_id, event_id: p.event_id && p.event_id !== p.line.event_id ? p.event_id : null };
+          }), null, note)
+        : LD.reimbDecide(id, 'approve', picks[0].account_id, picks[0].event_id, note);
+      return call.then(function (row) {
         app().closeModal();
-        app().toast('Approved ' + row.ref + '. The expense is booked; mark it as paid when the officer is reimbursed.', 'good');
+        app().toast('Approved ' + row.ref + '. ' + (lines.length > 1 ? 'The ' + lines.length + ' expenses are' : 'The expense is') +
+          ' booked; mark it as paid when the officer is reimbursed.', 'good');
         app().render();
         return true;
       }, function (e) { errBox('rr-dec-err', LD.friendlyError(e)); setBusy('rr-dec-save', false); return false; });
