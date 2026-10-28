@@ -607,6 +607,34 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
 .pl-signin { max-width: 440px; width: 100%; margin: 0 auto; }
 .pl-signin .tk-err { margin: 0; color: var(--crit-ink); font-size: var(--fs-sm); }
 .tk-err { color: var(--crit-ink); font-size: var(--fs-sm); margin: 0; }
+.tk-field select:disabled, .tk-field textarea:disabled, .tk-field input:disabled { background: var(--surface-2); color: var(--muted); }
+/* the meeting agenda from the Chapter Tracker (2026-10-28) */
+.pl-agenda { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
+.pl-agenda > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s3); padding: var(--s3) var(--s4);
+  cursor: pointer; list-style: none; min-height: 44px; }
+.pl-agenda > summary::-webkit-details-marker { display: none; }
+.pl-agenda > summary::before { content: "\25B8"; color: var(--navy-500); transition: transform var(--t-fast) var(--ease); }
+.pl-agenda[open] > summary::before { transform: rotate(90deg); }
+.pl-agenda > summary:focus-visible { outline: 2px solid var(--navy-500); outline-offset: -2px; border-radius: var(--r-md); }
+.pl-ag-sum { font-weight: 700; color: var(--navy-800); }
+.pl-ag-body { padding: 0 var(--s4) var(--s4); border-top: 1px solid var(--line); background: var(--surface); border-radius: 0 0 var(--r-md) var(--r-md); }
+.pl-ag-kicker { margin: var(--s4) 0 var(--s1); font-size: var(--fs-xs); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--navy-800); }
+.pl-ag-title { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-weight: 700; margin: 0 0 var(--s3); }
+.pl-ag-h { margin: var(--s4) 0 var(--s2); font-size: var(--fs-xs); font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--navy-800); border-bottom: 1px solid var(--line); padding-bottom: var(--s1); }
+.pl-ag-sec { margin: var(--s3) 0; }
+.pl-ag-sh { margin: 0 0 var(--s2); font-size: var(--fs-sm); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--navy-800); }
+.pl-ag-rn { display: inline-block; min-width: 2.6em; padding-right: .4em; color: var(--green-700); }
+.pl-ag-item { margin: 0 0 var(--s3) 2.2em; }
+.pl-ag-it { margin: 0; font-weight: 700; }
+.pl-ag-lt { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; margin-right: var(--s2);
+  border-radius: 4px; background: var(--navy-800); color: #fff; font-size: var(--fs-xs); }
+.pl-ag-item .tk-mini { margin: 2px 0 var(--s1); }
+.pl-ag-pts { margin: 0; padding-left: 1.6em; font-size: var(--fs-sm); }
+.pl-ag-pts li { margin: 2px 0; }
+.pl-ag-sub { list-style: lower-alpha; margin: 2px 0; padding-left: 1.4em; }
+.pl-ag-list { margin: 0 0 0 2.2em; padding-left: 1.2em; font-size: var(--fs-sm); }
+@media (max-width: 480px) { .pl-ag-item, .pl-ag-list { margin-left: var(--s2); } }
 </style>
 </head>
 <body data-page="polls">
@@ -1669,7 +1697,7 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
     if (!p.can_manage) return '';
     return '<section class="pl-manage"><h2>Poll management</h2><div class="pl-share"><input id="pl-link" type="text" readonly value="' + esc(pollUrl(p.id)) + '" aria-label="Poll link">' +
       '<button type="button" class="tk-btn tk-btn-primary" data-action="pl.copy">Copy link</button></div>' +
-      '<div class="tk-actions">' + (p.open
+      '<div class="tk-actions"><a class="tk-btn" href="#edit=' + esc(p.id) + '">Edit poll</a>' + (p.open
         ? '<button type="button" class="tk-btn" data-action="pl.setOpen" data-open="0">Close poll</button>'
         : '<button type="button" class="tk-btn" data-action="pl.setOpen" data-open="1">Reopen poll</button>') +
       '<button type="button" class="tk-btn tk-btn-danger" data-action="pl.askDelete">Delete poll</button></div></section>';
@@ -1697,7 +1725,50 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
       '<article class="tk-card pl-poll"><h1>' + esc(p.title) + '</h1>' +
       (p.details ? '<p class="pl-details">' + esc(p.details) + '</p>' : '') +
       '<div class="tk-pills">' + pills.join('') + '</div>' + (meta.length ? '<p class="tk-mini">' + esc(meta.join(' · ')) + '</p>' : '') +
-      ballot + resultsHtml(p) + '</article>' + manageHtml(p) + '</div>';
+      agendaHtml(p.agenda) + ballot + resultsHtml(p) + '</article>' + manageHtml(p) + '</div>';
+  }
+
+  // ------------------------------------------------------------------------------------- the meeting agenda (Tracker)
+  var ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV'];
+  var DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function longDate(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+    if (!m) return '';
+    var d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return DAYS[d.getDay()] + ', ' + (+m[3]) + ' ' + MONTHS[+m[2] - 1] + ' ' + m[1];
+  }
+  function letterOf(i) { return String.fromCharCode(65 + (i % 26)) + (i >= 26 ? String(Math.floor(i / 26) + 1) : ''); }
+  /** The Tracker meeting's Notice of Meeting and Proposed Agenda, as the Tracker prints it (same sections and order),
+   *  read live from the Tracker each time the poll opens. a = hub_poll_get().agenda, or null. */
+  function agendaHtml(a) {
+    if (!a) return '';
+    var dash = '—';
+    function item(it, i) {
+      var info = ['Presenter: ' + (it.presenter || dash)];
+      if (it.mins) info.push(it.mins + ' minutes');
+      if (it.projects && it.projects.length) info.push('Project' + (it.projects.length > 1 ? 's' : '') + ': ' + it.projects.join('; '));
+      if (it.carried_from) info.push('Carried from ' + it.carried_from);
+      if (it.added_later) info.push('Added during the meeting');
+      var pts = (it.points || []).map(function (x) {
+        return '<li>' + esc(x.p) + (x.kids && x.kids.length ? '<ol class="pl-ag-sub">' + x.kids.map(function (k) { return '<li>' + esc(k) + '</li>'; }).join('') + '</ol>' : '') + '</li>';
+      }).join('');
+      return '<div class="pl-ag-item"><p class="pl-ag-it"><span class="pl-ag-lt">' + letterOf(i) + '.</span>' + esc(it.title || 'Untitled item') + '</p>' +
+        '<p class="tk-mini">' + esc(info.join(' · ')) + '</p>' + (pts ? '<ol class="pl-ag-pts">' + pts + '</ol>' : '') + '</div>';
+    }
+    // only the matters themselves (president 2026-10-28): Matters Arising / Unfinished Business, New Business, Other Matters;
+    // no notice heading, meeting details or procedural sections (call to order, quorum, approvals, adjournment)
+    var items = a.items || [], ub = items.filter(function (x) { return x.carried_from; }), reg = items.filter(function (x) { return !x.carried_from; });
+    var secs = [];
+    if (ub.length) secs.push(['Matters Arising / Unfinished Business', ub.map(item).join('')]);
+    secs.push([ub.length ? 'New Business' : 'Matters for Discussion', reg.length ? reg.map(item).join('') : '<p class="tk-muted">No agenda items yet.</p>']);
+    var others = a.others || [];
+    secs.push(['Other Matters', others.length ? '<ul class="pl-ag-list">' + others.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '']);
+    return '<details class="pl-agenda" open><summary><span class="pl-ag-sum">' + (a.approved ? 'Approved agenda' : 'Proposed agenda') + '</span>' +
+      '<span class="tk-mini">' + esc(a.id + ' · ' + (a.title || 'Meeting')) + '</span></summary>' +
+      '<div class="pl-ag-body">' +
+      secs.map(function (s, i) { return '<div class="pl-ag-sec"><p class="pl-ag-sh"><span class="pl-ag-rn">' + ROMAN[i] + '.</span>' + esc(s[0]) + '</p>' + s[1] + '</div>'; }).join('') +
+      '</div></details>';
   }
 
   function pollView(id) {
@@ -1780,28 +1851,52 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
   });
 
   // ------------------------------------------------------------------------------------------------------ create
-  function newHtml() {
-    var d = S.draft || { kind: 'single', audience: 'officers', anonymous: false };
+  /** An ISO timestamp as the 'YYYY-MM-DDTHH:MM' a datetime-local box shows, in Jeddah time (UTC+3, no daylight saving), or ''. */
+  function jeddahLocal(iso) {
+    var t = iso ? new Date(iso).getTime() : NaN;
+    return isNaN(t) ? '' : new Date(t + 3 * 3600 * 1000).toISOString().slice(0, 16);
+  }
+  /** The New poll form, or (e = the poll) the Edit poll form. Once a poll has votes, only the question, the details and the
+   *  closing date can change: the server refuses the rest (votes point at option numbers; a named ballot must stay named). */
+  function meetingSelect(meetings, cur) {
+    var list = (meetings || []).slice();
+    if (cur && !list.some(function (m) { return m.id === cur; })) list.unshift({ id: cur, title: '', date: '', status: '' });   // e.g. now Closed
+    return '<select id="pn-mtg"><option value="">None</option>' + list.map(function (m) {
+      var label = m.id + ' · ' + (m.title || 'Meeting') + (m.date ? ' · ' + longDate(m.date) : '') + (m.status ? ' · ' + m.status : '');
+      return '<option value="' + esc(m.id) + '"' + (m.id === cur ? ' selected' : '') + '>' + esc(label) + '</option>';
+    }).join('') + '</select>';
+  }
+  function newHtml(e, meetings) {
+    var d = e || S.draft || { kind: 'single', audience: 'officers', anonymous: false };
+    var locked = !!(e && e.votes > 0), dis = locked ? ' disabled' : '';
     var opt = function (v, t, cur) { return '<option value="' + v + '"' + (cur === v ? ' selected' : '') + '>' + esc(t) + '</option>'; };
-    return '<div class="pl"><p><a href="#" class="pl-backlink" data-action="pl.home">‹ All polls</a></p>' +
-      '<div class="tk-card"><h1>New poll</h1><form class="tk-form pl-new" data-action="pl.create" novalidate>' +
-      '<div class="tk-field"><label for="pn-title">Question</label><input id="pn-title" type="text" maxlength="200" required></div>' +
-      '<div class="tk-field"><label for="pn-details">Details (optional)</label><textarea id="pn-details" maxlength="2000"></textarea></div>' +
-      '<div class="pl-two"><div class="tk-field"><label for="pn-aud">Voters</label><select id="pn-aud" data-change="pl.aud">' +
+    var back = e ? '<a href="#poll=' + esc(e.id) + '" class="pl-backlink">‹ Back to the poll</a>' : '<a href="#" class="pl-backlink" data-action="pl.home">‹ All polls</a>';
+    return '<div class="pl"><p>' + back + '</p>' +
+      '<div class="tk-card"><h1>' + (e ? 'Edit poll' : 'New poll') + '</h1>' +
+      (locked ? '<div class="tk-note tk-note-warn"><p>This poll already has ' + e.votes + (e.votes === 1 ? ' vote' : ' votes') +
+        '. The options, poll type, voters and ballot can no longer be changed. The question, the details, the meeting agenda and the closing date can.</p></div>' : '') +
+      '<form class="tk-form pl-new" data-action="' + (e ? 'pl.save' : 'pl.create') + '" novalidate>' +
+      '<div class="tk-field"><label for="pn-title">Question</label><input id="pn-title" type="text" maxlength="200" required value="' + esc(e ? e.title : '') + '"></div>' +
+      '<div class="tk-field"><label for="pn-details">Details (optional)</label><textarea id="pn-details" maxlength="2000">' + esc(e && e.details ? e.details : '') + '</textarea></div>' +
+      '<div class="tk-field" id="pn-mtgwrap"><label for="pn-mtg">Meeting agenda (optional)</label>' + meetingSelect(meetings, e ? e.tracker_ref : '') +
+      '<span class="tk-hint">The meeting\'s proposed agenda from the Chapter Tracker is shown on the poll, always up to date. Officers\' polls only.</span></div>' +
+      '<div class="pl-two"><div class="tk-field"><label for="pn-aud">Voters</label><select id="pn-aud" data-change="pl.aud"' + dis + '>' +
       opt('officers', 'Officers only', d.audience) + opt('members', 'All members', d.audience) + '</select></div>' +
-      '<div class="tk-field"><label for="pn-kind">Poll type</label><select id="pn-kind" data-change="pl.kind">' +
+      '<div class="tk-field"><label for="pn-kind">Poll type</label><select id="pn-kind" data-change="pl.kind"' + dis + '>' +
       opt('single', 'Single choice', d.kind) + opt('multi', 'Multiple choice', d.kind) + opt('rank', 'Ranking', d.kind) + '</select>' +
       '<span class="tk-hint" id="pn-kindhint"></span></div></div>' +
-      '<div class="tk-field"><label for="pn-opts">Options (one per line)</label><textarea id="pn-opts" rows="5" required></textarea>' +
+      '<div class="tk-field"><label for="pn-opts">Options (one per line)</label><textarea id="pn-opts" rows="5" required' + dis + '>' +
+      esc(e ? (e.options || []).join('\n') : '') + '</textarea>' +
       '<span class="tk-hint">2 to 15 options; a ranking poll up to 10.</span></div>' +
       '<div class="pl-two"><div class="tk-field" id="pn-maxwrap" hidden><label for="pn-max">Maximum selections (optional)</label>' +
-      '<input id="pn-max" type="number" min="1" max="15" inputmode="numeric"></div>' +
-      '<div class="tk-field"><label for="pn-anon">Ballot</label><select id="pn-anon" data-change="pl.anon">' +
+      '<input id="pn-max" type="number" min="1" max="15" inputmode="numeric" value="' + esc(e && e.max_picks ? e.max_picks : '') + '"' + dis + '></div>' +
+      '<div class="tk-field"><label for="pn-anon">Ballot</label><select id="pn-anon" data-change="pl.anon"' + dis + '>' +
       opt('0', 'Named (votes shown with names)', d.anonymous ? '1' : '0') + opt('1', 'Anonymous (counts only)', d.anonymous ? '1' : '0') + '</select></div>' +
-      '<div class="tk-field"><label for="pn-close">Closing date and time (optional, Jeddah time)</label><input id="pn-close" type="datetime-local"></div></div>' +
+      '<div class="tk-field"><label for="pn-close">Closing date and time (optional, Jeddah time)</label><input id="pn-close" type="datetime-local" value="' +
+      esc(e ? jeddahLocal(e.closes_at) : '') + '">' + (e ? '<span class="tk-hint">Leave empty for no closing date.</span>' : '') + '</div></div>' +
       '<p id="pn-err" class="tk-err" role="alert"></p>' +
-      '<div class="tk-actions"><button type="submit" class="tk-btn tk-btn-primary">Create poll</button>' +
-      '<a class="tk-btn" href="#" data-action="pl.home">Cancel</a></div></form></div></div>';
+      '<div class="tk-actions"><button type="submit" class="tk-btn tk-btn-primary">' + (e ? 'Save changes' : 'Create poll') + '</button>' +
+      (e ? '<a class="tk-btn" href="#poll=' + esc(e.id) + '">Cancel</a>' : '<a class="tk-btn" href="#" data-action="pl.home">Cancel</a>') + '</div></form></div></div>';
   }
   var KIND_HINT = { single: 'Each voter selects one option.', multi: 'Each voter selects one or more options.',
     rank: 'Each voter puts every option in order; the option with the most points ranks first.' };
@@ -1810,11 +1905,14 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
     if (!k) return;
     doc.getElementById('pn-kindhint').textContent = KIND_HINT[k.value] || '';
     doc.getElementById('pn-maxwrap').hidden = k.value !== 'multi';
+    var aud = doc.getElementById('pn-aud'), mw = doc.getElementById('pn-mtgwrap');
+    if (aud && mw) mw.hidden = aud.value !== 'officers';          // a meeting agenda belongs to officers' polls only
   }
   var anonTouched = false;
   TK.action('pl.kind', syncNew);
   TK.action('pl.anon', function () { anonTouched = true; });
   TK.action('pl.aud', function (el) {          // a members' poll defaults to anonymous, an officers' poll to named
+    syncNew();
     if (anonTouched) return;
     var a = root.document.getElementById('pn-anon');
     if (a) a.value = el.value === 'members' ? '1' : '0';
@@ -1824,34 +1922,56 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
     v = String(v || '').trim();
     return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(v) ? v + ':00+03:00' : '';
   }
-  TK.action('pl.create', function (form) {
-    var doc = root.document, out = doc.getElementById('pn-err');
+  /** The form's values as the server expects them, or {error}. locked: the poll has votes, so only the question, the details,
+   *  the closing date and the meeting agenda are sent (the server keeps the rest). */
+  function formBody(locked) {
+    var doc = root.document, v = function (id) { var el = doc.getElementById(id); return el ? String(el.value || '') : ''; };
+    var aud = v('pn-aud');
+    var body = { title: v('pn-title').trim(), details: v('pn-details').trim(), closes_at: jeddahIso(v('pn-close')),
+      tracker_ref: aud === 'officers' ? v('pn-mtg') : '' };
+    if (body.title.length < 3) return { error: 'Enter the question.' };
+    if (v('pn-close') && !body.closes_at) return { error: 'The closing date and time is not complete.' };
+    if (locked) return body;
+    var opts = v('pn-opts').split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
+    if (opts.length < 2) return { error: 'Enter at least two options, one per line.' };
+    body.audience = aud; body.kind = v('pn-kind'); body.anonymous = v('pn-anon') === '1'; body.options = opts;
+    body.max_picks = body.kind === 'multi' ? v('pn-max').trim() : '';
+    return body;
+  }
+  function submitPoll(form, call, done) {
+    var out = root.document.getElementById('pn-err');
     if (S.busy) return null;
-    var opts = String(doc.getElementById('pn-opts').value || '').split(/\r?\n/).map(function (s) { return s.trim(); }).filter(Boolean);
-    var body = {
-      title: String(doc.getElementById('pn-title').value || '').trim(),
-      details: String(doc.getElementById('pn-details').value || '').trim(),
-      audience: doc.getElementById('pn-aud').value,
-      kind: doc.getElementById('pn-kind').value,
-      anonymous: doc.getElementById('pn-anon').value === '1',
-      options: opts,
-      max_picks: doc.getElementById('pn-kind').value === 'multi' ? String(doc.getElementById('pn-max').value || '').trim() : '',
-      closes_at: jeddahIso(doc.getElementById('pn-close').value)
-    };
-    if (body.title.length < 3) { out.textContent = 'Enter the question.'; return null; }
-    if (opts.length < 2) { out.textContent = 'Enter at least two options, one per line.'; return null; }
-    if (doc.getElementById('pn-close').value && !body.closes_at) { out.textContent = 'The closing date and time is not complete.'; return null; }
+    var body = formBody(call.locked);
+    if (body.error) { out.textContent = body.error; return null; }
     S.busy = true; out.textContent = '';
     var btn = form.querySelector('button[type="submit"]'); btn.disabled = true;
-    return TK.rpc('hub_poll_create', { p: body }).then(function (id) {
+    return TK.rpc(call.name, call.args(body)).then(function (r) {
       S.busy = false; anonTouched = false;
-      TK.toast('Poll created. Copy the link below and share it.', 'good');
-      root.location.hash = 'poll=' + id;
+      done(r);
     }, function (e) {
       S.busy = false; btn.disabled = false;
       out.textContent = message(e);
     });
+  }
+  TK.action('pl.create', function (form) {
+    return submitPoll(form, { name: 'hub_poll_create', locked: false, args: function (b) { return { p: b }; } }, function (id) {
+      TK.toast('Poll created. Copy the link below and share it.', 'good');
+      root.location.hash = 'poll=' + id;
+    });
   });
+  TK.action('pl.save', function (form) {
+    var e = S.poll;
+    if (!e) return null;
+    return submitPoll(form, { name: 'hub_poll_update', locked: e.votes > 0, args: function (b) { return { p_id: e.id, p: b }; } }, function (np) {
+      S.poll = np; S.editing = false;
+      TK.toast('Changes saved.', 'good');
+      root.location.hash = 'poll=' + np.id;
+    });
+  });
+  /** The open Tracker meetings for the form's "Meeting agenda" list; [] when they cannot be read (the form still works). */
+  function loadMeetings() {
+    return TK.rpc('hub_poll_meetings').then(function (m) { return Array.isArray(m) ? m : []; }, function () { return []; });
+  }
 
   // ------------------------------------------------------------------------------------------------------- page
   var watching = false;
@@ -1876,13 +1996,32 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
       }
       if (ctx.params['new']) {
         anonTouched = false;
-        return { html: newHtml(), mount: function () { syncNew(); var t = root.document.getElementById('pn-title'); if (t) t.focus(); } };
+        return loadMeetings().then(function (ms) {
+          return { html: newHtml(null, ms), mount: function () { syncNew(); var t = root.document.getElementById('pn-title'); if (t) t.focus(); } };
+        });
+      }
+      if (ctx.params.edit) {
+        var eid = ctx.params.edit;
+        if (!UUID.test(eid)) return '<div class="tk-card tk-gate"><h1>Poll not available</h1><p>This poll link is not complete.</p></div>';
+        anonTouched = true;                        // the saved ballot stays as it is unless changed by hand
+        return Promise.all([TK.rpc('hub_poll_get', { p_id: eid }), loadMeetings()]).then(function (r) {
+          var p = r[0];
+          S.poll = p;
+          if (!p.can_manage) {
+            return '<div class="pl"><p><a href="#poll=' + esc(p.id) + '" class="pl-backlink">‹ Back to the poll</a></p>' +
+              '<div class="tk-card tk-gate"><h1>Edit poll</h1><p>Only the officer who created this poll, or a Hub admin, can edit it.</p></div></div>';
+          }
+          return { html: newHtml(p, r[1]), mount: function () { syncNew(); } };
+        }, function (e) {
+          return '<div class="pl"><p><a href="#" class="pl-backlink" data-action="pl.home">‹ All polls</a></p>' +
+            '<div class="tk-card tk-gate"><h1>Poll not available</h1><p>' + esc(message(e)) + '</p></div></div>';
+        });
       }
       return listView();
     }
   });
 
-  if (typeof module === 'object' && module.exports) module.exports = { state: S, message: message, choiceText: choiceText, resultsHtml: resultsHtml, pollHtml: pollHtml, jeddahIso: jeddahIso };
+  if (typeof module === 'object' && module.exports) module.exports = { state: S, message: message, choiceText: choiceText, resultsHtml: resultsHtml, pollHtml: pollHtml, jeddahIso: jeddahIso, jeddahLocal: jeddahLocal, agendaHtml: agendaHtml, formBody: formBody };
 }(typeof window !== 'undefined' ? window : globalThis));
 </script>
 <script>TK.start();</script>
