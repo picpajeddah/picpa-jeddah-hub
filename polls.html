@@ -608,6 +608,15 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
 .pl-signin .tk-err { margin: 0; color: var(--crit-ink); font-size: var(--fs-sm); }
 .tk-err { color: var(--crit-ink); font-size: var(--fs-sm); margin: 0; }
 .tk-field select:disabled, .tk-field textarea:disabled, .tk-field input:disabled { background: var(--surface-2); color: var(--muted); }
+/* Time and Venue at the top of a meeting poll; the date picker under Options (2026-10-28) */
+.pl-when { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s6); margin: 0; }
+.pl-when div { display: flex; gap: var(--s2); align-items: baseline; }
+.pl-when dt { color: var(--muted); font-size: var(--fs-sm); }
+.pl-when dd { margin: 0; font-weight: 600; color: var(--navy-800); }
+.pl-adddate { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s2); margin-top: calc(-1 * var(--s2)); }
+.pl-adddate .tk-field { flex: 1 1 200px; max-width: 280px; }
+.pl-hintline { margin: calc(-1 * var(--s2)) 0 0; }
+.tk-form > .tk-hint { font-size: var(--fs-xs); color: var(--muted); }
 /* the meeting agenda from the Chapter Tracker (2026-10-28) */
 .pl-agenda { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); }
 .pl-agenda > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s1) var(--s3); padding: var(--s3) var(--s4);
@@ -1705,6 +1714,13 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
       '<button type="button" class="tk-btn tk-btn-danger" data-action="pl.askDelete">Delete poll</button></div></section>';
   }
 
+  /** Time and Venue at the top of a meeting poll (president 2026-10-28): shown when a meeting agenda is attached or either is
+   *  filled in; an empty one reads TBD (his wording for these two lines). */
+  function whenWhereHtml(p) {
+    if (!p.tracker_ref && !p.meeting_time && !p.meeting_venue) return '';
+    return '<dl class="pl-when"><div><dt>Time</dt><dd>' + esc(p.meeting_time || 'TBD') + '</dd></div>' +
+      '<div><dt>Venue</dt><dd>' + esc(p.meeting_venue || 'TBD') + '</dd></div></dl>';
+  }
   function pollHtml(p) {
     var pills = [TK.pill(p.open ? 'good' : 'neutral', p.open ? 'Open' : 'Closed'), TK.pill('neutral', AUD[p.audience] || ''),
       TK.pill('neutral', KIND[p.kind] || '')];
@@ -1725,7 +1741,7 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
     } else ballot = '<div class="tk-note tk-note-warn"><p>This poll is closed. No vote was recorded for this account.</p></div>';
     return '<div class="pl"><p><a href="#" class="pl-backlink" data-action="pl.home">‹ All polls</a></p>' +
       '<article class="tk-card pl-poll"><h1>' + esc(p.title) + '</h1>' +
-      (p.details ? '<p class="pl-details">' + esc(p.details) + '</p>' : '') +
+      (p.details ? '<p class="pl-details">' + esc(p.details) + '</p>' : '') + whenWhereHtml(p) +
       '<div class="tk-pills">' + pills.join('') + '</div>' + (meta.length ? '<p class="tk-mini">' + esc(meta.join(' · ')) + '</p>' : '') +
       ballot + agendaHtml(p.agenda) + resultsHtml(p) + '</article>' + manageHtml(p) + '</div>';   // voting first; the agenda folded below it (2026-10-28)
   }
@@ -1878,12 +1894,17 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
     return '<div class="pl"><p>' + back + '</p>' +
       '<div class="tk-card"><h1>' + (e ? 'Edit poll' : 'New poll') + '</h1>' +
       (locked ? '<div class="tk-note tk-note-warn"><p>This poll already has ' + e.votes + (e.votes === 1 ? ' vote' : ' votes') +
-        '. The options, poll type, voters and ballot can no longer be changed. The question, the details, the meeting agenda and the closing date can.</p></div>' : '') +
+        '. The options, poll type, voters and ballot can no longer be changed. The question, the details, the meeting agenda, the time and venue, and the closing date can.</p></div>' : '') +
       '<form class="tk-form pl-new" data-action="' + (e ? 'pl.save' : 'pl.create') + '" novalidate>' +
       '<div class="tk-field"><label for="pn-title">Question</label><input id="pn-title" type="text" maxlength="200" required value="' + esc(e ? e.title : '') + '"></div>' +
       '<div class="tk-field"><label for="pn-details">Details (optional)</label><textarea id="pn-details" maxlength="2000">' + esc(e && e.details ? e.details : '') + '</textarea></div>' +
       '<div class="tk-field" id="pn-mtgwrap"><label for="pn-mtg">Meeting agenda (optional)</label>' + meetingSelect(meetings, e ? e.tracker_ref : '') +
       '<span class="tk-hint">The meeting\'s proposed agenda from the Chapter Tracker is shown on the poll, always up to date. Officers\' polls only.</span></div>' +
+      '<div class="pl-two"><div class="tk-field"><label for="pn-time">Time (optional)</label><input id="pn-time" type="text" maxlength="60" placeholder="e.g. 7:00 pm" value="' +
+      esc(e && e.meeting_time ? e.meeting_time : '') + '"></div>' +
+      '<div class="tk-field"><label for="pn-venue">Venue (optional)</label><input id="pn-venue" type="text" maxlength="200" value="' +
+      esc(e && e.meeting_venue ? e.meeting_venue : '') + '"></div></div>' +
+      '<p class="tk-hint pl-hintline">Time and venue are shown at the top of the poll; left empty, each reads TBD.</p>' +
       '<div class="pl-two"><div class="tk-field"><label for="pn-aud">Voters</label><select id="pn-aud" data-change="pl.aud"' + dis + '>' +
       opt('officers', 'Officers only', d.audience) + opt('members', 'All members', d.audience) + '</select></div>' +
       '<div class="tk-field"><label for="pn-kind">Poll type</label><select id="pn-kind" data-change="pl.kind"' + dis + '>' +
@@ -1892,6 +1913,9 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
       '<div class="tk-field"><label for="pn-opts">Options (one per line)</label><textarea id="pn-opts" rows="5" required' + dis + '>' +
       esc(e ? (e.options || []).join('\n') : '') + '</textarea>' +
       '<span class="tk-hint">2 to 15 options; a ranking poll up to 10.</span></div>' +
+      (locked ? '' : '<div class="pl-adddate"><div class="tk-field"><label for="pn-date">Add a date as an option</label>' +
+        '<input id="pn-date" type="date"></div><button type="button" class="tk-btn" data-action="pl.addDate">Add date</button></div>' +
+        '<p id="pn-dateerr" class="tk-err" role="alert"></p>') +
       '<div class="pl-two"><div class="tk-field" id="pn-maxwrap" hidden><label for="pn-max">Maximum selections (optional)</label>' +
       '<input id="pn-max" type="number" min="1" max="15" inputmode="numeric" value="' + esc(e && e.max_picks ? e.max_picks : '') + '"' + dis + '></div>' +
       '<div class="tk-field"><label for="pn-anon">Ballot</label><select id="pn-anon" data-change="pl.anon"' + dis + '>' +
@@ -1921,6 +1945,22 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
     var a = root.document.getElementById('pn-anon');
     if (a) a.value = el.value === 'members' ? '1' : '0';
   });
+  /** Add date: the picked day goes into Options as its own line, with the weekday ('Thursday, 29 October 2026'). */
+  TK.action('pl.addDate', function () {
+    var doc = root.document, d = doc.getElementById('pn-date'), ta = doc.getElementById('pn-opts'), out = doc.getElementById('pn-dateerr');
+    if (!d || !ta) return;
+    var label = longDate(d.value);
+    if (!label) { out.textContent = 'Pick a date first.'; d.focus(); return; }
+    var lines = String(ta.value || '').split(/\r?\n/).map(function (x) { return x.trim(); }).filter(Boolean);
+    if (lines.some(function (x) { return x.toLowerCase() === label.toLowerCase(); })) { out.textContent = label + ' is already an option.'; return; }
+    if (lines.length >= 15) { out.textContent = 'A poll has at most 15 options.'; return; }
+    lines.push(label);
+    ta.value = lines.join('\n');
+    out.textContent = '';
+    d.value = '';
+    TK.toast('Added: ' + label, 'good');
+    d.focus();
+  });
   /** 'YYYY-MM-DDTHH:MM' typed in Jeddah time -> ISO with +03:00, or '' */
   function jeddahIso(v) {
     v = String(v || '').trim();
@@ -1932,7 +1972,7 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
     var doc = root.document, v = function (id) { var el = doc.getElementById(id); return el ? String(el.value || '') : ''; };
     var aud = v('pn-aud');
     var body = { title: v('pn-title').trim(), details: v('pn-details').trim(), closes_at: jeddahIso(v('pn-close')),
-      tracker_ref: aud === 'officers' ? v('pn-mtg') : '' };
+      tracker_ref: aud === 'officers' ? v('pn-mtg') : '', meeting_time: v('pn-time').trim(), meeting_venue: v('pn-venue').trim() };
     if (body.title.length < 3) return { error: 'Enter the question.' };
     if (v('pn-close') && !body.closes_at) return { error: 'The closing date and time is not complete.' };
     if (locked) return body;
