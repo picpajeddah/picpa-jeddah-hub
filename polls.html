@@ -5,7 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <meta name="referrer" content="no-referrer">
-<title>Chapter polls · Jeddah Chapter</title>
+<title>Chapter Poll · PICPA Jeddah Chapter</title>
+<!-- the link card Messenger / WhatsApp show for a poll link (the same for every poll: they ignore the #poll= part) -->
+<meta name="description" content="Open the link and sign in with your Chapter Hub account to cast your vote.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="PICPA Jeddah Chapter Hub">
+<meta property="og:title" content="Chapter Poll · PICPA Jeddah Chapter">
+<meta property="og:description" content="Open the link and sign in with your Chapter Hub account to cast your vote.">
+<meta property="og:url" content="https://picpajeddah.github.io/picpa-jeddah-hub/polls.html">
+<meta property="og:image" content="https://picpajeddah.github.io/picpa-jeddah-hub/poll-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Chapter Poll, PICPA Western Region Jeddah Chapter">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -602,6 +614,7 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
 .pl-share { display: flex; gap: var(--s2); margin-bottom: var(--s3); flex-wrap: wrap; }
 .pl-share input { flex: 1 1 240px; min-width: 0; min-height: 44px; border: 1px solid var(--line-strong); border-radius: var(--r-sm);
   padding: var(--s2) var(--s3); font-size: var(--fs-sm); background: var(--surface-2); color: var(--muted); }
+.pl-invitehint { margin: calc(-1 * var(--s1)) 0 var(--s3); }
 .pl-two { display: grid; grid-template-columns: 1fr; gap: var(--s4); }
 @media (min-width: 640px) { .pl-two { grid-template-columns: 1fr 1fr; } }
 .pl-signin { max-width: 440px; width: 100%; margin: 0 auto; }
@@ -1707,7 +1720,9 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
   function manageHtml(p) {
     if (!p.can_manage) return '';
     return '<section class="pl-manage"><h2>Poll management</h2><div class="pl-share"><input id="pl-link" type="text" readonly value="' + esc(pollUrl(p.id)) + '" aria-label="Poll link">' +
-      '<button type="button" class="tk-btn tk-btn-primary" data-action="pl.copy">Copy link</button></div>' +
+      '<button type="button" class="tk-btn tk-btn-primary" data-action="pl.copy">Copy link</button>' +
+      '<button type="button" class="tk-btn" data-action="pl.invite">Copy invitation</button></div>' +
+      '<p class="tk-mini pl-invitehint">Copy invitation copies a message for the group chat: the poll title first, then the details, time and venue, and the link.</p>' +
       '<div class="tk-actions"><a class="tk-btn" href="#edit=' + esc(p.id) + '">Edit poll</a>' + (p.open
         ? '<button type="button" class="tk-btn" data-action="pl.setOpen" data-open="0">Close poll</button>'
         : '<button type="button" class="tk-btn" data-action="pl.setOpen" data-open="1">Reopen poll</button>') +
@@ -1848,6 +1863,39 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
       return root.navigator.clipboard.writeText(url).then(done, function () { if (inp) { inp.select(); } TK.toast('Select the link and copy it.', 'warn'); });
     }
     if (inp) { inp.select(); try { root.document.execCommand('copy'); done(); } catch (e) { TK.toast('Select the link and copy it.', 'warn'); } }
+    return null;
+  });
+  /** The group-chat message (president 2026-10-28): Messenger's link card is the same for every poll, so the message
+   *  itself carries the meeting's title first, then the details, Time and Venue (TBD when empty), the closing date and the link. */
+  function inviteText(p) {
+    var lines = [String(p.title || '').trim()];
+    if (p.details) lines.push(String(p.details).trim());
+    var info = [];
+    if (p.tracker_ref || p.meeting_time || p.meeting_venue) {
+      info.push('Time: ' + (p.meeting_time || 'TBD'));
+      info.push('Venue: ' + (p.meeting_venue || 'TBD'));
+    }
+    if (p.open && p.closes_at) info.push('Voting closes: ' + when(p.closes_at));
+    if (info.length) lines.push('', info.join('\n'));
+    lines.push('', (p.audience === 'officers' ? 'Officers, please' : 'Please') + ' cast your vote on the Chapter Hub:', pollUrl(p.id));
+    return lines.join('\n');
+  }
+  TK.action('pl.invite', function () {
+    var p = S.poll; if (!p) return null;
+    var text = inviteText(p), doc = root.document;
+    var done = function () { TK.toast('Invitation copied. Paste it in the group chat.', 'good'); };
+    var byHand = function () {
+      var ta = doc.createElement('textarea');
+      ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      doc.body.appendChild(ta); ta.select();
+      var ok = false; try { ok = doc.execCommand('copy'); } catch (e) { ok = false; }
+      doc.body.removeChild(ta);
+      if (ok) done(); else TK.toast('The invitation could not be copied on this device. Use Copy link instead.', 'warn');
+    };
+    if (root.navigator && root.navigator.clipboard && root.navigator.clipboard.writeText) {
+      return root.navigator.clipboard.writeText(text).then(done, byHand);
+    }
+    byHand();
     return null;
   });
   TK.action('pl.setOpen', function (el) {
