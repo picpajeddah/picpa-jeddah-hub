@@ -616,7 +616,9 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
 .pl-agenda > summary::before { content: "\25B8"; color: var(--navy-500); transition: transform var(--t-fast) var(--ease); }
 .pl-agenda[open] > summary::before { transform: rotate(90deg); }
 .pl-agenda > summary:focus-visible { outline: 2px solid var(--navy-500); outline-offset: -2px; border-radius: var(--r-md); }
-.pl-ag-sum { font-weight: 700; color: var(--navy-800); }
+.pl-ag-sum { font-weight: 700; color: var(--navy-500); }
+.pl-agenda > summary:hover .pl-ag-sum { text-decoration: underline; }
+.pl-agenda:not([open]) .pl-ag-hide, .pl-agenda[open] .pl-ag-show { display: none; }
 .pl-ag-body { padding: 0 var(--s4) var(--s4); border-top: 1px solid var(--line); background: var(--surface); border-radius: 0 0 var(--r-md) var(--r-md); }
 .pl-ag-kicker { margin: var(--s4) 0 var(--s1); font-size: var(--fs-xs); font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--navy-800); }
 .pl-ag-title { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-weight: 700; margin: 0 0 var(--s3); }
@@ -1725,7 +1727,7 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
       '<article class="tk-card pl-poll"><h1>' + esc(p.title) + '</h1>' +
       (p.details ? '<p class="pl-details">' + esc(p.details) + '</p>' : '') +
       '<div class="tk-pills">' + pills.join('') + '</div>' + (meta.length ? '<p class="tk-mini">' + esc(meta.join(' · ')) + '</p>' : '') +
-      agendaHtml(p.agenda) + ballot + resultsHtml(p) + '</article>' + manageHtml(p) + '</div>';
+      ballot + agendaHtml(p.agenda) + resultsHtml(p) + '</article>' + manageHtml(p) + '</div>';   // voting first; the agenda folded below it (2026-10-28)
   }
 
   // ------------------------------------------------------------------------------------- the meeting agenda (Tracker)
@@ -1764,8 +1766,10 @@ body[data-page="polls"] .tk-view { max-width: 760px; }
     secs.push([ub.length ? 'New Business' : 'Matters for Discussion', reg.length ? reg.map(item).join('') : '<p class="tk-muted">No agenda items yet.</p>']);
     var others = a.others || [];
     secs.push(['Other Matters', others.length ? '<ul class="pl-ag-list">' + others.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '']);
-    return '<details class="pl-agenda" open><summary><span class="pl-ag-sum">' + (a.approved ? 'Approved agenda' : 'Proposed agenda') + '</span>' +
-      '<span class="tk-mini">' + esc(a.id + ' · ' + (a.title || 'Meeting')) + '</span></summary>' +
+    var word = a.approved ? 'approved agenda' : 'proposed agenda';
+    return '<details class="pl-agenda"><summary><span class="pl-ag-sum"><span class="pl-ag-show">Show ' + word + '</span>' +
+      '<span class="pl-ag-hide">Hide ' + word + '</span></span>' +
+      '<span class="tk-mini">' + esc(a.id + ' · ' + (a.title || 'Meeting') + ' · ' + items.length + (items.length === 1 ? ' item' : ' items')) + '</span></summary>' +
       '<div class="pl-ag-body">' +
       secs.map(function (s, i) { return '<div class="pl-ag-sec"><p class="pl-ag-sh"><span class="pl-ag-rn">' + ROMAN[i] + '.</span>' + esc(s[0]) + '</p>' + s[1] + '</div>'; }).join('') +
       '</div></details>';
