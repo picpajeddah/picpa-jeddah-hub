@@ -2599,13 +2599,13 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     // closing and the signature block stay together
     // one signature: space (and the e-signature, when there is one) above the name, then position and term
     function sign(s) {
-      y += 15;
+      y += 21;                                     // a clear band for the signature, never touching the line above
       if (s.signature) {
         try {
           var m = /^data:image\/(png|jpeg);base64,/.exec(s.signature), pr = m && doc.getImageProperties(s.signature);
           if (pr && pr.width && pr.height) {
-            var k = Math.min(48 / pr.width, 15 / pr.height);
-            doc.addImage(s.signature, m[1] === 'png' ? 'PNG' : 'JPEG', LH.body, y - 3 - pr.height * k, pr.width * k, pr.height * k, undefined, 'FAST');
+            var k = Math.min(50 / pr.width, 14 / pr.height);
+            doc.addImage(s.signature, m[1] === 'png' ? 'PNG' : 'JPEG', LH.body, y - 2.6 - pr.height * k, pr.width * k, pr.height * k, undefined, 'FAST');
           }
         } catch (e) { /* unreadable: leave the space for a wet signature */ }
       }
@@ -2613,14 +2613,14 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       var pos = String(s.position || '').trim(), term = String(s.term || '').trim().replace(/-/g, '–');
       if (pos) { T(doc, LH.body, y, pos + (term ? ', ' + term : ''), size * 0.92, 400, COL.muted); y += lh; }
     }
-    need(lh * 2 + 26);
+    need(lh * 3 + 30);
     if (String(L.closing || '').trim()) text(String(L.closing).trim(), 400, COL.ink, lh);
     sign(L.signatory || {});
     // optional second signatory, sent "Through:" another officer 
     var t = L.through;
     if (t && t.full_name) {
-      y += lh * 1.5;
-      need(lh * 3 + 26);
+      y += lh * 2;
+      need(lh * 3 + 30);
       T(doc, LH.body, y, 'Through:', size, 400, COL.ink);
       sign(t);
     }
@@ -5205,6 +5205,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
   function newLetter() {
     S.l = { date: TK.localISO(new Date()), to: '', subject: '', salutation: 'Dear ',
       body: '', closing: 'Warm regards,', signer: defaultPair()[0] || '', through: '' };
+    S.thruOpen = false;
   }
   /** 'YYYY-MM-DD' -> '13 October 2026' ('' when not a date). */
   function longDate(d) {
@@ -5270,8 +5271,12 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     var opts = '<option value=""' + (t ? '' : ' selected') + '>None</option>' + officers().map(function (x) {
       return '<option value="' + esc(x.id) + '"' + (x.id === l.through ? ' selected' : '') + '>' + esc(offLabel(x)) + '</option>';
     }).join('');
-    var hint = t && !t.has_signature ? '<span class="tk-hint" id="ct-l-thh">' + esc(NO_ESIG) + '</span>' : '<span class="tk-hint" id="ct-l-thh">Optional: printed under “Through:” below the signatory</span>';
-    return '<div class="tk-field"><label for="ct-l-th">Through</label><select id="ct-l-th" data-change="ct.l.through" aria-describedby="ct-l-thh"' + dis() + '>' + opts + '</select>' + hint + '</div>';
+    // only shown when asked for: most letters have one signatory
+    if (!t && !S.thruOpen) return '<div class="tk-field"><label for="ct-l-thadd">Through</label><button type="button" class="tk-btn" id="ct-l-thadd" data-action="ct.l.thruAdd" aria-describedby="ct-l-thh"' + dis() + '>+ Add a “Through” signatory</button>' +
+      '<span class="tk-hint" id="ct-l-thh">Only when the letter goes through another officer</span></div>';
+    var hint = t && !t.has_signature ? '<span class="tk-hint" id="ct-l-thh">' + esc(NO_ESIG) + '</span>' : '<span class="tk-hint" id="ct-l-thh">Printed under “Through:” below the signatory</span>';
+    return '<div class="tk-field"><label for="ct-l-th">Through</label><select id="ct-l-th" data-change="ct.l.through" aria-describedby="ct-l-thh"' + dis() + '>' + opts + '</select>' + hint +
+      '<button type="button" class="tk-btn" data-action="ct.l.thruDel"' + dis() + '>Remove “Through”</button></div>';
   }
   function letterHtml() {
     var l = S.l, d = dis();
@@ -5390,6 +5395,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     TK.setHTML('ct-l-err', '');
     return null;
   });
+  TK.action('ct.l.thruAdd', function () { if (!S.l || S.busy) return null; S.thruOpen = true; if (S.view === 'letter') drawPage(); return null; });
+  TK.action('ct.l.thruDel', function () { if (!S.l || S.busy) return null; S.l.through = ''; S.thruOpen = false; TK.setHTML('ct-l-err', ''); if (S.view === 'letter') drawPage(); return null; });
   TK.action('ct.l.through', function (el) {
     var v = el && typeof el.value === 'string' ? el.value : '';
     if (!S.l || S.busy || (v && !officerById(v))) return null;
