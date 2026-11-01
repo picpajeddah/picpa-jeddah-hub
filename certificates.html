@@ -2507,7 +2507,6 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     'members, nation building and with a global perspective”.';
   var LH_MISSION = 'To promote, uphold, and maintain high standards in the accountancy profession; to serve the best interest of the ' +
     'members and the stakeholders; and to contribute to the attainment of the national and global goals.';
-  var LH_LINKS = ['facebook.com/picpa.jed', 'facebook.com/picpa.wrsa'];
   /* The letterhead: masthead, the board in the left column, vision and mission, footer.
      lh = { sections: [{ heading, sub, people: [{ full_name, position }] }], people: false to leave the names out (Word template) } */
   function drawLetterhead(doc, lh) {
@@ -2562,7 +2561,6 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     // footer
     line(doc, LH.left, 279, LH.right, 279, COL.line, 0.3);
     T(doc, 105, 284, TAGLINE, 2.45, 500, COL.goldText, { anchor: 'middle', ls: 0.05 });
-    T(doc, 105, 288.4, LH_LINKS.join('   ·   '), 2.2, 400, COL.subtle, { anchor: 'middle' });
   }
   /* letter = { lh (as above), date, to (multi-line, first line bold), subject, salutation, body (blank line = new paragraph),
                 closing, signatory: { full_name, position, term, signature } } -> one or more A4 pages */
