@@ -2616,12 +2616,12 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     need(lh * 3 + 30);
     if (String(L.closing || '').trim()) text(String(L.closing).trim(), 400, COL.ink, lh);
     sign(L.signatory || {});
-    // optional second signatory, sent "Through:" another officer 
+    // optional second signatory, with its own words above (e.g. "Through:") 
     var t = L.through;
     if (t && t.full_name) {
       y += lh * 2;
       need(lh * 3 + 30);
-      T(doc, LH.body, y, 'Through:', size, 400, COL.ink);
+      if (String(t.label || '').trim()) T(doc, LH.body, y, String(t.label).trim(), size, 400, COL.ink);   // e.g. Through: / Noted by:
       sign(t);
     }
     return page;
@@ -5201,10 +5201,10 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 
   // ------------------------------------------------------------------ letters on the letterhead (#letter)
   // Download only: nothing is saved. S.l = { date, to, subject, salutation, body, closing, signer (officer id), through (officer id or '') }
-  var LT_MAX = { to: 600, subject: 200, salutation: 120, body: 12000, closing: 80 };
+  var LT_MAX = { to: 600, subject: 200, salutation: 120, body: 12000, closing: 80, thruLabel: 80 };
   function newLetter() {
     S.l = { date: TK.localISO(new Date()), to: '', subject: '', salutation: 'Dear ',
-      body: '', closing: 'Warm regards,', signer: defaultPair()[0] || '', through: '' };
+      body: '', closing: 'Warm regards,', signer: defaultPair()[0] || '', through: '', thruLabel: '' };
     S.thruOpen = false;
   }
   /** 'YYYY-MM-DD' -> '13 October 2026' ('' when not a date). */
@@ -5232,7 +5232,8 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     if (!sq(l.to)) e.push('Enter the addressee.');
     if (!String(l.body || '').trim()) e.push('Enter the text of the letter.');
     if (!l.signer || !officerById(l.signer)) e.push('Choose who signs the letter.');
-    if (l.through && l.through === l.signer) e.push('Choose a different officer under Through, or leave it empty.');
+    if (l.through && l.through === l.signer) e.push('Choose a different officer as the second signatory.');
+    if (S.thruOpen && !l.through) e.push('Choose the second signatory, or remove it.');
     return e;
   }
   function letterData(sig, sig2) {
@@ -5240,7 +5241,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return { lh: letterBoard(), date: longDate(l.date), to: String(l.to || '').replace(/\r\n?/g, '\n'), subject: sq(l.subject),
       salutation: sq(l.salutation), body: String(l.body || '').replace(/\r\n?/g, '\n').trim(), closing: sq(l.closing),
       signatory: { full_name: o.full_name || '', position: o.position || '', term: o.term || '', signature: sig || null },
-      through: t ? { full_name: t.full_name || '', position: t.position || '', term: t.term || '', signature: sig2 || null } : null };
+      through: t ? { label: sq(l.thruLabel), full_name: t.full_name || '', position: t.position || '', term: t.term || '', signature: sig2 || null } : null };
   }
   function letterBuild() {
     var id = S.l.signer, o = officerById(id), tid = S.l.through, to = tid ? officerById(tid) : null;
@@ -5265,18 +5266,18 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
       '<input type="text" autocomplete="off"' + attrs + ' value="' + esc(v) + '">';
     return '<div class="tk-field' + (opts.wide ? ' tk-ct-wide' : ' tk-ct-title') + '"><label for="' + id + '">' + label + '</label>' + input + hint + '</div>';
   }
-  /** Optional second signatory, printed under "Through:" below the one who signs . */
+  /** Optional second signatory below the one who signs, with its own words above the signature (e.g. "Through:" or
+      "Noted by:", typed like the closing). Only shown when asked for: most letters have one signatory. */
   function throughField() {
-    var l = S.l, t = l.through ? officerById(l.through) : null;
-    var opts = '<option value=""' + (t ? '' : ' selected') + '>None</option>' + officers().map(function (x) {
+    var l = S.l, t = l.through ? officerById(l.through) : null, d = dis();
+    if (!t && !S.thruOpen) return '<div class="tk-actions"><button type="button" class="tk-btn" data-action="ct.l.thruAdd"' + d + '>+ Add a second signatory</button></div>';
+    var opts = '<option value=""' + (t ? '' : ' selected') + '>Choose an officer</option>' + officers().map(function (x) {
       return '<option value="' + esc(x.id) + '"' + (x.id === l.through ? ' selected' : '') + '>' + esc(offLabel(x)) + '</option>';
     }).join('');
-    // only shown when asked for: most letters have one signatory
-    if (!t && !S.thruOpen) return '<div class="tk-field"><label for="ct-l-thadd">Through</label><button type="button" class="tk-btn" id="ct-l-thadd" data-action="ct.l.thruAdd" aria-describedby="ct-l-thh"' + dis() + '>+ Add a “Through” signatory</button>' +
-      '<span class="tk-hint" id="ct-l-thh">Only when the letter goes through another officer</span></div>';
-    var hint = t && !t.has_signature ? '<span class="tk-hint" id="ct-l-thh">' + esc(NO_ESIG) + '</span>' : '<span class="tk-hint" id="ct-l-thh">Printed under “Through:” below the signatory</span>';
-    return '<div class="tk-field"><label for="ct-l-th">Through</label><select id="ct-l-th" data-change="ct.l.through" aria-describedby="ct-l-thh"' + dis() + '>' + opts + '</select>' + hint +
-      '<button type="button" class="tk-btn" data-action="ct.l.thruDel"' + dis() + '>Remove “Through”</button></div>';
+    var hint = t && !t.has_signature ? '<span class="tk-hint" id="ct-l-thh">' + esc(NO_ESIG) + '</span>' : '';
+    return '<div class="tk-ct-optrow">' + ltField('thruLabel', 'Words above the second signature', { hint: 'For example: Through: or Noted by: (leave empty for none)' }) +
+      '<div class="tk-field"><label for="ct-l-th">Second signatory</label><select id="ct-l-th" data-change="ct.l.through"' + (hint ? ' aria-describedby="ct-l-thh"' : '') + d + '>' + opts + '</select>' + hint + '</div></div>' +
+      '<div class="tk-actions"><button type="button" class="tk-btn" data-action="ct.l.thruDel"' + d + '>Remove the second signatory</button></div>';
   }
   function letterHtml() {
     var l = S.l, d = dis();
@@ -5304,7 +5305,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
         hint: 'Leave a blank line between paragraphs. Paragraphs are justified; a long letter continues on a second page.' }) + '</div>' +
       '<div class="tk-ct-optrow">' + ltField('closing', 'Closing', { hint: 'For example: Warm regards,' }) +
       '<div class="tk-field"><label for="ct-l-sg">Signed by</label><select id="ct-l-sg" data-change="ct.l.sign"' +
-        (hint ? ' aria-describedby="ct-l-sgh"' : '') + d + '>' + opts + '</select>' + hint + '</div>' + throughField() + '</div>' +
+        (hint ? ' aria-describedby="ct-l-sgh"' : '') + d + '>' + opts + '</select>' + hint + '</div></div>' + throughField() +
       '<p class="tk-err" id="ct-l-err" role="alert"></p>' +
       '<div class="tk-actions">' + (isPreparer() ? '' : '<button type="button" class="tk-btn tk-btn-primary" data-action="ct.l.download"' + d + '>Download PDF</button>') +
       '<button type="button" class="tk-btn" data-action="ct.l.preview"' + d + '>Preview</button></div></section>';
@@ -5396,7 +5397,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     return null;
   });
   TK.action('ct.l.thruAdd', function () { if (!S.l || S.busy) return null; S.thruOpen = true; if (S.view === 'letter') drawPage(); return null; });
-  TK.action('ct.l.thruDel', function () { if (!S.l || S.busy) return null; S.l.through = ''; S.thruOpen = false; TK.setHTML('ct-l-err', ''); if (S.view === 'letter') drawPage(); return null; });
+  TK.action('ct.l.thruDel', function () { if (!S.l || S.busy) return null; S.l.through = ''; S.l.thruLabel = ''; S.thruOpen = false; TK.setHTML('ct-l-err', ''); if (S.view === 'letter') drawPage(); return null; });
   TK.action('ct.l.through', function (el) {
     var v = el && typeof el.value === 'string' ? el.value : '';
     if (!S.l || S.busy || (v && !officerById(v))) return null;
