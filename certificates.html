@@ -5205,6 +5205,12 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     // vacant seats (no name yet, shown as a dash on the Hub) are left off the letterhead
     var list = officers().filter(function (o) { return /[A-Za-z]/.test(String(o.full_name || '')); });
     var term = list[0] && list[0].term ? String(list[0].term).trim().replace(/-/g, '–') : '';
+    // on the letterhead the President-Elect is listed just above the Immediate Past President (the Hub's own order is kept
+    // elsewhere, e.g. for the default signatories)
+    var isPE = function (o) { return /president\s*[-–]?\s*elect/i.test(String(o.position || '')); },
+      isIPP = function (o) { return /immediate\s+past\s+president/i.test(String(o.position || '')); };
+    var pe = list.filter(isPE), ipp = list.filter(isIPP)[0];
+    if (pe.length && ipp) { list = list.filter(function (o) { return !isPE(o); }); list.splice.apply(list, [list.indexOf(ipp), 0].concat(pe)); }
     return { sections: list.length ? [{ heading: 'Board of Directors', sub: term ? 'Fiscal Year ' + term : '',
       people: list.map(function (o) { return { full_name: o.full_name || '', position: o.position || '' }; }) }] : [] };
   }
