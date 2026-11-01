@@ -2527,23 +2527,33 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
     rectFill(doc, 0, 37.9, 210, 0.35, COL.gold5);
     // left column
     line(doc, LH.rule, LH.top, LH.rule, LH.bottom + 2, COL.line, 0.3);
+    // vision and mission, set at the foot of the column (measured first: the board is spread over the space above them)
+    var vis = wrap(doc, LH_VISION, 400, 2.05, LH.side), mis = wrap(doc, LH_MISSION, 400, 2.05, LH.side);
+    var yb = LH.bottom - (vis.length + mis.length) * 2.65 - 3.4 * 2 - 3;
     var y = LH.top + 1;
     if (lh.people !== false) {
-      (lh.sections || []).forEach(function (s, si) {
+      var secs = lh.sections || [], nameL = function (p) { return wrap(doc, String(p.full_name || '').toUpperCase(), 700, 2.3, LH.side); },
+        posL = function (p) { return wrap(doc, String(p.position || ''), 400, 2.15, LH.side); };
+      // the board is spread evenly down the column: equal space between officers, from the top to just above VISION
+      var fixed = 0, gaps = 0;
+      secs.forEach(function (s, si) {
+        if (si) fixed += 3.2;
+        fixed += (s.heading ? 3.4 : 0) + (s.sub ? 3.4 : 0) + 2.6;
+        (s.people || []).forEach(function (p, pi) { fixed += nameL(p).length * 2.9 + posL(p).length * 2.75; if (pi) gaps++; });
+      });
+      var gap = gaps ? Math.max(1.9, Math.min(12, (yb - 9 - y - fixed) / gaps)) : 1.9;
+      secs.forEach(function (s, si) {
         if (si) y += 3.2;
         if (s.heading) { T(doc, LH.left, y, String(s.heading).toUpperCase(), 2.35, 700, COL.navy, { ls: 0.3 }); y += 3.4; }
         if (s.sub) { T(doc, LH.left, y, s.sub, 2.2, 500, COL.goldText, { ls: 0.1 }); y += 3.4; }
         rectFill(doc, LH.left, y - 1.4, 8, 0.4, COL.gold5); y += 2.6;
-        (s.people || []).forEach(function (p) {
-          wrap(doc, String(p.full_name || '').toUpperCase(), 700, 2.3, LH.side).forEach(function (l) { T(doc, LH.left, y, l, 2.3, 700, COL.ink, { ls: 0.05 }); y += 2.9; });
-          wrap(doc, String(p.position || ''), 400, 2.15, LH.side).forEach(function (l) { T(doc, LH.left, y, l, 2.15, 400, COL.green7); y += 2.75; });
-          y += 1.9;
+        (s.people || []).forEach(function (p, pi) {
+          if (pi) y += gap;
+          nameL(p).forEach(function (l) { T(doc, LH.left, y, l, 2.3, 700, COL.ink, { ls: 0.05 }); y += 2.9; });
+          posL(p).forEach(function (l) { T(doc, LH.left, y, l, 2.15, 400, COL.green7); y += 2.75; });
         });
       });
     }
-    // vision and mission, set at the foot of the column
-    var vis = wrap(doc, LH_VISION, 400, 2.05, LH.side), mis = wrap(doc, LH_MISSION, 400, 2.05, LH.side);
-    var yb = LH.bottom - (vis.length + mis.length) * 2.65 - 3.4 * 2 - 3;
     [['VISION', vis], ['MISSION', mis]].forEach(function (b, bi) {
       if (bi) yb += 3;
       T(doc, LH.left, yb, b[0], 2.3, 700, COL.navy, { ls: 0.3 }); yb += 3.4;
