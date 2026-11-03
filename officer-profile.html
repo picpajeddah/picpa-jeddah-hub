@@ -554,7 +554,7 @@ body[data-page="certificates"] .tk-view { max-width: 1240px; }
 </style>
 <style id="op-style">
 /* officer-profile.html only */
-body[data-page="officer-profile"] .tk-view { max-width: 860px; }
+body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk-view { max-width: 860px; }
 .op { display: flex; flex-direction: column; gap: var(--s4); }
 .op h1 { margin-bottom: 0; }
 .op > .tk-muted { margin-top: calc(-1 * var(--s2)); }
@@ -587,6 +587,8 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
 .op-date { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
 .op-date-y { grid-template-columns: minmax(0, 1fr); }
 .op-date select:disabled { opacity: .55; }
+.op-share { margin-top: var(--s2); }
+.op-share-note { margin: calc(-1 * var(--s2)) 0 0; }
 @media (max-width: 40rem) { .op-entry-fields, .op-list-one { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -1660,7 +1662,9 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
   }
 
   // in memory only: me = hub_officer_profile_mine(); all = hub_officer_profiles_all() (or null); busy while saving
-  var S = { me: null, all: null, busy: false, seq: 0 };
+  // mode: 'officer' (officer-profile.html) or 'member' (member-profile.html: every member's professional profile, 2026-11-03)
+  var S = { me: null, all: null, busy: false, seq: 0, mode: 'officer' };
+  function member() { return S.mode === 'member'; }
 
   function message(e) {
     if (TK.isTimeout && TK.isTimeout(e)) return TK.MAYBE_SAVED || TK.friendlyError(e);
@@ -1814,6 +1818,11 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
           ' aria-describedby="op-h-' + s[0] + '"' + (PLACEHOLDER[s[0]] ? ' placeholder="' + esc(PLACEHOLDER[s[0]]) + '"' : '') +
           '>' + esc(v) + '</textarea></div>';
       }).join('') +
+      (member() ? '<div class="op-check op-share"><input type="checkbox" id="op-share" name="share"' + (r.share ? ' checked' : '') + '>' +
+        '<label for="op-share">Show my profile to other chapter members as well</label></div>' +
+        '<p class="tk-mini op-share-note">Chapter officers who manage the roster can always see your profile in the Member Directory' +
+        (r.is_officer ? '; as an officer, your profile is also shown on About the Chapter' : '') +
+        '. Your mobile number and e-mail address are not part of it.</p>' : '') +
       '<p id="op-err" class="tk-err" role="alert"></p>' +
       '<div class="tk-actions"><button type="submit" class="tk-btn tk-btn-primary" id="op-savebtn">Save profile</button>' +
       '<button type="button" class="tk-btn" data-action="op.word">Download (Word)</button>' +
@@ -1838,7 +1847,17 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
         }).join('') + '</tbody></table></div>'
         : '<p>No member record is marked Officer yet.</p>') + '</section>';
   }
+  function memberPageHtml() {
+    var r = S.me && S.me.record;
+    return '<div class="op"><h1>Professional profile</h1>' +
+      '<p class="tk-muted">Your education, qualifications, experience and skills, as on a LinkedIn profile. ' +
+      'Fill in each section, choose Save profile, and update it whenever something changes.</p>' +
+      (r ? infoHtml(r) + formHtml(r)
+        : '<div class="tk-note"><p>Your Hub account is not linked to a member record, so there is no profile of your own to fill in. ' +
+          'Please ask a chapter officer to add you to the roster with this e-mail address.</p></div>') + '</div>';
+  }
   function pageHtml() {
+    if (member()) return memberPageHtml();
     var r = S.me && S.me.record;
     var own;
     if (r && r.is_officer) own = infoHtml(r) + formHtml(r);
@@ -1929,7 +1948,10 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
     S.busy = true;
     if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
     if (err) err.textContent = '';
-    return TK.rpc('hub_officer_profile_save', { p_profile: v }).then(function (me) {
+    var share = byId('op-share');
+    var call = member() ? TK.rpc('hub_member_profile_save', { p_profile: v, p_share: !!(share && share.checked) })
+      : TK.rpc('hub_officer_profile_save', { p_profile: v });
+    return call.then(function (me) {
       S.me = me;
       if (S.all && me && me.record) {
         S.all = S.all.map(function (r) { return r.member_id === me.record.member_id ? me.record : r; });
@@ -1950,11 +1972,11 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
   function noPrint() { TK.toast('The printable copy could not open. Please allow pop-ups for this page, or use Download (Word).', 'warn'); }
   TK.action('op.word', function () {
     var r = ownRecord(); if (!r) return;
-    if (!downloadWord([r], 'Officer profile - ' + (r.full_name || 'officer'))) noDownload();
+    if (!downloadWord([r], docTitle(r.full_name))) noDownload();
   });
   TK.action('op.print', function () {
     var r = ownRecord(); if (!r) return;
-    if (!printCopy([r], 'Officer profile - ' + (r.full_name || 'officer'))) noPrint();
+    if (!printCopy([r], docTitle(r.full_name))) noPrint();
   });
   TK.action('op.wordone', function (el) {
     var i = Number(el && el.getAttribute ? el.getAttribute('data-i') : NaN), r = S.all && S.all[i];
@@ -1970,28 +1992,27 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
     if (!printCopy(S.all, 'Officer profiles - PICPA Jeddah Chapter')) noPrint();
   });
 
-  TK.registerPage({
-    id: 'officer-profile',
-    title: 'Officer profile',
-    access: 'signedin',
-    render: function () {
-      S.all = null;
-      return TK.rpc('hub_officer_profile_mine').then(function (me) {
+  function docTitle(name) { return (member() ? 'Professional profile - ' : 'Officer profile - ') + (name || 'member'); }
+  function render(mode) {
+    S.mode = mode;
+    S.all = null;
+    return TK.rpc(mode === 'member' ? 'hub_member_profile_mine' : 'hub_officer_profile_mine').then(function (me) {
         S.me = me || {};
-        if (!S.me.can_view_all) return pageHtml();
+        if (mode === 'member' || !S.me.can_view_all) return pageHtml();
         return TK.rpc('hub_officer_profiles_all').then(function (all) {
           S.all = Array.isArray(all) ? all : [];
           return pageHtml();
         }, function () { S.all = null; return pageHtml(); });
       }, function (e) {
-        return '<div class="tk-card tk-gate"><h1>Officer profile</h1><p>' + esc(message(e)) + '</p>' +
+        return '<div class="tk-card tk-gate"><h1>' + (mode === 'member' ? 'Professional profile' : 'Officer profile') + '</h1><p>' + esc(message(e)) + '</p>' +
           '<div class="tk-actions"><button type="button" class="tk-btn tk-btn-primary" data-action="tk.refresh">Try again</button></div></div>';
       });
-    }
-  });
+  }
+  TK.registerPage({ id: 'officer-profile', title: 'Officer profile', access: 'signedin', render: function () { return render('officer'); } });
+  TK.registerPage({ id: 'member-profile', title: 'Professional profile', access: 'signedin', render: function () { return render('member'); } });
 
   if (typeof module === 'object' && module.exports) {
-    module.exports = { state: S, SECTIONS: SECTIONS, ENTRY: ENTRY, entryLine: entryLine, lineEntry: lineEntry, dateProblem: dateProblem, sortLines: sortLines, status: status, documentHtml: documentHtml, message: message };
+    module.exports = { render: render, state: S, SECTIONS: SECTIONS, ENTRY: ENTRY, entryLine: entryLine, lineEntry: lineEntry, dateProblem: dateProblem, sortLines: sortLines, status: status, documentHtml: documentHtml, message: message };
   }
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
