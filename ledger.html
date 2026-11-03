@@ -2145,7 +2145,8 @@ table.rr-lines input[inputmode="decimal"] { text-align: right; }
     if (!f) return Promise.reject(LedgerError('LEDGER_RECEIPT_REQUIRED'));
     var files = (f.files && f.files.length ? Array.prototype.slice.call(f.files) : (f.file ? [f.file] : []));
     var lines = f.lines || [{ event_id: f.event_id, description: f.description, amount: f.amount }];
-    if (!files.length) return Promise.reject(LedgerError('LEDGER_RECEIPT_REQUIRED'));
+    var why = String(f.noReceipt || '').trim();
+    if (!files.length && why.length < 10) return Promise.reject(LedgerError('LEDGER_RECEIPT_REQUIRED'));
     if (files.length > MAX_RECEIPTS) return Promise.reject(LedgerError('LEDGER_REIMB_LINE', { detail: 'Attach at most ' + MAX_RECEIPTS + ' receipt files.' }));
     if (files.some(function (x) { return !(x.size <= MAX_FILE); })) return Promise.reject(LedgerError('LEDGER_FILE_TYPE'));
     if (!lines.length) return Promise.reject(LedgerError('LEDGER_REIMB_LINE', { detail: 'Add at least one charge.' }));
@@ -2163,8 +2164,10 @@ table.rr-lines input[inputmode="decimal"] { text-align: right; }
       });
     }, Promise.resolve());
     return up.then(function () {
-      return rpc('ledger_reimb_submit_lines', { p_spent_on: f.spent_on, p_description: f.summary !== undefined ? f.summary : (f.lines ? '' : f.description),
-        p_lines: lines, p_attachment_path: paths[0], p_extra_paths: paths.slice(1) });
+      var args = { p_spent_on: f.spent_on, p_description: f.summary !== undefined ? f.summary : (f.lines ? '' : f.description),
+        p_lines: lines, p_attachment_path: paths[0] || null, p_extra_paths: paths.slice(1) };
+      if (why) args.p_no_receipt_reason = why;      // sql/11: a charge without a receipt, explained
+      return rpc('ledger_reimb_submit_lines', args);
     }).then(function (row) { return reloadMine().then(function () { return row; }); });
   }
   function reimbCancel(id) {
@@ -5924,6 +5927,10 @@ table.rr-lines input[inputmode="decimal"] { text-align: right; }
         l.description + ' ' + LD.fmt(l.amount) + acc) + '</span>';
     }).join('<br>');
   }
+  /** The officer's explanation for a charge without a receipt, as a line under the request. */
+  function receiptNote(why, none) {
+    return why ? '<br><span class="mini"><b>' + (none ? 'No receipt' : 'Receipt note') + ':</b> ' + esc(why) + '</span>' : '';
+  }
   function codesOf(lines) {
     var seen = [];
     lines.forEach(function (l) { var c = l.event_code || nameOf(state().events, l.event_id, 'code'); if (seen.indexOf(c) < 0) seen.push(c); });
@@ -5938,7 +5945,7 @@ table.rr-lines input[inputmode="decimal"] { text-align: right; }
         var s = standing(r.status, r.payout_status, r.note), lines = r.lines || [];
         return '<tr data-ref="' + esc(r.ref) + '"><td data-label="Request"><b>' + esc(r.ref) + '</b><br><span class="muted">Spent ' + esc(r.spent_on) + '</span></td>' +
           '<td data-label="Event">' + esc(lines.length ? codesOf(lines) : r.event_code) + '</td><td data-label="What for">' + esc(r.description) +
-          (lines.length > 1 ? '<br>' + chargesText(lines) : '') + '</td>' +
+          (lines.length > 1 ? '<br>' + chargesText(lines) : '') + receiptNote(r.no_receipt_reason, r.receipts === 0) + '</td>' +
           '<td class="num" data-label="Amount">' + LD.fmt(r.amount) + '</td>' +
           '<td data-label="Status">' + pill(s.label, s.cls) + (s.detail ? '<br><span class="mini muted">' + esc(s.detail) + '</span>' : '') + '</td>' +
           '<td data-label="">' + (r.status === 'Submitted' ? '<button type="button" class="btn btn-small btn-danger" data-action="reimb.cancelAsk" data-id="' +
@@ -5982,9 +5989,12 @@ table.rr-lines input[inputmode="decimal"] { text-align: right; }
         '<tbody id="rr-lines">' + F.keys.map(function (k) { return chargeRow(k, null); }).join('') + '</tbody></table></div>' +
       '<div class="btn-row"><button type="button" class="btn" data-action="reimb.addLine">+ Add a charge</button>' +
         '<span class="rr-total">Total: <b id="rr-total">' + LD.fmt(0) + '</b> ' + cur + '</span></div>' +
-      '<div class="field rec-wide"><label for="rr-file">Receipts (at least one, up to ' + LD.MAX_RECEIPTS + ' files)</label>' +
+      '<div class="field rec-wide"><label for="rr-file">Receipts (up to ' + LD.MAX_RECEIPTS + ' files)</label>' +
         '<input id="rr-file" name="receipt" type="file" multiple accept="' + ACCEPT + '">' +
         '<span class="hint">Photos (JPEG, PNG, HEIC) or PDF, up to 9 MB each. Select several files at once if there is more than one receipt.</span></div>' +
+      '<div class="field rec-wide"><label for="rr-noreceipt">Explanation for a charge without a receipt</label>' +
+        '<input id="rr-noreceipt" name="no_receipt" type="text" maxlength="300" placeholder="For example: cash tip to the technician, no receipt issued">' +
+        '<span class="hint">Required when no receipt is attached; at least 10 characters. The approver sees it, and it is kept with the entry.</span></div>' +
       '<div id="rr-err" aria-live="assertive"></div>' +
       '<div class="btn-row"><button type="submit" id="rr-save" class="btn btn-primary">Submit request</button></div></form></section>' +
       '<section class="card"><h2>My requests</h2><div id="rr-mine">' + mineList() + '</div></section>';
@@ -6062,7 +6072,9 @@ table.rr-lines input[inputmode="decimal"] { text-align: right; }
         if (c.amount === null) errs.push(who + LD.ERRORS.LEDGER_AMOUNT());
       });
       if (charges.length > 30) errs.push('A request can have at most 30 charges; file the rest as another request.');
-      if (!files.length) errs.push('Attach the receipt.');
+      v.noReceipt = val(form, 'no_receipt').trim();
+      if (v.noReceipt && v.noReceipt.length < 10) errs.push('Explain the missing receipt in at least 10 characters.');
+      else if (!files.length && !v.noReceipt) errs.push('Attach the receipt, or explain why there is none.');
       else if (files.length > LD.MAX_RECEIPTS) errs.push('Attach at most ' + LD.MAX_RECEIPTS + ' receipt files.');
       errBox('rr-err', errs);
       if (errs.length) return false;
@@ -6105,7 +6117,8 @@ table.rr-lines input[inputmode="decimal"] { text-align: right; }
     var st = state(), me = st.user.id, appr = st.role === 'approver';
     var pay = txn(r.payout_txn_id), exp = txn(r.expense_txn_id);
     var s = standing(r.status, pay ? pay.status : null, r.note);
-    var acts = '<button type="button" class="btn btn-small" data-action="reimb.receipt" data-id="' + esc(r.id) + '">Receipt</button>';
+    var acts = r.attachment_path ? '<button type="button" class="btn btn-small" data-action="reimb.receipt" data-id="' + esc(r.id) + '">Receipt</button>'
+      : pill('No receipt', 'pill pill-warn');
     if (appr && mode === 'decide') {
       acts += r.requested_by === me ? ' <span class="mini muted">You requested this; another approver decides.</span>'
         : ' <button type="button" class="btn btn-small btn-good" data-action="reimb.approveAsk" data-id="' + esc(r.id) + '">Approve</button>' +
@@ -6125,7 +6138,7 @@ table.rr-lines input[inputmode="decimal"] { text-align: right; }
       '<td data-label="What for">' + esc(r.description) + '<br><span class="muted">Paid ' + esc(r.spent_on) +
         (!many && r.account_id ? ' · ' + esc(nameOf(st.accounts, r.account_id, 'name')) : '') +
         ((r.extra_paths || []).length ? ' · ' + (1 + r.extra_paths.length) + ' receipts' : '') + '</span>' +
-        (many ? '<br>' + chargesText(lines, true) : '') +
+        (many ? '<br>' + chargesText(lines, true) : '') + receiptNote(r.no_receipt_reason, !r.attachment_path) +
         (books ? '<br><span class="mini muted">' + esc(books) + '</span>' : '') + '</td>' +
       '<td class="num" data-label="Amount">' + LD.fmt(r.amount) + '</td>' +
       '<td data-label="Status">' + pill(s.label, s.cls) + (s.detail ? '<br><span class="mini muted">' + esc(s.detail) + '</span>' : '') + '</td>' +
@@ -6167,7 +6180,8 @@ table.rr-lines input[inputmode="decimal"] { text-align: right; }
   LD.action('reimb.receipt', function (el) {
     var r = find(idOf(el));
     if (!r) return Promise.resolve();
-    var paths = [r.attachment_path].concat(r.extra_paths || []);
+    var paths = [r.attachment_path].concat(r.extra_paths || []).filter(Boolean);
+    if (!paths.length) return Promise.resolve();
     return Promise.all(paths.map(function (p) { return LD.signedUrl(p); })).then(function (urls) {
       var one = urls.length === 1;
       app().modal('<h2>' + (one ? 'Receipt' : 'Receipts') + ' for ' + esc(r.ref) + '</h2><p>' + esc(r.description) + ' · ' + LD.fmt(r.amount) + '</p>' +
@@ -6207,6 +6221,8 @@ table.rr-lines input[inputmode="decimal"] { text-align: right; }
     }).join('');
     app().modal('<h2>Approve ' + esc(r.ref) + '</h2><p>' + esc(officerName(r)) + ' · ' + esc(r.description) + ' · <b>' + LD.fmt(r.amount) + '</b>' +
       (many ? ' in ' + lines.length + ' charges' : '') + '</p>' +
+      (r.no_receipt_reason ? '<p class="note note-warn" role="note"><b>' + (r.attachment_path ? 'A charge has no receipt' : 'No receipt attached') +
+        '.</b> The officer explains: ' + esc(r.no_receipt_reason) + '</p>' : '') +
       '<form class="rec-form" data-submit="reimb.approveDo" novalidate>' +
       (many ? '<div class="field"><label for="rr-acc-all">Same account for every charge (optional)</label><select id="rr-acc-all" name="acc_all" ' +
         'data-change="reimb.accAll">' + accOptions(null) + '</select></div>' : '') +
