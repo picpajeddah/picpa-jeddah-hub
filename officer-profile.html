@@ -580,6 +580,13 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
 .op-list-one .op-entry-fields { display: block; flex: 1; }
 .op-list-one .op-del { align-self: center; }
 .op-add { align-self: flex-start; }
+.op-wide { grid-column: 1 / -1; }
+.op-check { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-sm); color: var(--ink); }
+.op-check input { width: 18px; height: 18px; margin: 0; accent-color: var(--navy-800); flex: none; }
+.op-dlabel { font-size: var(--fs-xs); font-weight: 600; color: var(--navy-800); }
+.op-date { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
+.op-date-y { grid-template-columns: minmax(0, 1fr); }
+.op-date select:disabled { opacity: .55; }
 @media (max-width: 40rem) { .op-entry-fields, .op-list-one { grid-template-columns: 1fr; } }
 </style>
 </head>
@@ -1509,44 +1516,147 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
       'Currently based in Jeddah, Saudi Arabia, he is actively involved in professional and community organisations.'
   };
 
-  // The list sections are filled in as entries (like a LinkedIn profile). Each entry is stored as one line of the section's
-  // text: "first field – second · third · …" (the pop-up on About the Chapter and the Word document read the same lines).
-  // field: [key, label, example]; one: a single field per entry (shown as a compact list).
+  // The list sections are filled in as entries, the way a LinkedIn profile is: each entry has its own fields, dates are
+  // chosen (month and year), and a tick box marks a position that is still held ("Present"). Each entry is stored as one
+  // line of the section's text, "title – detail · detail · Jan 2023–Present" (the pop-up on About the Chapter and the Word
+  // document read the same lines; no database change). Entries with dates are saved most recent first.
+  // field: {k, t: 'text' | 'date' | 'check', l: label, ex: example, m: month as well (date), end: the later date of a pair,
+  //         pre: word stored before a date ("Issued 2014"), off: the tick box that switches this date off,
+  //         say: what a ticked box is stored as ("Does not expire")}
+  var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var FIRST_YEAR = 1960;
   var ENTRY = {
-    education: { add: 'Add education', fields: [['degree', 'Degree or course', 'Bachelor of Science in Accountancy'],
-      ['school', 'School', 'Polytechnic University of the Philippines'], ['year', 'Year graduated', '2014'], ['honours', 'Honours (optional)', 'Cum Laude']] },
-    qualifications: { add: 'Add licence or certification', fields: [['name', 'Licence or certification', 'Certified Public Accountant'],
-      ['issuer', 'Issuing body', 'Professional Regulation Commission, Philippines'], ['year', 'Year obtained', '2014']] },
-    picpa_positions: { add: 'Add position', fields: [['role', 'Position', 'Treasurer'], ['body', 'Chapter, region or national', 'Jeddah Chapter'],
-      ['years', 'Years', '2025–2026']] },
-    experience: { add: 'Add position', fields: [['title', 'Position', 'Senior Accountant'], ['company', 'Company', 'Company name'],
-      ['place', 'Location', 'Jeddah, Saudi Arabia'], ['years', 'Years', '2023–Present']] },
-    skills: { add: 'Add skill', one: true, fields: [['v', 'Skill', 'Financial reporting']] },
-    affiliations: { add: 'Add organisation', fields: [['org', 'Organisation', 'Philippine Institute of Certified Public Accountants'],
-      ['role', 'Role or membership (optional)', 'Member']] },
-    interests: { add: 'Add interest', one: true, fields: [['v', 'Interest', 'Community Service']] }
+    education: { add: 'Add education', fields: [
+      { k: 'degree', t: 'text', l: 'Degree or course', ex: 'Bachelor of Science in Accountancy' },
+      { k: 'school', t: 'text', l: 'School', ex: 'Polytechnic University of the Philippines' },
+      { k: 'grad', t: 'date', l: 'Year graduated' },
+      { k: 'honours', t: 'text', l: 'Honours (optional)', ex: 'Cum Laude' }] },
+    qualifications: { add: 'Add licence or certification', fields: [
+      { k: 'name', t: 'text', l: 'Licence or certification', ex: 'Certified Public Accountant' },
+      { k: 'issuer', t: 'text', l: 'Issuing organisation', ex: 'Professional Regulation Commission' },
+      { k: 'issued', t: 'date', m: true, l: 'Issue date', pre: 'Issued' },
+      { k: 'noexp', t: 'check', l: 'This credential does not expire', say: 'Does not expire' },
+      { k: 'expires', t: 'date', m: true, l: 'Expiration date', pre: 'Expires', end: true, off: 'noexp' }] },
+    picpa_positions: { add: 'Add position', range: true, fields: [
+      { k: 'role', t: 'text', l: 'Position', ex: 'Treasurer' },
+      { k: 'body', t: 'text', l: 'Chapter, region or national', ex: 'Jeddah Chapter' },
+      { k: 'current', t: 'check', l: 'I currently hold this position' },
+      { k: 'start', t: 'date', l: 'Start year' },
+      { k: 'end', t: 'date', l: 'End year', end: true, off: 'current' }] },
+    experience: { add: 'Add experience', range: true, fields: [
+      { k: 'title', t: 'text', l: 'Position', ex: 'Senior Accountant' },
+      { k: 'company', t: 'text', l: 'Company', ex: 'Company name' },
+      { k: 'place', t: 'text', l: 'Location (optional)', ex: 'Jeddah, Saudi Arabia' },
+      { k: 'current', t: 'check', l: 'I currently work here' },
+      { k: 'start', t: 'date', m: true, l: 'Start date' },
+      { k: 'end', t: 'date', m: true, l: 'End date', end: true, off: 'current' }] },
+    skills: { add: 'Add skill', one: true, fields: [{ k: 'v', t: 'text', l: 'Skill', ex: 'Financial reporting' }] },
+    affiliations: { add: 'Add organisation', fields: [
+      { k: 'org', t: 'text', l: 'Organisation', ex: 'Philippine Institute of Certified Public Accountants' },
+      { k: 'role', t: 'text', l: 'Role or membership (optional)', ex: 'Member' }] },
+    interests: { add: 'Add interest', one: true, fields: [{ k: 'v', t: 'text', l: 'Interest', ex: 'Community Service' }] }
   };
   var SEP = ' – ', SUB = ' · ';
+  var D = '(?:(' + MON.join('|') + ') )?(\\d{4})';
+  var DATE_RE = new RegExp('^' + D + '$');
+  var RANGE_RE = new RegExp('^(?:' + D + ')?\\s*[–-]\\s*(?:' + D + '|(Present))$');
   function clean1(v) { return text(v).replace(/\s+/g, ' ').trim(); }
+  function thisYear() { return new Date().getFullYear(); }
+  function textKeys(key) { return ENTRY[key].fields.filter(function (f) { return f.t === 'text'; }).map(function (f) { return f.k; }); }
+  /** "Mar 2021", "2021" or '' (the year is required; a month alone is ignored). */
+  function dateText(m, y) {
+    y = clean1(y); m = Number(m);
+    if (!/^\d{4}$/.test(y)) return '';
+    return (m >= 1 && m <= 12 ? MON[m - 1] + ' ' : '') + y;
+  }
+  function monNo(name) { var i = MON.indexOf(name); return i < 0 ? '' : String(i + 1); }
+  /** A comparable number for a date (year * 100 + month), or 0. */
+  function dateNo(m, y) { return /^\d{4}$/.test(clean1(y)) ? Number(y) * 100 + (Number(m) || 0) : 0; }
+  function rangeText(v) {
+    var a = dateText(v.start_m, v.start_y), b = v.current ? 'Present' : dateText(v.end_m, v.end_y);
+    return a && b ? a + '–' + b : a || (b === 'Present' ? '' : b);
+  }
+  function isOff(f, vals) { return !!(f.off && vals[f.off]); }
   /** One entry ({field: value}) as its stored line ('' when every field is empty). */
   function entryLine(key, vals) {
-    var f = ENTRY[key].fields.map(function (x) { return clean1(vals[x[0]]); });
-    var head = f[0], rest = f.slice(1).filter(Boolean);
+    var E = ENTRY[key], parts = [];          // in the order of the fields; a range goes last
+    E.fields.forEach(function (f) {
+      if (f.t === 'text') parts.push(clean1(vals[f.k]));
+      else if (f.t === 'check') { if (f.say) parts.push(vals[f.k] ? f.say : ''); }
+      else if (!E.range && !isOff(f, vals)) {
+        var d = dateText(vals[f.k + '_m'], vals[f.k + '_y']);
+        parts.push(d && f.pre ? f.pre + ' ' + d : d);
+      }
+    });
+    if (E.range) parts.push(rangeText(vals));
+    var head = parts[0], rest = parts.slice(1).filter(Boolean);
     if (head && rest.length) return head + SEP + rest.join(SUB);
     return head || rest.join(SUB);
   }
   /** A stored line back into its fields (older free-text lines go into the first field). */
   function lineEntry(key, line) {
-    var n = ENTRY[key].fields.length, parts;
-    if (n === 1) parts = [line];
-    else {
-      var i = line.indexOf(SEP);
-      parts = i >= 0 ? [line.slice(0, i)].concat(line.slice(i + SEP.length).split(SUB)) : [line];
-      if (parts.length > n) parts = parts.slice(0, n - 1).concat([parts.slice(n - 1).join(SUB)]);
-    }
-    var out = {};
-    ENTRY[key].fields.forEach(function (x, j) { out[x[0]] = (parts[j] || '').trim(); });
+    var E = ENTRY[key], tk = textKeys(key), out = {};
+    E.fields.forEach(function (f) {
+      if (f.t === 'text') out[f.k] = '';
+      else if (f.t === 'check') out[f.k] = false;
+      else { out[f.k + '_m'] = ''; out[f.k + '_y'] = ''; }
+    });
+    if (E.one) { out[tk[0]] = line.trim(); return out; }
+    var i = line.indexOf(SEP);
+    var head = i >= 0 ? line.slice(0, i) : line, parts = i >= 0 ? line.slice(i + SEP.length).split(SUB) : [];
+    var dates = E.range ? [] : E.fields.filter(function (f) { return f.t === 'date'; }), done = {}, ranged = false, queue = [];
+    function put(f, m) { out[f.k + '_m'] = monNo(m[1]); out[f.k + '_y'] = m[2]; done[f.k] = true; }
+    parts.forEach(function (part) {
+      var t = part.trim(), m, w, f;
+      if (!t) return;
+      var says = E.fields.filter(function (x) { return x.t === 'check' && x.say === t; })[0];
+      if (says) { out[says.k] = true; return; }
+      if (E.range && !ranged && (m = RANGE_RE.exec(t))) {
+        out.start_m = monNo(m[1]); out.start_y = m[2] || ''; out.end_m = monNo(m[3]); out.end_y = m[4] || ''; out.current = !!m[5];
+        ranged = true; return;
+      }
+      if (E.range && !ranged && (m = DATE_RE.exec(t))) { out.start_m = monNo(m[1]); out.start_y = m[2]; ranged = true; return; }
+      w = /^(\S+) (.+)$/.exec(t);
+      f = w && dates.filter(function (x) { return x.pre === w[1] && !done[x.k]; })[0];
+      if (f && (m = DATE_RE.exec(w[2]))) { put(f, m); return; }
+      f = dates.filter(function (x) { return !done[x.k]; })[0];
+      if (f && (m = DATE_RE.exec(t))) { put(f, m); return; }
+      queue.push(t);
+    });
+    out[tk[0]] = head.trim();
+    for (var j = 1; j < tk.length && queue.length; j++) out[tk[j]] = j === tk.length - 1 ? queue.splice(0).join(SUB) : queue.shift();
+    if (queue.length) out[tk[0]] = [out[tk[0]]].concat(queue).join(SUB);
     return out;
+  }
+  /** The order an entry is listed in, larger = listed first: what is current, then the latest date (end, else start). */
+  function sortKey(key, v) {
+    var E = ENTRY[key];
+    if (E.range) {
+      var a = dateNo(v.start_m, v.start_y), b = v.current ? 999999 : dateNo(v.end_m, v.end_y);
+      return (b || a) * 1e6 + a;
+    }
+    var f = E.fields.filter(function (x) { return x.t === 'date' && !x.end; })[0];
+    return f ? dateNo(v[f.k + '_m'], v[f.k + '_y']) * 1e6 : 0;
+  }
+  /** What is wrong with an entry's dates, or ''. */
+  function dateProblem(key, v) {
+    var E = ENTRY[key], bad = E.fields.filter(function (f) {
+      return f.t === 'date' && !isOff(f, v) && v[f.k + '_m'] && !v[f.k + '_y'];
+    })[0];
+    if (bad) return 'please choose the year of the ' + bad.l.toLowerCase() + ' as well as the month.';
+    var from = E.fields.filter(function (f) { return f.t === 'date' && !f.end; })[0];
+    var to = E.fields.filter(function (f) { return f.t === 'date' && f.end; })[0];
+    if (!from || !to) return '';
+    var a = dateNo(v[from.k + '_m'], v[from.k + '_y']), b = isOff(to, v) ? 0 : dateNo(v[to.k + '_m'], v[to.k + '_y']);
+    if (E.range && !a && (v.current || b)) return 'please choose the ' + from.l.toLowerCase() + '.';
+    if (a && b && b < a) return 'the ' + to.l.toLowerCase() + ' of an entry is earlier than its ' + from.l.toLowerCase() + '.';
+    return '';
+  }
+  /** Lines (as stored) in the order the section is listed: most recent first; entries without dates keep their order. */
+  function sortLines(key, ls) {
+    return ls.map(function (l, i) { return { l: l, at: sortKey(key, lineEntry(key, l)), i: i }; })
+      .sort(function (a, b) { return (b.at - a.at) || (a.i - b.i); }).map(function (x) { return x.l; });
   }
 
   // in memory only: me = hub_officer_profile_mine(); all = hub_officer_profiles_all() (or null); busy while saving
@@ -1645,20 +1755,46 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
       '<p class="tk-mini">These come from your member record. To change your mobile number, use My Profile in the Hub; ' +
       'for your name or e-mail address, please ask a Hub admin.</p></section>';
   }
+  function yearOptions(sel, ahead) {
+    var top = thisYear() + (ahead || 0), out = '<option value="">Year</option>', y;
+    sel = clean1(sel);
+    if (/^\d{4}$/.test(sel) && Number(sel) > top) out += '<option value="' + sel + '" selected>' + sel + '</option>';
+    for (y = top; y >= FIRST_YEAR; y--) out += '<option value="' + y + '"' + (String(y) === sel ? ' selected' : '') + '>' + y + '</option>';
+    if (/^\d{4}$/.test(sel) && Number(sel) < FIRST_YEAR) out += '<option value="' + sel + '" selected>' + sel + '</option>';
+    return out;
+  }
+  function monthOptions(sel) {
+    return '<option value="">Month</option>' + MONTHS.map(function (name, i) {
+      return '<option value="' + (i + 1) + '"' + (String(i + 1) === String(sel) ? ' selected' : '') + '>' + name + '</option>';
+    }).join('');
+  }
   function entryHtml(key, vals) {
     var E = ENTRY[key], n = ++S.seq;
     return '<div class="op-entry" data-sec="' + key + '"><div class="op-entry-fields">' +
-      E.fields.map(function (x) {
-        var id = 'op-e' + n + '-' + x[0];
-        return '<div class="tk-field"><label for="' + id + '"' + (E.one ? ' class="tk-sr"' : '') + '>' + esc(x[1]) + '</label>' +
-          '<input type="text" id="' + id + '" data-f="' + x[0] + '" maxlength="300" value="' + esc(vals[x[0]] || '') + '"' +
-          (x[2] ? ' placeholder="' + esc('e.g. ' + x[2]) + '"' : '') + '></div>';
+      E.fields.map(function (f) {
+        var id = 'op-e' + n + '-' + f.k;
+        if (f.t === 'check') {
+          return '<div class="op-check op-wide"><input type="checkbox" id="' + id + '" data-f="' + f.k + '" data-change="op.tick"' +
+            (vals[f.k] ? ' checked' : '') + '><label for="' + id + '">' + esc(f.l) + '</label></div>';
+        }
+        if (f.t === 'date') {
+          var off = isOff(f, vals) ? ' disabled' : '', offAttr = f.off ? ' data-off="' + f.off + '"' : '';
+          return '<div class="tk-field op-datefield" role="group" aria-labelledby="' + id + '-l"><span class="op-dlabel" id="' + id + '-l">' +
+            esc(f.l) + '</span><div class="op-date' + (f.m ? '' : ' op-date-y') + '">' +
+            (f.m ? '<select id="' + id + '-m" data-f="' + f.k + '_m"' + offAttr + ' aria-label="' + esc(f.l + ': month') + '"' + off + '>' +
+              monthOptions(off ? '' : vals[f.k + '_m']) + '</select>' : '') +
+            '<select id="' + id + '-y" data-f="' + f.k + '_y"' + offAttr + ' aria-label="' + esc(f.l + ': year') + '"' + off + '>' +
+            yearOptions(off ? '' : vals[f.k + '_y'], f.k === 'expires' ? 15 : f.end || f.k === 'grad' ? 6 : 0) + '</select></div></div>';
+        }
+        return '<div class="tk-field"><label for="' + id + '"' + (E.one ? ' class="tk-sr"' : '') + '>' + esc(f.l) + '</label>' +
+          '<input type="text" id="' + id + '" data-f="' + f.k + '" maxlength="300" value="' + esc(vals[f.k] || '') + '"' +
+          (f.ex ? ' placeholder="' + esc('e.g. ' + f.ex) + '"' : '') + '></div>';
       }).join('') + '</div>' +
       '<button type="button" class="tk-btn tk-btn-small op-del" data-action="op.del" aria-label="' +
-      esc('Remove this ' + E.fields[0][1].toLowerCase()) + '">Remove</button></div>';
+      esc('Remove this ' + E.fields[0].l.toLowerCase()) + '">Remove</button></div>';
   }
   function entriesHtml(s, v) {
-    var key = s[0], E = ENTRY[key], ls = lines(v);
+    var key = s[0], E = ENTRY[key], ls = sortLines(key, lines(v));
     return '<fieldset class="op-sec" aria-describedby="op-h-' + key + '"><legend>' + esc(s[1]) + '</legend>' +
       '<p class="tk-hint" id="op-h-' + key + '">' + esc(s[2]) + '</p>' +
       '<div class="op-list' + (E.one ? ' op-list-one' : '') + '" id="op-list-' + key + '">' +
@@ -1718,16 +1854,20 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
   }
 
   // ------------------------------------------------------------------------------------------------------ actions
-  function formValues() {
+  /** The form as the profile to save; problems (optional array) receives what is wrong with the dates. */
+  function formValues(problems) {
     var f = byId('op-form'), out = {};
     SECTIONS.forEach(function (s) {
       if (ENTRY[s[0]]) {
         var rows = f && f.querySelectorAll ? Array.prototype.slice.call(f.querySelectorAll('.op-entry[data-sec="' + s[0] + '"]')) : [];
-        out[s[0]] = rows.map(function (row) {
-          var vals = {};
-          Array.prototype.slice.call(row.querySelectorAll('[data-f]')).forEach(function (i) { vals[i.getAttribute('data-f')] = i.value; });
-          return entryLine(s[0], vals);
-        }).filter(Boolean).join('\n');
+        var items = rows.map(function (row, i) {
+          var vals = rowValues(row);
+          var line = entryLine(s[0], vals), why = line ? dateProblem(s[0], vals) : '';
+          if (why && problems) problems.push('In ' + s[1] + ', ' + why);
+          return { line: line, at: sortKey(s[0], vals), i: i };
+        }).filter(function (x) { return x.line; });
+        items.sort(function (a, b) { return (b.at - a.at) || (a.i - b.i); });
+        out[s[0]] = items.map(function (x) { return x.line; }).join('\n');
         return;
       }
       var el = f && f.querySelector ? f.querySelector('[name="' + s[0] + '"]') : null;
@@ -1735,11 +1875,35 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
     });
     return out;
   }
+  function rowValues(row) {
+    var vals = {};
+    Array.prototype.slice.call(row.querySelectorAll('[data-f]')).forEach(function (el) {
+      vals[el.getAttribute('data-f')] = el.type === 'checkbox' ? !!el.checked : el.value;
+    });
+    return vals;
+  }
+  // "I currently work here" / "does not expire": the date it replaces is not asked for (and is cleared)
+  TK.action('op.tick', function (el) {
+    var row = el && el.closest ? el.closest('.op-entry') : null, k = el && el.getAttribute ? el.getAttribute('data-f') : '';
+    if (!row || !row.querySelectorAll || !k) return;
+    Array.prototype.slice.call(row.querySelectorAll('[data-off="' + k + '"]')).forEach(function (sel) {
+      sel.disabled = !!el.checked;
+      if (el.checked) sel.value = '';
+    });
+  });
+  /** After saving: every dated list is shown again in the saved order (most recent first). */
+  function redrawLists(profile) {
+    Object.keys(ENTRY).forEach(function (key) {
+      var list = byId('op-list-' + key), ls = lines(profile && profile[key]);
+      if (!list || !ls.length || ENTRY[key].one) return;
+      list.innerHTML = sortLines(key, ls).map(function (l) { return entryHtml(key, lineEntry(key, l)); }).join('');
+    });
+  }
   TK.action('op.add', function (el) {
     var key = el && el.getAttribute ? el.getAttribute('data-sec') : '', list = byId('op-list-' + key);
     if (!ENTRY[key] || !list || !list.insertAdjacentHTML) return;
     list.insertAdjacentHTML('beforeend', entryHtml(key, {}));
-    var last = list.lastElementChild, inp = last && last.querySelector ? last.querySelector('input') : null;
+    var last = list.lastElementChild, inp = last && last.querySelector ? last.querySelector('input[type="text"]') : null;
     if (inp && inp.focus) inp.focus();
   });
   TK.action('op.del', function (el) {
@@ -1758,7 +1922,8 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
   }
   TK.action('op.save', function () {
     if (S.busy) return null;
-    var v = formValues(), err = byId('op-err'), btn = byId('op-savebtn');
+    var problems = [], v = formValues(problems), err = byId('op-err'), btn = byId('op-savebtn');
+    if (problems.length) { if (err) err.textContent = problems[0]; return null; }
     var long = SECTIONS.filter(function (s) { return v[s[0]].length > s[3]; })[0];
     if (long) { if (err) err.textContent = s1(long) + ' is too long (up to ' + long[3] + ' characters).'; return null; }
     S.busy = true;
@@ -1770,6 +1935,7 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
         S.all = S.all.map(function (r) { return r.member_id === me.record.member_id ? me.record : r; });
         var a = byId('op-all'); if (a) a.outerHTML = allHtml();
       }
+      if (me && me.record && me.record.profile) redrawLists(me.record.profile);
       var sv = byId('op-saved'); if (sv && me.record && me.record.updated_at) sv.textContent = 'Last saved ' + when(me.record.updated_at) + '.';
       TK.toast('Your profile has been saved.', 'good');
     }, function (e) {
@@ -1825,7 +1991,7 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
   });
 
   if (typeof module === 'object' && module.exports) {
-    module.exports = { state: S, SECTIONS: SECTIONS, ENTRY: ENTRY, entryLine: entryLine, lineEntry: lineEntry, status: status, documentHtml: documentHtml, message: message };
+    module.exports = { state: S, SECTIONS: SECTIONS, ENTRY: ENTRY, entryLine: entryLine, lineEntry: lineEntry, dateProblem: dateProblem, sortLines: sortLines, status: status, documentHtml: documentHtml, message: message };
   }
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
