@@ -1478,6 +1478,7 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
     ['summary', 'Professional Summary', 'A few sentences on your professional background and present role.', 4000, false],
     ['education', 'Educational Background', 'Degree, school and year of graduation, one per line.', 4000, true],
     ['qualifications', 'Professional Qualifications', 'Licences and certifications, one per line (for example: Certified Public Accountant, Philippines, 2012).', 4000, true],
+    ['picpa_positions', 'Positions Held in PICPA', 'Chapter, regional or national positions with the years, one per line (for example: Treasurer, Jeddah Chapter, 2025–2026).', 4000, true],
     ['experience', 'Professional Experience', 'Position, company and years, most recent first, one per line.', 4000, true],
     ['skills', 'Skills', 'One per line.', 4000, true],
     ['affiliations', 'Organizational Affiliations', 'One per line.', 4000, true],
@@ -1637,6 +1638,8 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
     return '<div class="op"><h1>Officer profile</h1>' +
       '<p class="tk-muted">The chapter uses this profile for programmes, souvenir magazines and introductions. ' +
       'Fill in each section, choose Save profile, and update it whenever something changes.</p>' +
+      (r && r.is_officer ? '<div class="tk-note"><p>Chapter members signed in to the Hub can read your profile when they select your name ' +
+        'under Chapter officers on About the Chapter. Your mobile number and e-mail address are not shown to them.</p></div>' : '') +
       own + (S.all ? allHtml() : '') + '</div>';
   }
 
