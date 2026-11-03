@@ -568,6 +568,19 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
 .op-form .tk-actions { flex-wrap: wrap; }
 .op-all .tk-actions { margin-bottom: var(--s3); flex-wrap: wrap; }
 .tk-err { color: var(--crit-ink); font-size: var(--fs-sm); margin: 0; }
+.op-sec { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.op-sec legend { padding: 0; margin-bottom: var(--s1); font-size: var(--fs-sm); font-weight: 600; color: var(--navy-800); }
+.op-list { display: flex; flex-direction: column; gap: var(--s2); }
+.op-entry { border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface-2); padding: var(--s3); display: flex; flex-direction: column; gap: var(--s2); }
+.op-entry-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2) var(--s3); }
+.op-entry .tk-field label { font-size: var(--fs-xs); }
+.op-entry .op-del { align-self: flex-end; }
+.op-list-one { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.op-list-one .op-entry { flex-direction: row; align-items: center; padding: var(--s1) var(--s2); }
+.op-list-one .op-entry-fields { display: block; flex: 1; }
+.op-list-one .op-del { align-self: center; }
+.op-add { align-self: flex-start; }
+@media (max-width: 40rem) { .op-entry-fields, .op-list-one { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body data-page="officer-profile">
@@ -1476,13 +1489,13 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
   // key, heading (as in the chapter's form), hint, maximum characters (the same limits as hub-officer-profiles.sql), list?
   var SECTIONS = [
     ['summary', 'Professional Summary', 'A few sentences on your professional background and present role.', 4000, false],
-    ['education', 'Educational Background', 'Degree, school and year of graduation, one per line.', 4000, true],
-    ['qualifications', 'Professional Qualifications', 'Licences and certifications, one per line (for example: Certified Public Accountant, Philippines, 2012).', 4000, true],
-    ['picpa_positions', 'Positions Held in PICPA', 'Chapter, regional or national positions with the years, one per line (for example: Treasurer, Jeddah Chapter, 2025–2026).', 4000, true],
-    ['experience', 'Professional Experience', 'Position, company and years, most recent first, one per line.', 4000, true],
-    ['skills', 'Skills', 'One per line.', 4000, true],
-    ['affiliations', 'Organizational Affiliations', 'One per line.', 4000, true],
-    ['interests', 'Personal Interests', 'One per line (for example: Community Service, Professional Development, Sports and Fitness, Public Speaking).', 4000, true],
+    ['education', 'Educational Background', 'Each degree or course with the school and the year of graduation.', 4000, true],
+    ['qualifications', 'Professional Qualifications', 'Each licence or certification as a separate entry.', 4000, true],
+    ['picpa_positions', 'Positions Held in PICPA', 'Each chapter, regional or national position with the years.', 4000, true],
+    ['experience', 'Professional Experience', 'Each position held, the most recent first.', 4000, true],
+    ['skills', 'Skills', 'Each skill as a separate entry.', 4000, true],
+    ['affiliations', 'Organizational Affiliations', 'Each organisation as a separate entry.', 4000, true],
+    ['interests', 'Personal Interests', 'Each interest as a separate entry (for example: Community Service, Public Speaking).', 4000, true],
     ['mission', 'Personal Mission', 'One or two sentences.', 4000, false],
     ['short_bio', 'Short Profile', 'For programmes and souvenir magazines: three or four sentences in the third person.', 1500, false]];
   var DEFAULTS = {
@@ -1496,8 +1509,48 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
       'Currently based in Jeddah, Saudi Arabia, he is actively involved in professional and community organisations.'
   };
 
+  // The list sections are filled in as entries (like a LinkedIn profile). Each entry is stored as one line of the section's
+  // text: "first field – second · third · …" (the pop-up on About the Chapter and the Word document read the same lines).
+  // field: [key, label, example]; one: a single field per entry (shown as a compact list).
+  var ENTRY = {
+    education: { add: 'Add education', fields: [['degree', 'Degree or course', 'Bachelor of Science in Accountancy'],
+      ['school', 'School', 'Polytechnic University of the Philippines'], ['year', 'Year graduated', '2014'], ['honours', 'Honours (optional)', 'Cum Laude']] },
+    qualifications: { add: 'Add licence or certification', fields: [['name', 'Licence or certification', 'Certified Public Accountant'],
+      ['issuer', 'Issuing body', 'Professional Regulation Commission, Philippines'], ['year', 'Year obtained', '2014']] },
+    picpa_positions: { add: 'Add position', fields: [['role', 'Position', 'Treasurer'], ['body', 'Chapter, region or national', 'Jeddah Chapter'],
+      ['years', 'Years', '2025–2026']] },
+    experience: { add: 'Add position', fields: [['title', 'Position', 'Senior Accountant'], ['company', 'Company', 'Company name'],
+      ['place', 'Location', 'Jeddah, Saudi Arabia'], ['years', 'Years', '2023–Present']] },
+    skills: { add: 'Add skill', one: true, fields: [['v', 'Skill', 'Financial reporting']] },
+    affiliations: { add: 'Add organisation', fields: [['org', 'Organisation', 'Philippine Institute of Certified Public Accountants'],
+      ['role', 'Role or membership (optional)', 'Member']] },
+    interests: { add: 'Add interest', one: true, fields: [['v', 'Interest', 'Community Service']] }
+  };
+  var SEP = ' – ', SUB = ' · ';
+  function clean1(v) { return text(v).replace(/\s+/g, ' ').trim(); }
+  /** One entry ({field: value}) as its stored line ('' when every field is empty). */
+  function entryLine(key, vals) {
+    var f = ENTRY[key].fields.map(function (x) { return clean1(vals[x[0]]); });
+    var head = f[0], rest = f.slice(1).filter(Boolean);
+    if (head && rest.length) return head + SEP + rest.join(SUB);
+    return head || rest.join(SUB);
+  }
+  /** A stored line back into its fields (older free-text lines go into the first field). */
+  function lineEntry(key, line) {
+    var n = ENTRY[key].fields.length, parts;
+    if (n === 1) parts = [line];
+    else {
+      var i = line.indexOf(SEP);
+      parts = i >= 0 ? [line.slice(0, i)].concat(line.slice(i + SEP.length).split(SUB)) : [line];
+      if (parts.length > n) parts = parts.slice(0, n - 1).concat([parts.slice(n - 1).join(SUB)]);
+    }
+    var out = {};
+    ENTRY[key].fields.forEach(function (x, j) { out[x[0]] = (parts[j] || '').trim(); });
+    return out;
+  }
+
   // in memory only: me = hub_officer_profile_mine(); all = hub_officer_profiles_all() (or null); busy while saving
-  var S = { me: null, all: null, busy: false };
+  var S = { me: null, all: null, busy: false, seq: 0 };
 
   function message(e) {
     if (TK.isTimeout && TK.isTimeout(e)) return TK.MAYBE_SAVED || TK.friendlyError(e);
@@ -1592,12 +1645,33 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
       '<p class="tk-mini">These come from your member record. To change your mobile number, use My Profile in the Hub; ' +
       'for your name or e-mail address, please ask a Hub admin.</p></section>';
   }
+  function entryHtml(key, vals) {
+    var E = ENTRY[key], n = ++S.seq;
+    return '<div class="op-entry" data-sec="' + key + '"><div class="op-entry-fields">' +
+      E.fields.map(function (x) {
+        var id = 'op-e' + n + '-' + x[0];
+        return '<div class="tk-field"><label for="' + id + '"' + (E.one ? ' class="tk-sr"' : '') + '>' + esc(x[1]) + '</label>' +
+          '<input type="text" id="' + id + '" data-f="' + x[0] + '" maxlength="300" value="' + esc(vals[x[0]] || '') + '"' +
+          (x[2] ? ' placeholder="' + esc('e.g. ' + x[2]) + '"' : '') + '></div>';
+      }).join('') + '</div>' +
+      '<button type="button" class="tk-btn tk-btn-small op-del" data-action="op.del" aria-label="' +
+      esc('Remove this ' + E.fields[0][1].toLowerCase()) + '">Remove</button></div>';
+  }
+  function entriesHtml(s, v) {
+    var key = s[0], E = ENTRY[key], ls = lines(v);
+    return '<fieldset class="op-sec" aria-describedby="op-h-' + key + '"><legend>' + esc(s[1]) + '</legend>' +
+      '<p class="tk-hint" id="op-h-' + key + '">' + esc(s[2]) + '</p>' +
+      '<div class="op-list' + (E.one ? ' op-list-one' : '') + '" id="op-list-' + key + '">' +
+      (ls.length ? ls : ['']).map(function (l) { return entryHtml(key, l ? lineEntry(key, l) : {}); }).join('') + '</div>' +
+      '<button type="button" class="tk-btn tk-btn-small op-add" data-action="op.add" data-sec="' + key + '">+ ' + esc(E.add) + '</button></fieldset>';
+  }
   function formHtml(r) {
     var p = r.profile || {};
     return '<form class="tk-card tk-form op-form" id="op-form" data-action="op.save" novalidate>' +
       '<h2>Your profile</h2>' +
       SECTIONS.map(function (s) {
         var v = r.profile ? text(p[s[0]]) : text(DEFAULTS[s[0]] || '');
+        if (ENTRY[s[0]]) return entriesHtml(s, v);
         return '<div class="tk-field"><label for="op-' + s[0] + '">' + esc(s[1]) + '</label>' +
           '<p class="tk-hint" id="op-h-' + s[0] + '">' + esc(s[2]) + '</p>' +
           '<textarea id="op-' + s[0] + '" name="' + s[0] + '" rows="' + (s[4] ? 4 : 3) + '" maxlength="' + s[3] + '"' +
@@ -1647,11 +1721,36 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
   function formValues() {
     var f = byId('op-form'), out = {};
     SECTIONS.forEach(function (s) {
+      if (ENTRY[s[0]]) {
+        var rows = f && f.querySelectorAll ? Array.prototype.slice.call(f.querySelectorAll('.op-entry[data-sec="' + s[0] + '"]')) : [];
+        out[s[0]] = rows.map(function (row) {
+          var vals = {};
+          Array.prototype.slice.call(row.querySelectorAll('[data-f]')).forEach(function (i) { vals[i.getAttribute('data-f')] = i.value; });
+          return entryLine(s[0], vals);
+        }).filter(Boolean).join('\n');
+        return;
+      }
       var el = f && f.querySelector ? f.querySelector('[name="' + s[0] + '"]') : null;
       out[s[0]] = el && typeof el.value === 'string' ? el.value : '';
     });
     return out;
   }
+  TK.action('op.add', function (el) {
+    var key = el && el.getAttribute ? el.getAttribute('data-sec') : '', list = byId('op-list-' + key);
+    if (!ENTRY[key] || !list || !list.insertAdjacentHTML) return;
+    list.insertAdjacentHTML('beforeend', entryHtml(key, {}));
+    var last = list.lastElementChild, inp = last && last.querySelector ? last.querySelector('input') : null;
+    if (inp && inp.focus) inp.focus();
+  });
+  TK.action('op.del', function (el) {
+    var row = el && el.closest ? el.closest('.op-entry') : null;
+    if (!row || !row.parentNode) return;
+    var list = row.parentNode, key = row.getAttribute('data-sec');
+    list.removeChild(row);
+    if (!list.querySelector('.op-entry') && ENTRY[key]) list.insertAdjacentHTML('beforeend', entryHtml(key, {}));
+    var add = list.parentNode && list.parentNode.querySelector ? list.parentNode.querySelector('.op-add') : null;
+    if (add && add.focus) add.focus();
+  });
   /** The officer's own profile as it is on screen (for the downloads before or after saving). */
   function ownRecord() {
     var r = S.me && S.me.record;
@@ -1726,7 +1825,7 @@ body[data-page="officer-profile"] .tk-view { max-width: 860px; }
   });
 
   if (typeof module === 'object' && module.exports) {
-    module.exports = { state: S, SECTIONS: SECTIONS, status: status, documentHtml: documentHtml, message: message };
+    module.exports = { state: S, SECTIONS: SECTIONS, ENTRY: ENTRY, entryLine: entryLine, lineEntry: lineEntry, status: status, documentHtml: documentHtml, message: message };
   }
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
