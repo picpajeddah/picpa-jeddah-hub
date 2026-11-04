@@ -592,6 +592,20 @@ PERFORMANCE OF THIS SOFTWARE.
 <style id="hub-details-fields">
 .hdf-box{display:grid;gap:14px}
 .hdf-box .frow{margin:0}
+/* post cards: poster on the left, the details next to it */
+.card.post .bd:has(> .post-poster):has(> .hdf-view){display:grid;grid-template-columns:240px minmax(0,1fr);column-gap:28px;row-gap:0;align-items:start}
+.card.post .bd:has(> .post-poster):has(> .hdf-view) > *{grid-column:1 / -1}
+.card.post .bd:has(> .post-poster):has(> .hdf-view) > .post-poster{grid-column:1;grid-row:4}
+.card.post .bd:has(> .post-poster):has(> .hdf-view) > .hdf-view{grid-column:2;grid-row:4}
+.card.post .bd:has(> .post-poster):has(> .hdf-view) > .actions{grid-row:5}
+.card.post p.desc.hdf-hid{display:none}
+.hdf-view{display:flex;flex-direction:column;gap:12px;margin:12px 0}
+.hdf-cell{display:flex;flex-direction:column;gap:4px;padding:12px 16px;border:1px solid var(--line,#e3e7ef);border-left:3px solid var(--green-600,#31A608);border-radius:10px;background:var(--bg-soft,#f6f8fc)}
+.hdf-lb{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted,#6b7488)}
+.hdf-vl{font-size:15px;font-weight:700;color:var(--ink,#141a2b);line-height:1.35}
+.hdf-sm{font-size:13px;color:var(--ink-2,#4a5468)}
+.hdf-rest-text{margin:2px 0 0;white-space:pre-wrap;line-height:1.6;color:var(--ink-2,#4a5468)}
+@media (max-width:760px){.card.post .bd:has(> .post-poster):has(> .hdf-view){display:block}}
 </style>
 <script id="hub-details-fields-js">
 /* Hub add-on: Topic / Speaker / Speaker's position boxes in the post form (New post, Edit post).
@@ -670,13 +684,39 @@ PERFORMANCE OF THIS SOFTWARE.
       box.addEventListener('input', sync);
     });
   }
+  // On the post cards: the Topic / Speaker lines are shown as boxes, next to the poster when there is one
+  // (the Hub's own text stays in the page, hidden, so nothing else that reads it changes).
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function view() {
+    [].forEach.call(document.querySelectorAll('.hdf-view'), function (v) {
+      var d = v.previousElementSibling;
+      if (!d || !d.classList.contains('desc')) v.remove();          // the post's text was removed: drop the boxes too
+    });
+    [].forEach.call(document.querySelectorAll('.card.post .bd > p.desc'), function (d) {
+      var text = d.textContent, p = parse(text), has = p.v.topic || p.v.speaker || p.v.position;
+      var v = d.nextElementSibling && d.nextElementSibling.classList.contains('hdf-view') ? d.nextElementSibling : null;
+      if (!has) { if (v) v.remove(); d.classList.remove('hdf-hid'); return; }
+      if (v && v.getAttribute('data-src') === text) return;
+      if (!v) { v = document.createElement('div'); v.className = 'hdf-view'; d.parentNode.insertBefore(v, d.nextSibling); }
+      v.setAttribute('data-src', text);
+      var h = '';
+      if (p.v.topic) h += '<div class="hdf-cell"><span class="hdf-lb">Topic</span><span class="hdf-vl">' + esc(p.v.topic) + '</span></div>';
+      if (p.v.speaker || p.v.position) h += '<div class="hdf-cell"><span class="hdf-lb">Speaker</span>' +
+        (p.v.speaker ? '<span class="hdf-vl">' + esc(p.v.speaker) + '</span>' : '') +
+        (p.v.position ? '<span class="hdf-sm">' + esc(p.v.position) + '</span>' : '') + '</div>';
+      if (p.rest.trim()) h += '<p class="hdf-rest-text">' + esc(p.rest.trim()) + '</p>';
+      v.innerHTML = h;
+      d.classList.add('hdf-hid');
+    });
+  }
   var pending = false;
   if (typeof MutationObserver === 'function' && typeof document === 'object') {
     new MutationObserver(function () {
       if (pending) return; pending = true;
-      setTimeout(function () { pending = false; try { setup(); } catch (e) { /* never break the Hub */ } }, 60);
-    }).observe(document.documentElement, { childList: true, subtree: true });
+      setTimeout(function () { pending = false; try { setup(); } catch (e) { /* never break the Hub */ } try { view(); } catch (e) {} }, 60);
+    }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
     try { setup(); } catch (e) {}
+    try { view(); } catch (e) {}
   }
   if (typeof module === 'object' && module.exports) module.exports = { parse: parse, compose: compose };
 })();
