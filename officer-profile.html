@@ -1501,7 +1501,7 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
     ['education', 'Educational Background', 'Each degree or course with the school and the year of graduation.', 4000, true],
     ['qualifications', 'Professional Qualifications', 'Each licence or certification as a separate entry.', 4000, true],
     ['picpa_positions', 'Positions Held in PICPA', 'Each chapter, regional or national position with the years.', 4000, true],
-    ['experience', 'Professional Experience', 'Each position held, the most recent first.', 4000, true],
+    ['experience', 'Professional Experience', 'Each position held, with its duties and responsibilities.', 12000, true],
     ['skills', 'Skills', 'Each skill as a separate entry.', 4000, true],
     ['affiliations', 'Organizational Affiliations', 'Each organisation as a separate entry.', 4000, true],
     ['interests', 'Personal Interests', 'Each interest as a separate entry (for example: Community Service, Public Speaking).', 4000, true],
@@ -1539,7 +1539,9 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
       { k: 'issuer', t: 'text', l: 'Issuing organisation', ex: 'Professional Regulation Commission' },
       { k: 'issued', t: 'date', m: true, l: 'Issue date', pre: 'Issued' },
       { k: 'noexp', t: 'check', l: 'This credential does not expire', say: 'Does not expire' },
-      { k: 'expires', t: 'date', m: true, l: 'Expiration date', pre: 'Expires', end: true, off: 'noexp' }] },
+      { k: 'expires', t: 'date', m: true, l: 'Expiration date', pre: 'Expires', end: true, off: 'noexp' },
+      { k: 'competencies', t: 'lines', l: 'Key competencies (optional, one per line)',
+        ex: 'Financial modelling and integrated financial statement analysis' }] },
     picpa_positions: { add: 'Add position', range: true, fields: [
       { k: 'role', t: 'text', l: 'Position', ex: 'Treasurer' },
       { k: 'body', t: 'text', l: 'Chapter, region or national', ex: 'Jeddah Chapter' },
@@ -1552,14 +1554,21 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
       { k: 'place', t: 'text', l: 'Location (optional)', ex: 'Jeddah, Saudi Arabia' },
       { k: 'current', t: 'check', l: 'I currently work here' },
       { k: 'start', t: 'date', m: true, l: 'Start date' },
-      { k: 'end', t: 'date', m: true, l: 'End date', end: true, off: 'current' }] },
+      { k: 'end', t: 'date', m: true, l: 'End date', end: true, off: 'current' },
+      { k: 'duties', t: 'lines', l: 'Duties and responsibilities (optional, one per line)',
+        ex: 'Prepare the monthly financial statements and management reports' }] },
     skills: { add: 'Add skill', one: true, fields: [{ k: 'v', t: 'text', l: 'Skill', ex: 'Financial reporting' }] },
     affiliations: { add: 'Add organisation', fields: [
       { k: 'org', t: 'text', l: 'Organisation', ex: 'Philippine Institute of Certified Public Accountants' },
       { k: 'role', t: 'text', l: 'Role or membership (optional)', ex: 'Member' }] },
     interests: { add: 'Add interest', one: true, fields: [{ k: 'v', t: 'text', l: 'Interest', ex: 'Community Service' }] }
   };
-  var SEP = ' – ', SUB = ' · ';
+  // DUTY: the duties of an experience entry follow its line, each after ' || ' (one stored line per position)
+  var SEP = ' – ', SUB = ' · ', DUTY = ' || ';
+  /** The duties typed in the box: one per line, bullets and stray separators removed. */
+  function dutyList(v) {
+    return text(v).split('\n').map(function (l) { return clean1(l.replace(/\|\|/g, '|').replace(/^[-•*·]+\s*/, '')); }).filter(Boolean);
+  }
   var D = '(?:(' + MON.join('|') + ') )?(\\d{4})';
   var DATE_RE = new RegExp('^' + D + '$');
   var RANGE_RE = new RegExp('^(?:' + D + ')?\\s*[–-]\\s*(?:' + D + '|(Present))$');
@@ -1593,18 +1602,31 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
     });
     if (E.range) parts.push(rangeText(vals));
     var head = parts[0], rest = parts.slice(1).filter(Boolean);
-    if (head && rest.length) return head + SEP + rest.join(SUB);
-    return head || rest.join(SUB);
+    var line = head && rest.length ? head + SEP + rest.join(SUB) : head || rest.join(SUB);
+    var lf = E.fields.filter(function (f) { return f.t === 'lines'; })[0];
+    var duties = lf ? dutyList(vals[lf.k]) : [];
+    return line && duties.length ? line + DUTY + duties.join(DUTY) : line;
+  }
+  /** A stored line without its duties, and the duties. */
+  function splitDuties(line) {
+    var parts = String(line || '').split(DUTY);
+    return { base: parts[0], duties: parts.slice(1).map(function (d) { return d.trim(); }).filter(Boolean) };
   }
   /** A stored line back into its fields (older free-text lines go into the first field). */
   function lineEntry(key, line) {
     var E = ENTRY[key], tk = textKeys(key), out = {};
     E.fields.forEach(function (f) {
-      if (f.t === 'text') out[f.k] = '';
+      if (f.t === 'text' || f.t === 'lines') out[f.k] = '';
       else if (f.t === 'check') out[f.k] = false;
       else { out[f.k + '_m'] = ''; out[f.k + '_y'] = ''; }
     });
     if (E.one) { out[tk[0]] = line.trim(); return out; }
+    var lf = E.fields.filter(function (f) { return f.t === 'lines'; })[0];
+    if (lf) {
+      var sd = splitDuties(line);
+      line = sd.base;
+      out[lf.k] = sd.duties.join('\n');
+    }
     var i = line.indexOf(SEP);
     var head = i >= 0 ? line.slice(0, i) : line, parts = i >= 0 ? line.slice(i + SEP.length).split(SUB) : [];
     var dates = E.range ? [] : E.fields.filter(function (f) { return f.t === 'date'; }), done = {}, ranged = false, queue = [];
@@ -1707,7 +1729,10 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
       var ls = lines(p[s[0]]);
       out += '<h3>' + esc(head) + '</h3>';
       if (!ls.length) out += '<p class="empty">&nbsp;</p>';
-      else if (s[4]) out += '<ul>' + ls.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul>';
+      else if (s[4]) out += '<ul>' + ls.map(function (l) {
+        var sd = splitDuties(l);
+        return '<li>' + esc(sd.base) + (sd.duties.length ? '<ul>' + sd.duties.map(function (d) { return '<li>' + esc(d) + '</li>'; }).join('') + '</ul>' : '') + '</li>';
+      }).join('') + '</ul>';
       else out += ls.map(function (l) { return '<p>' + esc(l) + '</p>'; }).join('');
     });
     return out;
@@ -1724,11 +1749,131 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
       '<head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' + DOC_CSS + '</style></head><body>' +
       recs.map(function (r, i) { return (i ? '<div class="brk"></div>' : '') + profileDoc(r); }).join('') + '</body></html>';
   }
+  // ---------------------------------------------------------------------- the CV / résumé (president 2026-11-04)
+  // The profile as a CV for job applications, in the design of the profile pop-up on the Hub: a navy header band with the
+  // photo, the name, the current position as a green badge and the member's own contact details; the summary as a lead
+  // paragraph with a green rule; the sections as light tiles (education and licences side by side), experience as a
+  // timeline with its duties and responsibilities, skills as tags. Most recent first. Built from simple tables so Word keeps
+  // the layout; the colours are kept when printed to PDF. Left out on purpose: positions held in PICPA, interests, the
+  // personal mission, the short profile for programmes, birthday and PRC number.
+  var NAVY = '#101E5A', GREEN = '#3FA62B', TILE = '#F5F7FB', LINE = '#E3E7F0';
+  function cvTile(head, body, wide) {
+    return body ? '<table class="tile" width="100%" cellspacing="0" cellpadding="0"><tr><td class="tile-in" bgcolor="' + TILE + '">' +
+      '<p class="th">' + esc(head) + '</p>' + body + '</td></tr></table>' : '';
+  }
+  function cvItem(title, right, sub, note) {
+    return '<table class="it" width="100%" cellspacing="0" cellpadding="0"><tr><td class="t">' + esc(title) + '</td>' +
+      (right ? '<td class="d" align="right">' + esc(right) + '</td>' : '') + '</tr>' +
+      (sub ? '<tr><td colspan="2" class="s">' + esc(sub) + '</td></tr>' : '') +
+      (note ? '<tr><td colspan="2" class="n">' + esc(note) + '</td></tr>' : '') + '</table>';
+  }
+  function cvEntries(key, v) {
+    return sortLines(key, lines(v)).map(function (l) {
+      var e = lineEntry(key, l), join = function (a) { return a.filter(Boolean).join(' · '); };
+      if (key === 'education') return cvItem(e.degree, dateText(e.grad_m, e.grad_y), e.school, e.honours);
+      if (key === 'qualifications') {
+        var iss = dateText(e.issued_m, e.issued_y), exp = dateText(e.expires_m, e.expires_y), kc = dutyList(e.competencies);
+        return cvItem(e.name, iss ? 'Issued ' + iss : '', e.issuer, e.noexp ? 'No expiration date' : exp ? 'Valid until ' + exp : '') +
+          (kc.length ? '<p class="kc">Key competencies</p><ul class="du">' + kc.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '');
+      }
+      if (key === 'affiliations') return cvItem(e.org, '', e.role);
+      return cvItem(l);
+    }).join('');
+  }
+  /** Experience as a timeline: a dot per position (filled for the current one), the dates on the right, the duties below. */
+  function cvTimeline(v) {
+    return sortLines('experience', lines(v)).map(function (l, i, all) {
+      var e = lineEntry('experience', l), d = dutyList(e.duties), last = i === all.length - 1;
+      return '<table class="tl" width="100%" cellspacing="0" cellpadding="0"><tr>' +
+        '<td class="dot" width="18"><span class="' + (e.current ? 'on' : 'off') + '">&#9679;</span></td>' +
+        '<td class="tl-in' + (last ? ' last' : '') + '">' + cvItem(e.title, rangeText(e), [e.company, e.place].filter(Boolean).join(' · ')) +
+        (d.length ? '<ul class="du">' + d.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' : '') +
+        '</td></tr></table>';
+    }).join('');
+  }
+  /** The headline badge: the current position (experience), if any. */
+  function cvHeadline(rec) {
+    var now = sortLines('experience', lines(rec.profile && rec.profile.experience)).map(function (l) { return lineEntry('experience', l); })
+      .filter(function (e) { return e.current && e.title; })[0];
+    return now ? now.title + (now.company ? ' · ' + now.company : '') : '';
+  }
+  function cvInitials(name) {
+    return clean1(String(name || '').split(',')[0]).split(' ').filter(Boolean).map(function (w) { return w[0]; })
+      .filter(function (c, i, a) { return i === 0 || i === a.length - 1; }).join('').toUpperCase() || '·';
+  }
+  function cvDoc(rec) {
+    var p = rec.profile || {}, contact = [];
+    if (clean1(rec.phone)) contact.push('&#9742;&nbsp;' + esc(clean1(rec.phone)));
+    if (clean1(rec.email)) contact.push('&#9993;&nbsp;' + esc(clean1(rec.email)));
+    var photo = /^https:\/\/[a-z0-9.-]+\.supabase\.co\/storage\/v1\/object\/public\/avatars\//.test(String(rec.photo_url || ''))
+      ? '<img src="' + esc(rec.photo_url) + '" width="96" height="96" alt="" class="ph">'
+      : '<span class="ini">' + esc(cvInitials(rec.full_name)) + '</span>';
+    var head = cvHeadline(rec), skills = lines(p.skills);
+    var summary = lines(lines(p.summary).length ? p.summary : p.short_bio);
+    var two = function (a, b) {
+      if (!a || !b) return a || b;
+      return '<table class="two" width="100%" cellspacing="0" cellpadding="0"><tr><td class="half">' + a + '</td><td class="gap">&nbsp;</td>' +
+        '<td class="half">' + b + '</td></tr></table>';
+    };
+    return '<table class="top" width="100%" cellspacing="0" cellpadding="0"><tr><td class="band" bgcolor="' + NAVY + '">' +
+      '<table cellspacing="0" cellpadding="0"><tr><td class="phc" width="112">' + photo + '</td><td class="id">' +
+      '<p class="cv-name">' + esc(rec.full_name || '') + '</p>' +
+      (head ? '<p class="chipline"><span class="chip">&nbsp;' + esc(head) + '&nbsp;</span></p>' : '') +
+      (contact.length ? '<p class="cv-contact">' + contact.join(' &nbsp;&nbsp;|&nbsp;&nbsp; ') + '</p>' : '') +
+      '</td></tr></table></td></tr><tr><td class="stripe" bgcolor="' + GREEN + '">&nbsp;</td></tr></table>' +
+      '<div class="body">' +
+      (summary.length ? '<p class="lbl">Professional Summary</p><table class="lead" width="100%" cellspacing="0" cellpadding="0"><tr>' +
+        '<td class="lead-in">' + summary.map(function (l) { return '<p>' + esc(l) + '</p>'; }).join('') + '</td></tr></table>' : '') +
+      cvTile('Professional Experience', cvTimeline(p.experience)) +
+      two(cvTile('Educational Background', cvEntries('education', p.education)),
+        cvTile('Licences and Certifications', cvEntries('qualifications', p.qualifications))) +
+      two(cvTile('Skills', skills.length ? '<p class="tags">' + skills.map(function (x) { return '<span class="tag">&nbsp;' + esc(x) + '&nbsp;</span>'; }).join(' ') + '</p>' : ''),
+        cvTile('Professional Memberships', cvEntries('affiliations', p.affiliations))) +
+      '</div>';
+  }
+  var CV_CSS = ':root{color-scheme:light}@page{margin:0}' +
+    'body{font-family:Calibri,"Segoe UI",Arial,sans-serif;font-size:10.5pt;color:#1a2236;margin:0;background:#FFFFFF;' +
+    '-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    'td{font-family:Calibri,"Segoe UI",Arial,sans-serif;font-size:10.5pt;color:#1a2236;vertical-align:top}' +
+    'p{margin:0}table{border-collapse:collapse}' +
+    'td.band{background:' + NAVY + ';background-image:linear-gradient(135deg,#0B1540 0%,#101E5A 55%,#2149D6 100%);padding:24pt 36pt}' +
+    'td.phc{vertical-align:middle;padding-right:18pt}' +
+    'img.ph{width:96px;height:96px;border-radius:50%;border:3px solid #FFFFFF;object-fit:cover;display:block}' +
+    'span.ini{display:inline-block;width:90px;height:90px;line-height:90px;border-radius:50%;background:#FFFFFF;color:' + NAVY + ';' +
+    'text-align:center;font-size:26pt;font-weight:bold}' +
+    'td.id{vertical-align:middle}' +
+    '.cv-name{font-size:23pt;font-weight:bold;color:#FFFFFF;letter-spacing:.2pt}' +
+    'p.chipline{margin-top:7pt}span.chip{background:' + GREEN + ';color:#FFFFFF;font-weight:bold;font-size:10pt;padding:3pt 9pt;border-radius:12pt}' +
+    '.cv-contact{font-size:10pt;color:#D6DDF5;margin-top:9pt}' +
+    'td.stripe{background:' + GREEN + ';height:4pt;font-size:2pt;line-height:2pt}' +
+    '.body{padding:16pt 36pt 28pt}' +
+    'p.lbl,p.th{font-size:8.5pt;font-weight:bold;text-transform:uppercase;letter-spacing:1.2pt;color:#2149D6;margin:0 0 7pt}' +
+    'td.lead-in{border-left:3pt solid ' + GREEN + ';padding:1pt 0 1pt 12pt}td.lead-in p{font-size:11pt;line-height:1.55;margin:0 0 5pt}' +
+    'table.lead{margin:0 0 14pt}' +
+    'table.tile{margin:0 0 10pt}td.tile-in{background:' + TILE + ';border:1pt solid ' + LINE + ';border-radius:8pt;padding:11pt 13pt 5pt}' +
+    'table.two td.half{width:49%}table.two td.gap{width:2%}table.two table.tile{margin-bottom:10pt}' +
+    'table.it{margin:0 0 7pt}td.t{font-weight:bold;color:' + NAVY + '}' +
+    'td.d{text-align:right;white-space:nowrap;color:#1E6B22;font-weight:bold;font-size:9pt;padding-left:10pt;width:30%}' +
+    'td.s{color:#4a5368;font-size:9.5pt;padding-top:1pt}td.n{color:#6b7488;font-style:italic;font-size:9pt}' +
+    'table.tl{margin:0}td.dot{width:18px;text-align:center;padding-top:1pt}td.dot span{font-size:10pt;color:' + GREEN + '}' +
+    'td.dot span.off{color:#FFFFFF;-webkit-text-stroke:1.5px ' + GREEN + '}' +
+    'td.tl-in{border-left:1.5pt solid #D5DBE8;padding:0 0 6pt 10pt}td.tl-in.last{border-left-color:transparent}' +
+    'p.kc{font-size:8.5pt;font-weight:bold;color:#2149D6;margin:-3pt 0 1pt}' +
+    'ul.du{margin:2pt 0 4pt 14pt;padding:0}ul.du li{font-size:9.5pt;color:#2b3346;margin:0 0 2pt;line-height:1.35}' +
+    'p.tags{line-height:2.2;margin-bottom:4pt}span.tag{background:#FFFFFF;color:' + NAVY + ';border:.75pt solid #C9D3EE;' +
+    'font-size:9pt;padding:2pt 7pt;border-radius:10pt;white-space:nowrap}';
+  /** A CV as a complete document. */
+  function cvHtml(rec, title) {
+    return '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word">' +
+      '<head><meta charset="utf-8"><title>' + esc(title) + '</title><style>' + CV_CSS + '</style></head><body>' +
+      cvDoc(rec) + '</body></html>';
+  }
+
   function fileName(base) { return base.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim() + '.doc'; }
   /** Download as a Word document (.doc: Word opens the HTML as a document). false when the browser cannot. */
-  function downloadWord(recs, title) {
+  function downloadWord(recs, title, html) {
     if (typeof root.Blob !== 'function' || !root.URL || typeof root.URL.createObjectURL !== 'function' || !doc || !doc.createElement) return false;
-    var url = root.URL.createObjectURL(new root.Blob(['﻿', documentHtml(recs, title)], { type: 'application/msword' }));
+    var url = root.URL.createObjectURL(new root.Blob(['﻿', html || documentHtml(recs, title)], { type: 'application/msword' }));
     var a = doc.createElement('a');
     a.href = url;
     a.download = fileName(title);
@@ -1739,11 +1884,11 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
     return true;
   }
   /** A printable copy in a new tab (the browser's Print offers Save as PDF). false when pop-ups are blocked. */
-  function printCopy(recs, title) {
+  function printCopy(recs, title, html) {
     var w = typeof root.open === 'function' ? root.open('', '_blank') : null;
     if (!w || !w.document) return false;
     w.document.open();
-    w.document.write('<!doctype html>' + documentHtml(recs, title).replace('</body>',
+    w.document.write('<!doctype html>' + (html || documentHtml(recs, title)).replace('</body>',
       '<script>window.onload=function(){window.print();};<\/script></body>'));
     w.document.close();
     return true;
@@ -1780,6 +1925,11 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
         if (f.t === 'check') {
           return '<div class="op-check op-wide"><input type="checkbox" id="' + id + '" data-f="' + f.k + '" data-change="op.tick"' +
             (vals[f.k] ? ' checked' : '') + '><label for="' + id + '">' + esc(f.l) + '</label></div>';
+        }
+        if (f.t === 'lines') {
+          return '<div class="tk-field op-wide"><label for="' + id + '">' + esc(f.l) + '</label>' +
+            '<textarea id="' + id + '" data-f="' + f.k + '" rows="4" maxlength="3000"' +
+            (f.ex ? ' placeholder="' + esc('e.g. ' + f.ex) + '"' : '') + '>' + esc(vals[f.k] || '') + '</textarea></div>';
         }
         if (f.t === 'date') {
           var off = isOff(f, vals) ? ' disabled' : '', offAttr = f.off ? ' data-off="' + f.off + '"' : '';
@@ -1827,8 +1977,11 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
         '. Only the sections of your professional profile are shared; your mobile number, e-mail address and PRC licence details are never shown in it.</p>' : '') +
       '<p id="op-err" class="tk-err" role="alert"></p>' +
       '<div class="tk-actions"><button type="submit" class="tk-btn tk-btn-primary" id="op-savebtn">Save profile</button>' +
-      '<button type="button" class="tk-btn" data-action="op.word">Download (Word)</button>' +
-      '<button type="button" class="tk-btn" data-action="op.print">Print / Save as PDF</button></div>' +
+      '<button type="button" class="tk-btn" data-action="op.cvword">Download CV (Word)</button>' +
+      '<button type="button" class="tk-btn" data-action="op.cvprint">Print CV / Save as PDF</button>' +
+      (member() ? '' : '<button type="button" class="tk-btn" data-action="op.word">Officer profile (Word)</button>' +
+        '<button type="button" class="tk-btn" data-action="op.print">Print officer profile</button>') + '</div>' +
+      '<p class="tk-mini">The CV is laid out for job applications: your summary, experience, education, licences and certifications, skills and memberships, with your mobile number and e-mail address at the top.</p>' +
       '<p class="tk-mini" id="op-saved">' + (r.updated_at ? esc('Last saved ' + when(r.updated_at) + '.') : 'Not saved yet.') + '</p>' +
       '</form>';
   }
@@ -1939,7 +2092,8 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
   /** The officer's own profile as it is on screen (for the downloads before or after saving). */
   function ownRecord() {
     var r = S.me && S.me.record;
-    return r ? { full_name: r.full_name, position: r.position, phone: r.phone, email: r.email, profile: formValues() } : null;
+    return r ? { full_name: r.full_name, position: r.position, phone: r.phone, email: r.email, photo_url: r.photo_url,
+      profile: formValues() } : null;
   }
   TK.action('op.save', function () {
     if (S.busy) return null;
@@ -1980,6 +2134,15 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
     var r = ownRecord(); if (!r) return;
     if (!printCopy([r], docTitle(r.full_name))) noPrint();
   });
+  function cvTitle(name) { return 'CV - ' + (clean1(name) || 'member'); }
+  TK.action('op.cvword', function () {
+    var r = ownRecord(); if (!r) return;
+    if (!downloadWord([r], cvTitle(r.full_name), cvHtml(r, cvTitle(r.full_name)))) noDownload();
+  });
+  TK.action('op.cvprint', function () {
+    var r = ownRecord(); if (!r) return;
+    if (!printCopy([r], cvTitle(r.full_name), cvHtml(r, cvTitle(r.full_name)))) noPrint();
+  });
   TK.action('op.wordone', function (el) {
     var i = Number(el && el.getAttribute ? el.getAttribute('data-i') : NaN), r = S.all && S.all[i];
     if (!r) return;
@@ -2014,7 +2177,7 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
   TK.registerPage({ id: 'member-profile', title: 'Professional profile', access: 'signedin', render: function () { return render('member'); } });
 
   if (typeof module === 'object' && module.exports) {
-    module.exports = { render: render, state: S, SECTIONS: SECTIONS, ENTRY: ENTRY, entryLine: entryLine, lineEntry: lineEntry, dateProblem: dateProblem, sortLines: sortLines, status: status, documentHtml: documentHtml, message: message };
+    module.exports = { render: render, state: S, SECTIONS: SECTIONS, ENTRY: ENTRY, cvHtml: cvHtml, splitDuties: splitDuties, entryLine: entryLine, lineEntry: lineEntry, dateProblem: dateProblem, sortLines: sortLines, status: status, documentHtml: documentHtml, message: message };
   }
 })(typeof window !== 'undefined' ? window : globalThis);
 </script>
