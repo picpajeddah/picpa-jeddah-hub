@@ -1818,11 +1818,13 @@ body[data-page="officer-profile"] .tk-view, body[data-page="member-profile"] .tk
           ' aria-describedby="op-h-' + s[0] + '"' + (PLACEHOLDER[s[0]] ? ' placeholder="' + esc(PLACEHOLDER[s[0]]) + '"' : '') +
           '>' + esc(v) + '</textarea></div>';
       }).join('') +
-      (member() ? '<div class="op-check op-share"><input type="checkbox" id="op-share" name="share"' + (r.share ? ' checked' : '') + '>' +
-        '<label for="op-share">Show my profile to other chapter members as well</label></div>' +
-        '<p class="tk-mini op-share-note">Chapter officers who manage the roster can always see your profile in the Member Directory' +
-        (r.is_officer ? '; as an officer, your profile is also shown on About the Chapter' : '') +
-        '. Your mobile number and e-mail address are not part of it.</p>' : '') +
+      // shared by default (president 2026-11-04): ticked until the member saves a choice; only the profile sections are shared
+      (member() ? '<div class="op-check op-share"><input type="checkbox" id="op-share" name="share"' +
+        ((r.profile ? r.share : true) ? ' checked' : '') + '>' +
+        '<label for="op-share">Show my professional profile to other chapter members</label></div>' +
+        '<p class="tk-mini op-share-note">Untick this to keep your profile to the chapter officers who manage the roster' +
+        (r.is_officer ? ' (as an officer, your profile is also shown on About the Chapter)' : '') +
+        '. Only the sections of your professional profile are shared; your mobile number, e-mail address and PRC licence details are never shown in it.</p>' : '') +
       '<p id="op-err" class="tk-err" role="alert"></p>' +
       '<div class="tk-actions"><button type="submit" class="tk-btn tk-btn-primary" id="op-savebtn">Save profile</button>' +
       '<button type="button" class="tk-btn" data-action="op.word">Download (Word)</button>' +
