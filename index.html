@@ -589,5 +589,97 @@ PERFORMANCE OF THIS SOFTWARE.
   try { setup(); } catch (e) {}
 })();
 </script>
+<style id="hub-details-fields">
+.hdf-box{display:grid;gap:14px}
+.hdf-box .frow{margin:0}
+</style>
+<script id="hub-details-fields-js">
+/* Hub add-on: Topic / Speaker / Speaker's position boxes in the post form (New post, Edit post).
+   No database change: the boxes are written as the first lines of the post's Details, e.g.
+     Topic: Data Cleaning using Power Query
+     Speaker: Dennis Antiporda, CPA
+     Speaker's position: VP – Operations & Membership
+   followed by a blank line and the rest of the Details. Opening a post again reads those lines back into the boxes.
+   The Hub's own Details box stays in the form (hidden) and receives the combined text, so saving works as before. */
+(function () {
+  'use strict';
+  var FIELDS = [
+    { k: 'topic', label: 'Topic', ph: 'For example: Data Cleaning using Power Query' },
+    { k: 'speaker', label: 'Speaker', ph: 'For example: Dennis Antiporda, CPA' },
+    { k: 'position', label: 'Speaker’s position', ph: 'For example: VP – Operations & Membership' }
+  ];
+  var LINE = /^(Topic|Speaker|Speaker['’]s position)[ \t]*:[ \t]*(.*)$/i;
+
+  function keyOf(word) { return /^topic/i.test(word) ? 'topic' : /position/i.test(word) ? 'position' : 'speaker'; }
+  /** body -> { v: {topic, speaker, position}, rest } (only leading lines are read as boxes) */
+  function parse(body) {
+    var lines = String(body == null ? '' : body).replace(/\r\n?/g, '\n').split('\n'), v = { topic: '', speaker: '', position: '' }, i = 0;
+    for (; i < lines.length; i++) { var m = LINE.exec(lines[i]); if (!m) break; v[keyOf(m[1])] = m[2]; }
+    var rest = lines.slice(i);
+    if (i > 0 && rest.length && rest[0].trim() === '') rest = rest.slice(1);
+    return { v: v, rest: rest.join('\n') };
+  }
+  function compose(v, rest) {
+    var head = [];
+    FIELDS.forEach(function (f) { var x = String(v[f.k] || '').trim(); if (x) head.push(f.label + ': ' + x); });
+    rest = String(rest || '');
+    return head.length ? head.join('\n') + (rest.trim() ? '\n\n' + rest : '') : rest;
+  }
+  // write into the Hub's own (React) Details box so its form state updates
+  function push(ta, value) {
+    if (ta.value === value) return;
+    var d = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+    d.set.call(ta, value);
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  function field(f, value, id) {
+    var w = document.createElement('div');
+    var l = document.createElement('label'); l.htmlFor = id; l.textContent = f.label;
+    var i = document.createElement('input'); i.id = id; i.type = 'text'; i.maxLength = 200; i.placeholder = f.ph; i.value = value; i.setAttribute('data-hdf', f.k);
+    w.appendChild(l); w.appendChild(i); return w;
+  }
+  var seq = 0;
+  function setup() {
+    [].forEach.call(document.querySelectorAll('.modal'), function (md) {
+      if (md.querySelector('.hdf-box')) return;
+      var labels = [].slice.call(md.querySelectorAll('label'));
+      // only the post form (it is the one with the event photos folder); job posts etc. are left alone
+      if (!labels.some(function (l) { return /^Event photos folder/.test(l.textContent.trim()); })) return;
+      var dl = labels.filter(function (l) { return l.textContent.trim() === 'Details'; })[0];
+      var ta = dl && dl.parentNode.querySelector('textarea');
+      if (!ta) return;
+      var n = ++seq, p = parse(ta.value);
+      var box = document.createElement('div'); box.className = 'hdf-box';
+      box.appendChild(field(FIELDS[0], p.v.topic, 'hdf-topic-' + n));
+      var row = document.createElement('div'); row.className = 'frow';
+      row.appendChild(field(FIELDS[1], p.v.speaker, 'hdf-speaker-' + n));
+      row.appendChild(field(FIELDS[2], p.v.position, 'hdf-position-' + n));
+      box.appendChild(row);
+      // our own Details box shows only the text below the boxes; the Hub's box (hidden) gets the combined text
+      var dw = document.createElement('div'), dlab = document.createElement('label'), rest = document.createElement('textarea');
+      dlab.htmlFor = 'hdf-rest-' + n; dlab.textContent = 'Details';
+      rest.id = 'hdf-rest-' + n; rest.rows = 3; rest.value = p.rest; rest.className = 'hdf-rest';
+      dw.appendChild(dlab); dw.appendChild(rest); box.appendChild(dw);
+      dl.parentNode.style.display = 'none';
+      dl.parentNode.parentNode.insertBefore(box, dl.parentNode);
+      function sync() {
+        var v = {};
+        [].forEach.call(box.querySelectorAll('[data-hdf]'), function (i) { v[i.getAttribute('data-hdf')] = i.value; });
+        push(ta, compose(v, rest.value));
+      }
+      box.addEventListener('input', sync);
+    });
+  }
+  var pending = false;
+  if (typeof MutationObserver === 'function' && typeof document === 'object') {
+    new MutationObserver(function () {
+      if (pending) return; pending = true;
+      setTimeout(function () { pending = false; try { setup(); } catch (e) { /* never break the Hub */ } }, 60);
+    }).observe(document.documentElement, { childList: true, subtree: true });
+    try { setup(); } catch (e) {}
+  }
+  if (typeof module === 'object' && module.exports) module.exports = { parse: parse, compose: compose };
+})();
+</script>
 </body>
 </html>
